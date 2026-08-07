@@ -1,0 +1,41 @@
+[config]
+schemaVersion = "0.0.1"
+
+[package]
+namespace = "adamant"
+name = "SCAFFOLD_TODO_ModName"
+description = "SCAFFOLD_TODO: Short description of the mod"
+versionNumber = "0.0.1"
+websiteUrl = "https://github.com/h2-modpack/h2-modpack-SCAFFOLD_TODO_ModName"
+containsNsfwContent = false
+
+[package.dependencies]
+Hell2Modding-Hell2Modding = "1.0.78"
+LuaENVY-ENVY = "1.2.0"
+SGG_Modding-ReLoad = "1.0.2"
+SGG_Modding-ModUtil = "4.0.1"
+adamant-ModpackLib = "1.0.0"
+
+[build]
+icon = "./icon.png"
+readme = "./README.md"
+outdir = "./build"
+
+[[build.copy]]
+source = "./CHANGELOG.md"
+target = "./CHANGELOG.md"
+
+[[build.copy]]
+source = "./LICENSE"
+target = "./LICENSE"
+
+[[build.copy]]
+source = "./src"
+target = "./plugins"
+
+[publish]
+repository = "https://thunderstore.io"
+communities = ["hades-ii"]
+
+[publish.categories]
+hades-ii = ["modpacks"]

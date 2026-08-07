@@ -1,0 +1,61 @@
+<<<<<<< HEAD
+*.zip
+*.7z
+
+# For files used only by a symlink to the ReturnOfModding plugins folder
+/src/LICENSE
+/src/icon.png
+/src/manifest.json
+
+# For source files used to build packages
+/packages
+
+# For build artifacts created by the Thunderstore CLI
+/build
+# For the Thunderstore CLI executable itself, if you include it in your root folder
+tcli.exe
+/ThunderstoreCLI
+/R2M
+=======
+# Compiled Lua sources
+luac.out
+
+# luarocks build files
+*.src.rock
+*.zip
+*.tar.gz
+
+# Object files
+*.o
+*.os
+*.ko
+*.obj
+*.elf
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Libraries
+*.lib
+*.a
+*.la
+*.lo
+*.def
+*.exp
+
+# Shared objects (inc. Windows DLLs)
+*.dll
+*.so
+*.so.*
+*.dylib
+
+# Executables
+*.exe
+*.out
+*.app
+*.i*86
+*.x86_64
+*.hex
+>>>>>>> 3de09625b2007387af6231b042a5068d35845982
+

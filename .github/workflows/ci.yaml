@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout files
+        uses: actions/checkout@v4
+
+      - name: Setup Lua
+        uses: leafo/gh-actions-lua@v10
+        with:
+          luaVersion: "5.2"
+
+      - name: Setup Luarocks
+        uses: leafo/gh-actions-luarocks@v4
+
+      - name: Install validation tools
+        run: |
+          luarocks install luacheck
+          if [ -f tests/all.lua ]; then
+            luarocks install luaunit
+          fi
+
+      - name: Run Luacheck
+        run: luacheck src/
+
+      - name: Parse Lua sources
+        run: |
+          find src -type f -name '*.lua' -print0 | xargs -0 -r -n1 luac -p
+          if [ -d tests ]; then
+            find tests -type f -name '*.lua' -print0 | xargs -0 -r -n1 luac -p
+          fi
+
+      - name: Run tests
+        if: ${{ hashFiles('tests/all.lua') != '' }}
+        run: lua tests/all.lua

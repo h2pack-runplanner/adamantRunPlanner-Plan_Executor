@@ -1,0 +1,153 @@
+name: Release
+run-name: ${{ format('{0} {1}', inputs.is-dry-run && 'Dry-run' || 'Release', inputs.tag) }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag / Version number"
+        required: true
+      is-dry-run:
+        description: "Dry-run (do not publish, only test build)"
+        type: boolean
+      tools-ref:
+        description: "ModpackTools ref used by release scripts"
+        required: false
+        default: "release-tools-V3"
+      lib-version:
+        description: "ModpackLib dependency version to pin (blank keeps current manifest pin)"
+        required: false
+
+permissions:
+  contents: write # required for pushing to the repository and creating releases
+  actions: read # required for checking CI status before release
+
+env:
+  changelog: CHANGELOG.md
+  thunderstore-config: thunderstore.toml
+  build-dir: build
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  release:
+    name: ${{ format('{0} {1}', inputs.is-dry-run && 'Dry-run' || 'Release', inputs.tag) }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check input tag format
+        run: |
+          if ! echo "${{ inputs.tag }}" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error title=Invalid package version number::Version numbers must follow the Major.Minor.Patch format (e.g. 1.45.320)."
+            exit 1
+          fi
+
+      - name: Verify CI passed for release commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          ci_run=$(gh run list \
+            --repo "$REPO" \
+            --workflow "ci.yaml" \
+            --commit "$SHA" \
+            --status success \
+            --limit 1 \
+            --json databaseId \
+            --jq '.[0].databaseId')
+          if [ -z "$ci_run" ]; then
+            echo "::error title=CI has not passed::No successful ci.yaml run was found for $SHA. Push the commit and wait for CI before releasing."
+            exit 1
+          fi
+          echo "Found successful CI run $ci_run for $SHA."
+
+      - name: Checkout files
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          lfs: true
+          fetch-depth: 0
+
+      - name: Checkout ModpackTools
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          repository: h2-modpack/ModpackTools
+          path: .modpacktools
+          ref: ${{ inputs['tools-ref'] }}
+
+      - name: Prepare release files
+        env:
+          LIB_VERSION: ${{ inputs['lib-version'] }}
+        run: |
+          args=(--tag '${{ inputs.tag }}' --allow-empty --release-notes-output .release-notes.md)
+          if [ -n "$LIB_VERSION" ]; then
+            args+=(--pin-dependency "adamant-ModpackLib=$LIB_VERSION")
+          fi
+          python .modpacktools/github/prepare_package_release.py "${args[@]}"
+
+      - name: Check Thunderstore package state
+        id: thunderstore
+        if: ${{ !inputs.is-dry-run }}
+        run: python .modpacktools/github/check_thunderstore_release.py --tag '${{ inputs.tag }}'
+
+      - name: Install Thunderstore CLI
+        run: dotnet tool install -g tcli
+
+      - name: Build package
+        run: |
+          tcli build
+          ARTIFACT_NAME=$(find "${{ env.build-dir }}" -type f -printf "%f\n")
+          echo "artifact-name=${ARTIFACT_NAME}" >> "$GITHUB_ENV"
+          echo "artifact-path=${{ env.build-dir }}/${ARTIFACT_NAME}" >> "$GITHUB_ENV"
+
+      - name: Upload artifact to workflow
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
+        with:
+          name: ${{ env.artifact-name }}
+          path: ${{ env.artifact-path }}
+          retention-days: 1
+
+      - name: Publish package
+        if: ${{ !inputs.is-dry-run && steps.thunderstore.outputs.published != 'true' }}
+        env:
+          TCLI_AUTH_TOKEN: ${{ secrets.TCLI_AUTH_TOKEN }}
+        run: tcli publish --file ${{ env.artifact-path }}
+
+      - name: Skip existing Thunderstore package
+        if: ${{ !inputs.is-dry-run && steps.thunderstore.outputs.published == 'true' }}
+        run: echo "Thunderstore package already exists; continuing to repair git/GitHub release state."
+
+      - name: Tag and push to repository
+        if: ${{ !inputs.is-dry-run }}
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ${{ env.changelog }} ${{ env.thunderstore-config }}
+          if git diff --cached --quiet; then
+            echo "Release files already committed."
+          else
+            git commit --message "chore(release): ${{ inputs.tag }}"
+          fi
+          if git rev-parse -q --verify "refs/tags/${{ inputs.tag }}" >/dev/null; then
+            tag_commit=$(git rev-list -n 1 "${{ inputs.tag }}")
+            head_commit=$(git rev-parse HEAD)
+            if [ "$tag_commit" != "$head_commit" ]; then
+              echo "::error title=Release tag mismatch::Tag ${{ inputs.tag }} points at $tag_commit, but HEAD is $head_commit."
+              exit 1
+            fi
+          else
+            git tag ${{ inputs.tag }} --annotate --message "Release ${{ inputs.tag }}"
+          fi
+          git push --atomic origin HEAD:${{ github.ref_name }} refs/tags/${{ inputs.tag }}
+
+      - name: Create release and upload artifact
+        if: ${{ !inputs.is-dry-run }}
+        run: |
+          gh release create \
+            '${{ inputs.tag }}' \
+            '${{ env.artifact-path }}' \
+            --title '${{ inputs.tag }}' \
+            --notes-file '.release-notes.md' \
+            --repo '${{ github.repository }}' \
+            --target '${{ github.ref_name }}' \
+            --verify-tag
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
