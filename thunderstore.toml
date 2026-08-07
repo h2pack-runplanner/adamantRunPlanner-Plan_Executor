@@ -2,11 +2,11 @@
 schemaVersion = "0.0.1"
 
 [package]
-namespace = "adamant"
-name = "SCAFFOLD_TODO_ModName"
-description = "SCAFFOLD_TODO: Short description of the mod"
+namespace = "adamantRunPlanner"
+name = "Plan_Executor"
+description = "SCAFFOLD_TODO: description for Plan Executor"
 versionNumber = "0.0.1"
-websiteUrl = "https://github.com/h2-modpack/h2-modpack-SCAFFOLD_TODO_ModName"
+websiteUrl = "https://github.com/h2pack-runplanner/adamantRunPlanner-Plan_Executor"
 containsNsfwContent = false
 
 [package.dependencies]
@@ -14,7 +14,7 @@ Hell2Modding-Hell2Modding = "1.0.78"
 LuaENVY-ENVY = "1.2.0"
 SGG_Modding-ReLoad = "1.0.2"
 SGG_Modding-ModUtil = "4.0.1"
-adamant-ModpackLib = "1.0.0"
+adamant-ModpackLib = "4.0.1"
 
 [build]
 icon = "./icon.png"
