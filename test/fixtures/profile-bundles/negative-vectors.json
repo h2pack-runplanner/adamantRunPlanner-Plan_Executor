@@ -1,0 +1,41 @@
+{
+  "source": "RunPlanner",
+  "bundleFileFormat": "run-planner-bundle",
+  "bundleFileVersion": 1,
+  "vectors": [
+    {
+      "name": "malformed-envelope",
+      "file": "malformed-envelope.json",
+      "consumerRejection": "malformed-bundle"
+    },
+    {
+      "name": "unsupported-file-version",
+      "file": "unsupported-file-version.json",
+      "consumerRejection": "unsupported-bundle-version"
+    },
+    {
+      "name": "unsupported-execution-protocol-version",
+      "file": "unsupported-execution-protocol-version.json",
+      "consumerRejection": "unsupported-execution-protocol-version"
+    },
+    {
+      "name": "missing-reference",
+      "baseFile": "representative-f.runplanner.json.gz",
+      "mutation": {
+        "kind": "replace-entry-instruction-reference",
+        "routeIndex": 0,
+        "instructionId": "missing-instruction"
+      },
+      "consumerRejection": "missing-execution-reference"
+    },
+    {
+      "name": "bounded-size",
+      "baseFile": "representative-f.runplanner.json.gz",
+      "mutation": {
+        "kind": "append-json-whitespace-past-consumer-byte-limit",
+        "excessBytes": 1
+      },
+      "consumerRejection": "bundle-too-large"
+    }
+  ]
+}

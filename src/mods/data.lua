@@ -1,22 +1,10 @@
-﻿-- =============================================================================
--- DATA / STORAGE
--- =============================================================================
--- This file is imported from main.lua inside init(), after once_loaded.game has fired.
--- Use it for:
--- - storage definitions
--- - static option lists
--- - lookup tables derived from game data after game script import
+-- Plan contents and protocol results remain in the replaceable inbox runtime.
+-- Slice 4 has no persisted settings or file-selection UI.
 
 local data = {}
 
-data.MODE_VALUES = { "Vanilla", "Chaos", "Custom" }
-
 function data.buildStorage()
-    return {
-        { type = "bool", alias = "FeatureEnabled", default = false },
-        { type = "string", alias = "Mode", default = "Vanilla", maxLen = 32 },
-        { type = "string", alias = "FilterText", persist = false, hash = false, default = "", maxLen = 64 },
-    }
+    return {}
 end
 
 return data

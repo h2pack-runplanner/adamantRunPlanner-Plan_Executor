@@ -1,8 +1,6 @@
 -- =============================================================================
--- ADAMANT MODULE TEMPLATE
+-- PLAN EXECUTOR MODULE ENTRYPOINT
 -- =============================================================================
--- Copy this file as src/main.lua in a new module repo.
--- Fill in the SCAFFOLD_TODO sections below.
 -- luacheck: globals rom import_as_fallback modutil lib _PLUGIN game
 
 local mods = rom.mods
@@ -26,7 +24,7 @@ local function init()
     import_as_fallback(rom.game)
 
     local data = import("mods/data.lua")
-    local logic = import("mods/logic.lua").bind(data)
+    local logic = import("mods/logic.lua").bind(data, _PLUGIN.config_mod_folder_path)
     local ui = import("mods/ui.lua").bind(data)
 
     local module = lib.createModule({
@@ -35,7 +33,7 @@ local function init()
         id = MODULE_ID,
         name = "Plan Executor",
         shortName = "Plan Executor",
-        tooltip = "SCAFFOLD_TODO: tooltip for Plan Executor",
+        tooltip = "Load a resolved Run Planner execution bundle from the module inbox.",
     })
     if not module then
         return

@@ -4,7 +4,7 @@ schemaVersion = "0.0.1"
 [package]
 namespace = "adamantRunPlanner"
 name = "Plan_Executor"
-description = "SCAFFOLD_TODO: description for Plan Executor"
+description = "Loads bounded resolved Run Planner execution bundles from the module inbox."
 versionNumber = "0.0.1"
 websiteUrl = "https://github.com/h2pack-runplanner/adamantRunPlanner-Plan_Executor"
 containsNsfwContent = false

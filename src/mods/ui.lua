@@ -1,69 +1,47 @@
--- =============================================================================
--- UI
--- =============================================================================
--- This file is imported from main.lua inside init().
--- Define drawTab and optional drawQuickContent here.
---
--- If the UI grows, keep this file as the public UI loader/router and split sections
--- into files under src/mods/ui/. Those files should expose bind/create functions
--- and return their own narrow draw surfaces.
+-- Minimal explicit inbox UI. All controls invoke the fixed runtime adapter;
+-- no project, route, reward, or eligibility semantics are presented here.
 
 local ui = {}
-local quickModeOpts
-local resetQuickOpts = {
-    confirmLabel = "Confirm Reset",
-}
-local logModeOpts = {
-    id = "template_log_mode",
-}
-local featureEnabledOpts = {
-    label = "Enable Feature",
-    tooltip = "Turns the feature on for this module.",
-}
-local modeOpts
-local filterTextOpts = {
-    label = "Filter",
-    controlWidth = 180,
-}
+local runtime
+
+local function statusText(status)
+    if status.error then
+        return "Error: " .. tostring(status.error.code) .. " - " .. tostring(status.error.message)
+    end
+    return string.format(
+        "Slot: %s | Load: %s | Protocol: %s | Catalog: %s | Routes: %s",
+        tostring(status.slot), tostring(status.load), tostring(status.protocol),
+        tostring(status.catalog), tostring(status.routeAvailability)
+    )
+end
 
 function ui.bind(deps)
-    quickModeOpts = {
-        label = "Mode",
-        values = deps.MODE_VALUES,
-        controlWidth = 140,
-    }
-    modeOpts = {
-        label = "Mode",
-        values = deps.MODE_VALUES,
-        controlWidth = 180,
-    }
+    runtime = deps.runtime
     return ui
 end
 
-function ui.drawQuickContent(_, ctx)
+local function drawPlanUi(_, ctx)
     local draw = ctx.draw
-    local state = ctx.data
-
-    draw.widgets.dropdown(state.get("Mode"), quickModeOpts)
-
-    if draw.widgets.confirmButton("template_quick_reset_all", "Reset", resetQuickOpts) then
-        ctx.resetAll()
+    if draw.widgets.button("Read Published Plan", {
+        id = "plan_executor_read_published",
+        tooltip = "Read active.runplanner.json from this module's config folder.",
+    }) then
+        runtime.load()
     end
-
-    logModeOpts.action = ctx.actions.get("LogMode")
-    draw.widgets.button("Log Mode", logModeOpts)
+    draw.widgets.separator()
+    local status = runtime.status()
+    draw.widgets.text(statusText(status))
+    if status.fingerprint then
+        draw.widgets.text("Fingerprint: " .. tostring(status.fingerprint))
+    end
 end
 
-function ui.drawTab(_, ctx)
-    local draw = ctx.draw
-    local state = ctx.data
+function ui.drawTab(host, ctx)
+    return drawPlanUi(host, ctx)
+end
 
-    draw.widgets.checkbox(state.get("FeatureEnabled"), featureEnabledOpts)
-    draw.widgets.dropdown(state.get("Mode"), modeOpts)
-    draw.widgets.inputText(state.get("FilterText"), filterTextOpts)
-
-    draw.widgets.separator()
-    draw.widgets.text("Start here: replace this with your real module UI.")
+function ui.drawQuickContent(host, ctx)
+    return drawPlanUi(host, ctx)
 end
 
 return ui

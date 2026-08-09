@@ -1,58 +1,27 @@
--- =============================================================================
--- LOGIC / GAME MODIFICATION
--- =============================================================================
--- This file is imported from main.lua inside init(), after once_loaded.game has fired.
--- Use it for:
--- - patch-plan helpers
--- - module.hooks registration
--- - runtime functions that read from callback-provided runtime data and modify game behavior
---
--- If logic grows, keep this file as the public logic loader/router and split
--- behavior files under src/mods/logic/ or src/mods/behaviors/. Those files should
--- expose bind/create functions and return their own narrow surfaces.
+-- Plan ingestion assembly. No gameplay hooks or semantic planner behavior are
+-- registered in Slice 4; this module only wires the fixed inbox to decoding.
 
 local logic = {}
 
-function logic.bind(data) -- luacheck: ignore data
+function logic.bind(data, inboxRoot)
+    if type(inboxRoot) ~= "string" or inboxRoot == "" then
+        error("Plan Executor requires _PLUGIN.config_mod_folder_path", 2)
+    end
+    local decoder = import("mods/json.lua")
+    local protocol = import("mods/protocol.lua")
+    local inbox = import("mods/inbox.lua")
+    data.runtime = inbox.create(inboxRoot, function(raw)
+        local value, jsonError = decoder.decode(raw)
+        if not value then
+            return nil, "malformed-json: " .. tostring(jsonError)
+        end
+        return protocol.decode(value)
+    end, rom.path)
     return logic
 end
 
-function logic.buildActions()
-    return {
-        LogMode = function(host, runtime)
-            host.logIf("Current mode: " .. tostring(runtime.data.read("Mode")))
-        end,
-    }
-end
-
--- Enable this shape only when the module actually mutates static game data.
--- function logic.buildPatchPlan(host, runtime, plan)
---     if runtime.data.read("FeatureEnabled") then
---         plan:set(SomeGameTable, "SomeKey", true)
---         host.logIf("Enabled SomeGameTable.SomeKey")
---     end
--- end
-
-function logic.buildPatchPlan(host, runtime, plan) -- luacheck: ignore host runtime plan
-end
-
-function logic.registerHooks(moduleRef) -- luacheck: ignore moduleRef
-    -- Register hooks here if needed. host activation owns refresh/deactivation.
-    -- Example:
-    -- moduleRef.hooks.wrap("FunctionName", function(host, runtime, baseFunc, ...)
-    --     if not host.isEnabled() or not runtime.data.read("FeatureEnabled") then
-    --         return baseFunc(...)
-    --     end
-    --     host.logIf("Feature hook ran")
-    --     return baseFunc(...)
-    -- end)
-end
-
-function logic.attach(moduleRef)
-    moduleRef.actions.define(logic.buildActions())
-    -- Remove this declaration if the module does not mutate static game data.
-    moduleRef.mutation.patch(logic.buildPatchPlan)
-    logic.registerHooks(moduleRef)
+function logic.attach(moduleRef) -- luacheck: ignore moduleRef
+    -- Deliberately no action, patch-plan, or hook registrations in this gate.
 end
 
 return logic
