@@ -4,13 +4,20 @@
 local ui = {}
 local runtime
 
-local function statusText(status)
+local function inspectionText(status)
+    if status.inspection == "not-inspected" then
+        return "File inspection: not inspected since this module reload."
+    end
+    if status.inspection == "reading" then
+        return "File inspection: reading the fixed published file."
+    end
     if status.error then
-        return "Error: " .. tostring(status.error.code) .. " - " .. tostring(status.error.message)
+        return "File inspection: failed (" .. tostring(status.error.code) .. ") - "
+            .. tostring(status.error.message)
     end
     return string.format(
-        "Slot: %s | Load: %s | Protocol: %s | Catalog: %s | Routes: %s",
-        tostring(status.slot), tostring(status.load), tostring(status.protocol),
+        "File inspection: inspected in this module instance | Protocol: %s | Catalog: %s | Routes: %s",
+        tostring(status.protocol),
         tostring(status.catalog), tostring(status.routeAvailability)
     )
 end
@@ -22,15 +29,21 @@ end
 
 local function drawPlanUi(_, ctx)
     local draw = ctx.draw
-    if draw.widgets.button("Read Published Plan", {
+    local activeSlot = type(runtime.activeSlot) == "function" and runtime.activeSlot() or "active.runplanner.json"
+    draw.widgets.text("Published file: " .. tostring(activeSlot))
+    if draw.widgets.button("Inspect Published Plan (Future Run)", {
         id = "plan_executor_read_published",
-        tooltip = "Read active.runplanner.json from this module's config folder.",
+        tooltip = "Read " .. tostring(activeSlot) .. " for a future run or manual inspection. "
+            .. "It never reloads a frozen current-run session.",
     }) then
         runtime.load()
     end
     draw.widgets.separator()
     local status = runtime.status()
-    draw.widgets.text(statusText(status))
+    if ctx.status and type(ctx.status.read) == "function" then
+        draw.widgets.text("Frozen current-run session: " .. tostring(ctx.status.read("ExecutionSessionStatus")))
+    end
+    draw.widgets.text(inspectionText(status))
     if status.fingerprint then
         draw.widgets.text("Fingerprint: " .. tostring(status.fingerprint))
     end

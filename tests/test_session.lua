@@ -1,0 +1,545 @@
+-- luacheck: globals TestSession
+
+local lu = require("luaunit")
+local fixtures = require("tests/harness/fixture_loader")
+local protocol = require("mods/protocol")
+local session = require("mods/session")
+
+TestSession = {}
+
+local function routeFixture(name, routeKey)
+    local value = fixtures.decode(name)
+    local plan = assert(protocol.decode(value))
+    return plan, assert(plan.routes[routeKey or "Underworld"])
+end
+
+local function contactGame(route)
+    local game = {
+        RoomData = {}, RewardStoreData = {}, StoreData = {}, RewardData = {}, LootData = {},
+        ConsumableData = {}, TraitData = {}, EncounterData = {},
+    }
+    local function addPayload(offer)
+        local payload = offer.payload
+        if payload then
+            if payload.source then game.LootData[payload.source] = {} end
+            if payload.chosenSource then game.LootData[payload.chosenSource] = {} end
+            if payload.spurnedSource then game.LootData[payload.spurnedSource] = {} end
+        end
+    end
+    local function addDirectOffer(offer)
+        game.LootData[offer.rewardType] = {}
+        addPayload(offer)
+    end
+    local function addStoreOffer(storeKey, offer)
+        game.RewardStoreData[storeKey] = game.RewardStoreData[storeKey] or {}
+        table.insert(game.RewardStoreData[storeKey], { Name = offer.rewardType })
+        addPayload(offer)
+    end
+    local function addShopOffer(profileKey, offer)
+        game.StoreData[profileKey] = game.StoreData[profileKey] or { GroupsOf = { { OptionsData = {} } } }
+        table.insert(game.StoreData[profileKey].GroupsOf[1].OptionsData, { Name = offer.rewardType })
+        addPayload(offer)
+    end
+    for _, instruction in ipairs(route.instructions) do
+        if instruction.gameName then game.RoomData[instruction.gameName] = game.RoomData[instruction.gameName] or {} end
+        if instruction.anomalyReplacement then game.RoomData[instruction.anomalyReplacement.replacedRoomGameName] = {} end
+        if instruction.enteredRewardStoreKey then
+            game.RewardStoreData[instruction.enteredRewardStoreKey] = game.RewardStoreData[instruction.enteredRewardStoreKey] or {}
+        end
+        if instruction.resolvedSharedRewardStoreKey then
+            game.RewardStoreData[instruction.resolvedSharedRewardStoreKey] =
+                game.RewardStoreData[instruction.resolvedSharedRewardStoreKey] or {}
+        end
+        if instruction.incomingReward then
+            local room = game.RoomData[instruction.gameName]
+            if instruction.incomingReward.producerKind == "shop" then
+                room.ForcedFirstReward = "Shop"
+            elseif instruction.incomingReward.producerKind == "fixed"
+                and instruction.incomingReward.offer.rewardType == "Story" then
+                room.ForcedReward = "Story"
+            end
+            if instruction.incomingReward.resolvedStoreKey then
+                addStoreOffer(instruction.incomingReward.resolvedStoreKey, instruction.incomingReward.offer)
+            else
+                addDirectOffer(instruction.incomingReward.offer)
+            end
+        end
+        if instruction.shop then
+            for _, item in ipairs(instruction.shop.offers) do
+                addShopOffer(instruction.shop.profileKey, item.offer)
+            end
+        end
+        for _, reward in ipairs(instruction.localRewards or {}) do
+            addStoreOffer(reward.resolvedStoreKey, reward.offer)
+        end
+        for _, wheel in ipairs(instruction.rewardWheels or {}) do
+            for _, item in ipairs(wheel.offers) do addStoreOffer(wheel.storeKey, item.offer) end
+        end
+        for _, phase in ipairs(instruction.encounterPhases or {}) do game.EncounterData[phase.encounterKey] = {} end
+    end
+    return game
+end
+
+local function newState()
+    return { initialized = false, state = "inactive", reason = "not-started", context = {} }
+end
+
+local function start(state, plan, game, opts)
+    opts = opts or {}
+    local routeKey = opts.routeKey or "Underworld"
+    local biome = opts.biome or (routeKey == "Surface" and "N" or "F")
+    local route = plan.routes[routeKey]
+    local entry = route.instructions[1]
+    local currentRun = opts.currentRun or {
+        Revision = "test-revision",
+        CurrentRoom = { RoomSetName = biome, Name = entry.gameName },
+    }
+    local inbox = { load = function() return true, opts.decoded or plan end }
+    session.initialize(state, opts.host, inbox, game, currentRun, opts.args or { StartingBiome = biome })
+    return currentRun
+end
+
+function TestSession.testClosedBiomeMappingAndInactivePrecedence()
+    lu.assertEquals(session.BIOME_ROUTE.F, "Underworld")
+    lu.assertEquals(session.BIOME_ROUTE.I, "Underworld")
+    lu.assertEquals(session.BIOME_ROUTE.N, "Surface")
+    lu.assertEquals(session.BIOME_ROUTE.Q, "Surface")
+    local plan, route = routeFixture("representative-f")
+    local cases = {
+        { name = "disabled", host = { isEnabled = function() return false end }, reason = "module-disabled" },
+        { name = "dream", currentRun = { IsDreamRun = true, CurrentRoom = { RoomSetName = "F" } }, reason = "dream-run" },
+        { name = "unknown", biome = "X", reason = "unknown-route" },
+        { name = "project", decoded = { kind = "project-only" }, reason = "project-only" },
+        { name = "unavailable", decoded = nil, reason = "bundle-unavailable" },
+        { name = "unconfigured", routeKey = "Surface", biome = "N", reason = "unconfigured-route" },
+    }
+    for _, case in ipairs(cases) do
+        local state = newState()
+        local game = contactGame(route)
+        local decoded = case.decoded
+        if case.name == "unavailable" then
+            session.initialize(state, case.host, { load = function() return false end }, game,
+                case.currentRun or { CurrentRoom = { RoomSetName = case.biome or "F" } }, { StartingBiome = case.biome or "F" })
+        elseif case.name == "unconfigured" then
+            session.initialize(state, case.host, { load = function() return true, plan end }, game,
+                { CurrentRoom = { RoomSetName = "N" } }, { StartingBiome = "N" })
+        else
+            start(state, plan, game, case)
+        end
+        lu.assertEquals(state.state, "inactive", case.name)
+        lu.assertEquals(state.reason, case.reason, case.name)
+        lu.assertNil(state.firstMismatch, case.name)
+    end
+end
+
+function TestSession.testFreezesProgramAndUsesMatchingBiomeEntry()
+    local plan, route = routeFixture("complete-underworld")
+    local state = newState()
+    local game = contactGame(route)
+    local currentRun = start(state, plan, game, { biome = "G", args = { StartingBiome = "" } })
+    lu.assertEquals(state.state, "active", state.firstMismatch and state.firstMismatch.expected.key or "")
+    lu.assertEquals(state.cursor, state.biomeByKey.G.entryInstructionId)
+    local frozen = state.program
+    local replacement = { load = function() error("must not reload after cache initialization") end }
+    session.initialize(state, nil, replacement, game, currentRun, { StartingBiome = "F" })
+    lu.assertEquals(state.program, frozen)
+    lu.assertEquals(state.cursor, state.biomeByKey.G.entryInstructionId)
+end
+
+function TestSession.testPositiveVectorsAndEveryContactFamily()
+    for _, spec in ipairs({ { "representative-f", "Underworld" }, { "complete-underworld", "Underworld" }, { "two-route-stress", "Underworld" }, { "two-route-stress", "Surface" } }) do
+        local plan, route = routeFixture(spec[1], spec[2])
+        local state = newState()
+        start(state, plan, contactGame(route), { routeKey = spec[2] })
+        lu.assertEquals(state.state, "active", spec[1] .. ":" .. spec[2] .. ":" .. tostring(state.firstMismatch and state.firstMismatch.expected.key))
+    end
+    local game = { RewardData = {}, LootData = {}, ConsumableData = {}, TraitData = {}, RewardStoreData = {
+        Store = { { Name = "Story" }, { Name = "InfernalContractBoon" }, { Name = "TrialUpgrade" }, { Name = "Devotion" } },
+    }, StoreData = { ShopProfile = { GroupsOf = { { OptionsData = { { Name = "Shop" } } } } } } }
+    for _, key in ipairs({ "Boon", "MaxHealthDrop", "GiftDrop" }) do game.LootData[key] = {} end
+    lu.assertTrue(session.rewardExists(game, "Boon"))
+    lu.assertTrue(session.rewardExists(game, "MaxHealthDrop"))
+    lu.assertTrue(session.rewardExists(game, "GiftDrop"))
+    lu.assertTrue(session.rewardExists(game, "Story", "Store"))
+    lu.assertTrue(session.rewardExists(game, "InfernalContractBoon", "Store"))
+    lu.assertTrue(session.rewardExists(game, "TrialUpgrade", "Store"))
+    lu.assertTrue(session.rewardExists(game, "Devotion", "Store"))
+    lu.assertTrue(session.rewardExists(game, "Shop", nil, "ShopProfile"))
+end
+
+function TestSession.testMissingContactDesynchronizesOnceAndRecordsTruthfulFields()
+    local plan, route = routeFixture("representative-f")
+    local game = contactGame(route)
+    game.EncounterData.BossHecate01 = nil
+    local state = newState()
+    local currentRun = start(state, plan, game)
+    lu.assertEquals(state.state, "desynchronized")
+    lu.assertEquals(state.reason, "live-contact-failure")
+    lu.assertEquals(state.firstMismatch.catalogVersion, plan.catalogVersion)
+    lu.assertEquals(state.firstMismatch.gameVersion, "test-revision")
+    lu.assertEquals(state.firstMismatch.beforeApply, true)
+    local first = state.firstMismatch
+    session.observeStartingRoom(state, currentRun, { Name = "wrong" })
+    lu.assertEquals(state.firstMismatch, first)
+end
+
+function TestSession.testEveryReferencedContactFamilyFailsClosed()
+    local plan, route = routeFixture("two-route-stress")
+    local surfaceRoute = plan.routes.Surface
+    local function instruction(predicate)
+        for _, item in ipairs(route.instructions) do if predicate(item) then return item end end
+        error("fixture did not carry expected contact family")
+    end
+    local room = instruction(function(item) return item.gameName end)
+    local anomaly = instruction(function(item) return item.anomalyReplacement end)
+    local incoming = instruction(function(item) return item.incomingReward and item.incomingReward.resolvedStoreKey end)
+    local batch = instruction(function(item) return item.kind == "batch" and item.resolvedSharedRewardStoreKey end)
+    local localReward = instruction(function(item) return item.localRewards and #item.localRewards > 0 end)
+    local completion = instruction(function(item) return item.enteredRewardStoreKey end)
+    local shop = instruction(function(item) return item.shop end)
+    local reward = instruction(function(item)
+        return item.incomingReward and type(item.incomingReward.resolvedStoreKey) ~= "string"
+    end)
+    local source = instruction(function(item)
+        return item.incomingReward and item.incomingReward.offer.payload and item.incomingReward.offer.payload.source
+    end)
+    local encounter = instruction(function(item) return #item.encounterPhases > 0 end)
+    local cases = {
+        { "room", function(game) game.RoomData[room.gameName] = nil end },
+        { "anomaly", function(game) game.RoomData[anomaly.anomalyReplacement.replacedRoomGameName] = nil end },
+        { "incoming-store", function(game) game.RewardStoreData[incoming.incomingReward.resolvedStoreKey] = nil end },
+        { "batch-store", function(game) game.RewardStoreData[batch.resolvedSharedRewardStoreKey] = nil end },
+        { "local-store", function(game) game.RewardStoreData[localReward.localRewards[1].resolvedStoreKey] = nil end },
+        { "completion-store", function(game) game.RewardStoreData[completion.enteredRewardStoreKey] = nil end },
+        { "shop", function(game) game.StoreData[shop.shop.profileKey] = nil end },
+        { "reward", function(game) game.LootData[reward.incomingReward.offer.rewardType] = nil end },
+        { "loot-source", function(game) game.LootData[source.incomingReward.offer.payload.source] = nil end },
+        { "encounter", function(game) game.EncounterData[encounter.encounterPhases[1].encounterKey] = nil end },
+    }
+    for _, case in ipairs(cases) do
+        local game, state = contactGame(route), newState()
+        case[2](game)
+        start(state, plan, game)
+        lu.assertEquals(state.state, "desynchronized", case[1])
+        lu.assertNotNil(state.firstMismatch, case[1])
+    end
+    -- Wheels are a Surface product in the producer stress vector; the same
+    -- existence-only store contact rule applies to their resolved store key.
+    local wheel = nil
+    for _, item in ipairs(surfaceRoute.instructions) do
+        if item.rewardWheels and #item.rewardWheels > 0 then wheel = item break end
+    end
+    local game, state = contactGame(surfaceRoute), newState()
+    game.RewardStoreData[wheel.rewardWheels[1].storeKey] = nil
+    start(state, plan, game, { routeKey = "Surface", biome = "N" })
+    lu.assertEquals(state.state, "desynchronized", "wheel-store")
+end
+
+function TestSession.testGlobalRewardIdentityCannotBypassResolvedStoreOrShopMembership()
+    local plan, underworld = routeFixture("two-route-stress")
+    local surface = plan.routes.Surface
+    local function find(route, predicate)
+        for _, item in ipairs(route.instructions) do if predicate(item) then return item end end
+        error("fixture did not carry requested offer")
+    end
+    local incoming = find(underworld, function(item)
+        return item.incomingReward and item.incomingReward.resolvedStoreKey
+    end)
+    local localRoom = find(underworld, function(item) return item.localRewards and #item.localRewards > 0 end)
+    local shopRoom = find(underworld, function(item) return item.shop end)
+    local wheelRoom = find(surface, function(item) return item.rewardWheels and #item.rewardWheels > 0 end)
+    local function removeStoreOffer(game, key, rewardType)
+        local store = game.RewardStoreData[key]
+        for index = #store, 1, -1 do
+            if store[index].Name == rewardType then table.remove(store, index) end
+        end
+    end
+    local function removeShopOffer(game, key, rewardType)
+        local offers = game.StoreData[key].GroupsOf[1].OptionsData
+        for index = #offers, 1, -1 do
+            if offers[index].Name == rewardType then table.remove(offers, index) end
+        end
+    end
+    local cases = {
+        {
+            route = underworld, routeKey = "Underworld", offer = incoming.incomingReward.offer,
+            remove = function(game, offer) removeStoreOffer(game, incoming.incomingReward.resolvedStoreKey, offer.rewardType) end,
+        },
+        {
+            route = underworld, routeKey = "Underworld", offer = localRoom.localRewards[1].offer,
+            remove = function(game, offer) removeStoreOffer(game, localRoom.localRewards[1].resolvedStoreKey, offer.rewardType) end,
+        },
+        {
+            route = underworld, routeKey = "Underworld", offer = shopRoom.shop.offers[1].offer,
+            remove = function(game, offer) removeShopOffer(game, shopRoom.shop.profileKey, offer.rewardType) end,
+        },
+        {
+            route = surface, routeKey = "Surface", biome = "N", offer = wheelRoom.rewardWheels[1].offers[1].offer,
+            remove = function(game, offer) removeStoreOffer(game, wheelRoom.rewardWheels[1].storeKey, offer.rewardType) end,
+        },
+    }
+    for _, case in ipairs(cases) do
+        local game, state = contactGame(case.route), newState()
+        game.LootData[case.offer.rewardType] = {}
+        case.remove(game, case.offer)
+        start(state, plan, game, { routeKey = case.routeKey, biome = case.biome })
+        lu.assertEquals(state.state, "desynchronized", case.routeKey)
+        lu.assertEquals(state.firstMismatch.expected.kind, "reward")
+    end
+end
+
+function TestSession.testExplicitStoreAndShopCannotFallBackToConflictingRoomDeclarations()
+    local game = {
+        RewardData = {}, LootData = {}, ConsumableData = {}, TraitData = {},
+        RewardStoreData = { Explicit = {}, RoomStore = { { Name = "Story" } } },
+        StoreData = {
+            ExplicitShop = { GroupsOf = { { OptionsData = {} } } },
+            RoomShop = { GroupsOf = { { OptionsData = { { Name = "Story" } } } } },
+        },
+    }
+    local room = { RewardStoreName = "RoomStore", StoreDataName = "RoomShop" }
+    lu.assertFalse(session.rewardExists(game, "Story", "Explicit", nil, room))
+    lu.assertFalse(session.rewardExists(game, "Story", nil, "ExplicitShop", room))
+    lu.assertTrue(session.rewardExists(game, "Story", nil, nil, room))
+end
+
+function TestSession.testIncomingProducerKindsUseTheirOwnLiveContact()
+    local representativePlan, representative = routeFixture("representative-f")
+    local completePlan, complete = routeFixture("complete-underworld")
+    local stressPlan, underworld = routeFixture("two-route-stress")
+    local surface = stressPlan.routes.Surface
+    local function find(route, predicate)
+        for _, item in ipairs(route.instructions) do
+            if item.incomingReward and predicate(item.incomingReward, item) then return item end
+        end
+        error("fixture did not carry requested incoming producer")
+    end
+    local function removeStoreOffer(game, key, rewardType)
+        local store = game.RewardStoreData[key]
+        for index = #store, 1, -1 do
+            if store[index].Name == rewardType then table.remove(store, index) end
+        end
+    end
+
+    local fShop = find(representative, function(reward, item)
+        return item.gameName == "F_PreBoss01" and reward.producerKind == "shop"
+    end)
+    local shopGame = contactGame(representative)
+    removeStoreOffer(shopGame, fShop.incomingReward.resolvedStoreKey, "Shop")
+    local shopState = newState()
+    start(shopState, representativePlan, shopGame)
+    lu.assertEquals(shopState.state, "active")
+    shopGame.RoomData.F_PreBoss01.ForcedFirstReward = nil
+    local removedShopState = newState()
+    start(removedShopState, representativePlan, shopGame)
+    lu.assertEquals(removedShopState.state, "desynchronized")
+    shopGame.RoomData.F_PreBoss01.ForcedFirstReward = "NotShop"
+    local missingShopState = newState()
+    start(missingShopState, representativePlan, shopGame)
+    lu.assertEquals(missingShopState.state, "desynchronized")
+
+    local story = find(complete, function(reward) return reward.producerKind == "fixed" and reward.offer.rewardType == "Story" end)
+    local storyGame = contactGame(complete)
+    removeStoreOffer(storyGame, story.incomingReward.resolvedStoreKey, "Story")
+    local storyState = newState()
+    start(storyState, completePlan, storyGame)
+    lu.assertEquals(storyState.state, "active")
+    storyGame.RoomData[story.gameName].ForcedReward = nil
+    local removedStoryState = newState()
+    start(removedStoryState, completePlan, storyGame)
+    lu.assertEquals(removedStoryState.state, "desynchronized")
+    storyGame.RoomData[story.gameName].ForcedReward = "NotStory"
+    local missingStoryState = newState()
+    start(missingStoryState, completePlan, storyGame)
+    lu.assertEquals(missingStoryState.state, "desynchronized")
+
+    local counted = find(representative, function(reward) return reward.producerKind == "countedChoice" end)
+    local free = find(representative, function(reward) return reward.producerKind == "freeReward" end)
+    for _, item in ipairs({ counted, free }) do
+        local game = contactGame(representative)
+        local reward = item.incomingReward
+        removeStoreOffer(game, reward.resolvedStoreKey, reward.offer.rewardType)
+        game.LootData[reward.offer.rewardType] = {}
+        game.RoomData[item.gameName].ForcedReward = reward.offer.rewardType
+        local state = newState()
+        start(state, representativePlan, game)
+        lu.assertEquals(state.state, "desynchronized", reward.producerKind)
+    end
+
+    local devotion = find(surface, function(reward) return reward.producerKind == "fixed" and reward.offer.rewardType == "Devotion" end)
+    local devotionGame, devotionState = contactGame(surface), newState()
+    start(devotionState, stressPlan, devotionGame, { routeKey = "Surface", biome = "N" })
+    lu.assertEquals(devotionState.state, "active")
+    lu.assertTrue(session.rewardContact(devotionGame, devotion.incomingReward.offer, "fixed",
+        devotion.incomingReward.resolvedStoreKey, nil, devotionGame.RoomData[devotion.gameName]))
+    local chaos = find(underworld, function(reward) return reward.producerKind == "fixed" and reward.offer.rewardType == "TrialUpgrade" end)
+    local contract = find(underworld, function(reward) return reward.producerKind == "fixed" and reward.offer.rewardType == "InfernalContractBoon" end)
+    local fixedGame = contactGame(underworld)
+    lu.assertTrue(session.rewardContact(fixedGame, chaos.incomingReward.offer, "fixed", nil, nil,
+        fixedGame.RoomData[chaos.gameName]))
+    lu.assertTrue(session.rewardContact(fixedGame, contract.incomingReward.offer, "fixed", nil, nil,
+        fixedGame.RoomData[contract.gameName]))
+    lu.assertFalse(session.rewardContact({ RewardData = { Boon = {} } }, { rewardType = "Boon" }, "shop", nil, nil,
+        { ForcedFirstReward = "Shop" }))
+end
+
+function TestSession.testStartingRoomIsObservedOnceAndLaterRoomsAreIgnored()
+    local plan, route = routeFixture("representative-f")
+    local state = newState()
+    local currentRun = start(state, plan, contactGame(route))
+    state.startingRoomObserved = nil
+    session.observeStartingRoom(state, currentRun, {
+        GenusName = route.instructions[1].gameName,
+        Name = "runtime-variant-name",
+    })
+    lu.assertEquals(state.state, "active")
+    session.observeStartingRoom(state, currentRun, { Name = "later-room" })
+    lu.assertEquals(state.state, "active")
+    lu.assertNil(state.firstMismatch)
+end
+
+function TestSession.testStatusIsACacheDerivedDiagnosticOnly()
+    local written = {}
+    session.publishStatus({ status = { write = function(alias, value) written.alias, written.value = alias, value end } }, {
+        state = "active", reason = nil, routeKey = "Underworld",
+    })
+    lu.assertEquals(written.alias, "ExecutionSessionStatus")
+    lu.assertStrContains(written.value, "active")
+    lu.assertStrContains(written.value, "Underworld")
+end
+
+function TestSession.testDiagnosticRendersActiveInactiveAndBothMismatchShapes()
+    local active = session.statusText({
+        state = "active", reason = nil, routeKey = "Underworld", cursor = "i0",
+        planFingerprint = "plan000000000001", routeFingerprint = "route00000000001",
+        catalogVersion = "catalog-test", context = { gameVersion = "r1", startingBiome = "F", roomSetName = "F", roomName = "F_Opening01" },
+    })
+    lu.assertStrContains(active, "state=active")
+    lu.assertStrContains(active, "cursor=i0")
+    lu.assertStrContains(active, "startingRoom=F_Opening01")
+    local inactive = session.statusText({ state = "inactive", reason = "dream-run", context = {} })
+    lu.assertStrContains(inactive, "reason=dream-run")
+    local live = session.statusText({
+        state = "desynchronized", reason = "live-contact-failure", routeKey = "Surface", cursor = "i7",
+        firstMismatch = {
+            checkpoint = "live-contact", instructionId = "i7", gameVersion = "r2",
+            expected = { kind = "encounter", key = "MissingEncounter" },
+            observed = { kind = "encounter", key = nil },
+            instructionOwner = { kind = "occurrence", routeKey = "Surface", biomeKey = "N", occurrenceId = "o1" },
+        }, context = {},
+    })
+    lu.assertStrContains(live, "checkpoint=live-contact")
+    lu.assertStrContains(live, "expected.kind=encounter")
+    lu.assertStrContains(live, "expected.key=MissingEncounter")
+    lu.assertStrContains(live, "observed.key=none")
+    lu.assertStrContains(live, "origin.occurrence=o1")
+    local starting = session.statusText({
+        state = "desynchronized", reason = "live-contact-failure", firstMismatch = {
+            checkpoint = "starting-room", expected = "F_Opening01", observed = "WrongRoom",
+        }, context = {},
+    })
+    lu.assertStrContains(starting, "expected.value=F_Opening01")
+    lu.assertStrContains(starting, "observed.value=WrongRoom")
+end
+
+function TestSession.testDiagnosticProjectsDecodedExitDecisionOriginSource()
+    local _, route = routeFixture("representative-f")
+    local batch
+    for _, instruction in ipairs(route.instructions) do
+        if instruction.kind == "batch" then batch = instruction break end
+    end
+    lu.assertEquals(batch.origin.kind, "exitDecision")
+    local source = batch.origin.source
+    local diagnostic = session.statusText({
+        state = "desynchronized", reason = "live-contact-failure",
+        firstMismatch = { instructionOwner = batch.origin }, context = {},
+    })
+    lu.assertStrContains(diagnostic, "origin.source.kind=" .. source.kind)
+    lu.assertStrContains(diagnostic, "origin.source.occurrence=" .. tostring(source.occurrenceId or "none"))
+    lu.assertStrContains(diagnostic, "origin.source.decision=" .. tostring(source.decisionKey or "none"))
+end
+
+function TestSession.testDiagnosticWritesUiStatusAndLogsOnlyOnTransition()
+    local writes, logs = {}, {}
+    local runtime = { status = { write = function(alias, value) writes[#writes + 1] = { alias, value } end } }
+    local host = { log = function(format, value) logs[#logs + 1] = string.format(format, value) end }
+    local state = { state = "active", reason = nil, routeKey = "Underworld", cursor = "i0", context = {} }
+    session.publishStatus(runtime, state, host)
+    session.publishStatus(runtime, state, host)
+    lu.assertEquals(#writes, 2)
+    lu.assertEquals(#logs, 1)
+    lu.assertEquals(writes[1][2], logs[1])
+    state.state, state.reason = "inactive", "module-disabled"
+    session.publishStatus(runtime, state, host)
+    lu.assertEquals(#logs, 2)
+    lu.assertStrContains(logs[2], "reason=module-disabled")
+end
+
+function TestSession.testCacheAndKeyedHooksPassThroughWithoutGameWrites()
+    local defined, hooks = nil, {}
+    local module = {
+        cache = { define = function(value) defined = value end },
+        hooks = { wrap = function(path, key, callback) hooks[path] = { key = key, callback = callback } end },
+    }
+    session.defineCache(module)
+    session.registerHooks(module, { inbox = { load = function() return true, routeFixture("representative-f") end }, game = {} })
+    lu.assertEquals(defined.ExecutionSession.domain, "currentRun")
+    lu.assertEquals(hooks.StartNewRun.key, "execution-session-start")
+    lu.assertEquals(hooks.StartRoom.key, "execution-session-observe")
+    local bucket = newState()
+    local runtime = { data = { cache = { currentRun = { get = function(name) lu.assertEquals(name, session.CACHE_NAME); return bucket end } } } }
+    local currentRun = { CurrentRoom = { RoomSetName = "F", Name = "unchanged" } }
+    local result = hooks.StartNewRun.callback({ isEnabled = function() return false end }, runtime,
+        function(prev, args) lu.assertNil(prev); lu.assertEquals(args.StartingBiome, "F"); return currentRun end, nil, { StartingBiome = "F" })
+    lu.assertEquals(result, currentRun)
+    lu.assertEquals(currentRun.CurrentRoom.Name, "unchanged")
+    local first, second = hooks.StartRoom.callback(nil, runtime, function(run, room)
+        lu.assertEquals(run, currentRun); lu.assertEquals(room.Name, "unchanged"); return "a", "b"
+    end, currentRun, currentRun.CurrentRoom)
+    lu.assertEquals(first, "a"); lu.assertEquals(second, "b")
+end
+
+function TestSession.testCurrentRunCacheSurvivesReloadWithoutRereadAndResetsForNewRun()
+    local plan, route = routeFixture("representative-f")
+    local game, reads, buckets = contactGame(route), 0, {}
+    local activeRun
+    local runtime = { data = { cache = { currentRun = { get = function()
+        buckets[activeRun] = buckets[activeRun] or newState()
+        return buckets[activeRun]
+    end } } } }
+    local logs = {}
+    local host = { log = function(format, value) logs[#logs + 1] = string.format(format, value) end }
+    local inbox = { load = function() reads = reads + 1; return true, plan end }
+    local function install()
+        local hooks = {}
+        session.registerHooks({ hooks = { wrap = function(path, key, callback) hooks[path] = callback end } }, { inbox = inbox, game = game })
+        return hooks.StartNewRun
+    end
+    local run1 = { Revision = "r1", CurrentRoom = { RoomSetName = "F", Name = route.instructions[1].gameName } }
+    activeRun = run1
+    local start1 = install()
+    host.isEnabled = function() return true end
+    lu.assertEquals(start1(host, runtime, function() return run1 end, nil, { StartingBiome = "F" }), run1)
+    lu.assertEquals(reads, 1)
+    lu.assertEquals(#logs, 1)
+    local state1 = buckets[run1]
+    local reloadedStart = install()
+    lu.assertEquals(reloadedStart(host, runtime, function() return run1 end, nil, { StartingBiome = "F" }), run1)
+    lu.assertEquals(reads, 1)
+    lu.assertEquals(buckets[run1], state1)
+    lu.assertEquals(#logs, 1)
+    state1.state, state1.reason = "desynchronized", "live-contact-failure"
+    state1.firstMismatch = { checkpoint = "starting-room", expected = "Expected", observed = "Observed" }
+    lu.assertEquals(reloadedStart(host, runtime, function() return run1 end, nil, { StartingBiome = "F" }), run1)
+    lu.assertEquals(#logs, 2)
+    lu.assertEquals(reloadedStart(host, runtime, function() return run1 end, nil, { StartingBiome = "F" }), run1)
+    lu.assertEquals(#logs, 2)
+    local run2 = { Revision = "r2", CurrentRoom = { RoomSetName = "F", Name = route.instructions[1].gameName } }
+    activeRun = run2
+    lu.assertEquals(reloadedStart(host, runtime, function() return run2 end, nil, { StartingBiome = "F" }), run2)
+    lu.assertEquals(reads, 2)
+    lu.assertNotEquals(buckets[run2], state1)
+    lu.assertEquals(#logs, 3)
+end
+
+return TestSession

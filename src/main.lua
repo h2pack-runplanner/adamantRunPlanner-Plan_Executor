@@ -40,6 +40,7 @@ local function init()
     end
 
     module.data.define(data.buildStorage())
+    module.status.define(data.buildStatus())
     module.ui.tab(ui.drawTab)
     module.ui.quickContent(ui.drawQuickContent)
     module.fallbackUi.attachGuiOnce(function(fallbackUi)

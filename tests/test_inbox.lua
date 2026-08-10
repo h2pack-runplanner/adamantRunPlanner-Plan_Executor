@@ -56,6 +56,24 @@ function TestInbox.testOnlyTheFixedActiveSlotIsRead()
     cleanup(root)
 end
 
+function TestInbox.testInspectionStateIsFreshForEachRuntimeInstance()
+    local root = makeTempDir()
+    write(root .. "/active.runplanner.json", fixtures.raw("representative-f"))
+    local first = inbox.create(root, decoder, pathApi)
+    lu.assertEquals(first.activeSlot(), "active.runplanner.json")
+    lu.assertEquals(first.status().inspection, "not-inspected")
+    lu.assertTrue(first.load())
+    lu.assertEquals(first.status().inspection, "inspected")
+    lu.assertEquals(first.status().slot, "present")
+
+    local reloaded = inbox.create(root, decoder, pathApi)
+    lu.assertNil(reloaded.plan())
+    lu.assertEquals(reloaded.status().inspection, "not-inspected")
+    lu.assertEquals(reloaded.status().load, "idle")
+    lu.assertNil(reloaded.status().fingerprint)
+    cleanup(root)
+end
+
 function TestInbox.testReaderResolvesRootAndFixedSlotThroughRuntimePathApi()
     local root = makeTempDir()
     local seen

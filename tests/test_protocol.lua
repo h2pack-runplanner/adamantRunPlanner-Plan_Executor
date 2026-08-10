@@ -62,6 +62,12 @@ function TestProtocol.testExecutionProductsRejectUnknownTagsAndOpenShapes()
         firstInstruction(value, "authored").incomingReward.offer.payload.kind = "future"
     end)
     rejectMutation("representative-f", function(value)
+        local room = firstInstruction(value, "authored", function(item)
+            return item.incomingReward and item.incomingReward.producerKind == "shop"
+        end)
+        room.incomingReward.offer.rewardType = "Boon"
+    end)
+    rejectMutation("representative-f", function(value)
         firstInstruction(value, "authored", function(room) return room.shop ~= nil end).shop.extra = true
     end)
     rejectMutation("two-route-stress", function(value)

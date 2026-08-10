@@ -1,7 +1,8 @@
--- Plan ingestion assembly. No gameplay hooks or semantic planner behavior are
--- registered in Slice 4; this module only wires the fixed inbox to decoding.
+-- Plan ingestion and Slice 5 session assembly. The fixed inbox stays
+-- replaceable; only the declared current-run cache owns a frozen program.
 
 local logic = {}
+local boundData
 
 function logic.bind(data, inboxRoot)
     if type(inboxRoot) ~= "string" or inboxRoot == "" then
@@ -10,6 +11,7 @@ function logic.bind(data, inboxRoot)
     local decoder = import("mods/json.lua")
     local protocol = import("mods/protocol.lua")
     local inbox = import("mods/inbox.lua")
+    local session = import("mods/session.lua")
     data.runtime = inbox.create(inboxRoot, function(raw)
         local value, jsonError = decoder.decode(raw)
         if not value then
@@ -17,11 +19,15 @@ function logic.bind(data, inboxRoot)
         end
         return protocol.decode(value)
     end, rom.path)
+    data.session = session
+    boundData = data
     return logic
 end
 
-function logic.attach(moduleRef) -- luacheck: ignore moduleRef
-    -- Deliberately no action, patch-plan, or hook registrations in this gate.
+function logic.attach(moduleRef)
+    boundData.session.defineCache(moduleRef)
+    boundData.session.registerLifecycle(moduleRef)
+    boundData.session.registerHooks(moduleRef, { inbox = boundData.runtime, game = game })
 end
 
 return logic

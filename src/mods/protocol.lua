@@ -223,6 +223,9 @@ local function validateReward(value, label)
     if value.acquisitionEnabled ~= nil then booleanValue(value.acquisitionEnabled, label .. ".acquisitionEnabled") end
     object(value.offer, label .. ".offer")
     validateRewardOffer(value.offer, label .. ".offer")
+    if value.producerKind == "shop" and value.offer.rewardType ~= "Shop" then
+        fail(label .. ".offer.rewardType must be Shop for shop producer")
+    end
 end
 
 local function validateRequiredObjects(value, label)

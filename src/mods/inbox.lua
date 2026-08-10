@@ -62,6 +62,7 @@ function inbox.create(root, decode, pathApi)
         plan = nil,
         status = {
             slot = "unknown",
+            inspection = "not-inspected",
             load = "idle",
             protocol = "unknown",
             catalog = "unknown",
@@ -77,9 +78,14 @@ function inbox.create(root, decode, pathApi)
         return root
     end
 
+    function api.activeSlot()
+        return inbox.ACTIVE_SLOT
+    end
+
     function api.load()
         state.plan = nil
         state.status.slot = "unknown"
+        state.status.inspection = "reading"
         state.status.load = "loading"
         state.status.protocol = "unknown"
         state.status.catalog = "unknown"
@@ -88,6 +94,7 @@ function inbox.create(root, decode, pathApi)
         state.status.error = nil
         local raw, readCode, readMessage = readBinary(root, pathApi)
         if not raw then
+            state.status.inspection = "failed"
             state.status.load = "error"
             state.status.slot = readCode == "not-published" and "not-published" or "error"
             state.status.error = { code = readCode, message = readMessage }
@@ -96,6 +103,7 @@ function inbox.create(root, decode, pathApi)
         state.status.slot = "present"
         local decoded, decodeError = decode(raw)
         if not decoded then
+            state.status.inspection = "failed"
             state.status.load = "error"
             state.status.protocol = "error"
             local code = tostring(decodeError or "malformed-json")
@@ -106,6 +114,7 @@ function inbox.create(root, decode, pathApi)
             return false, state.status.error.code
         end
         state.plan = decoded
+        state.status.inspection = "inspected"
         state.status.load = "ready"
         state.status.protocol = decoded.kind == "project-only" and "project-only" or "ready"
         state.status.catalog = decoded.catalogVersion or "not-present"
