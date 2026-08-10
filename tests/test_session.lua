@@ -41,7 +41,9 @@ local function contactGame(route)
         addPayload(offer)
     end
     for _, instruction in ipairs(route.instructions) do
-        if instruction.gameName then game.RoomData[instruction.gameName] = game.RoomData[instruction.gameName] or {} end
+        if instruction.gameName then
+            game.RoomData[instruction.gameName] = game.RoomData[instruction.gameName] or { Name = instruction.gameName }
+        end
         if instruction.anomalyReplacement then game.RoomData[instruction.anomalyReplacement.replacedRoomGameName] = {} end
         if instruction.enteredRewardStoreKey then
             game.RewardStoreData[instruction.enteredRewardStoreKey] = game.RewardStoreData[instruction.enteredRewardStoreKey] or {}
@@ -179,7 +181,7 @@ function TestSession.testMissingContactDesynchronizesOnceAndRecordsTruthfulField
     lu.assertEquals(state.firstMismatch.gameVersion, "test-revision")
     lu.assertEquals(state.firstMismatch.beforeApply, true)
     local first = state.firstMismatch
-    session.observeStartingRoom(state, currentRun, { Name = "wrong" })
+    session.observeRoom(state, currentRun, { Name = "wrong" })
     lu.assertEquals(state.firstMismatch, first)
 end
 
@@ -383,21 +385,6 @@ function TestSession.testIncomingProducerKindsUseTheirOwnLiveContact()
         { ForcedFirstReward = "Shop" }))
 end
 
-function TestSession.testStartingRoomIsObservedOnceAndLaterRoomsAreIgnored()
-    local plan, route = routeFixture("representative-f")
-    local state = newState()
-    local currentRun = start(state, plan, contactGame(route))
-    state.startingRoomObserved = nil
-    session.observeStartingRoom(state, currentRun, {
-        GenusName = route.instructions[1].gameName,
-        Name = "runtime-variant-name",
-    })
-    lu.assertEquals(state.state, "active")
-    session.observeStartingRoom(state, currentRun, { Name = "later-room" })
-    lu.assertEquals(state.state, "active")
-    lu.assertNil(state.firstMismatch)
-end
-
 function TestSession.testStatusIsACacheDerivedDiagnosticOnly()
     local written = {}
     session.publishStatus({ status = { write = function(alias, value) written.alias, written.value = alias, value end } }, {
@@ -486,6 +473,9 @@ function TestSession.testCacheAndKeyedHooksPassThroughWithoutGameWrites()
     lu.assertEquals(defined.ExecutionSession.domain, "currentRun")
     lu.assertEquals(hooks.StartNewRun.key, "execution-session-start")
     lu.assertEquals(hooks.StartRoom.key, "execution-session-observe")
+    lu.assertEquals(hooks.ChooseStartingRoom.key, "execution-session-starting-room")
+    lu.assertEquals(hooks.ChooseNextRoomData.key, "execution-session-exact-batch")
+    lu.assertEquals(hooks.LeaveRoom.key, "execution-session-selected-exit")
     local bucket = newState()
     local runtime = { data = { cache = { currentRun = { get = function(name) lu.assertEquals(name, session.CACHE_NAME); return bucket end } } } }
     local currentRun = { CurrentRoom = { RoomSetName = "F", Name = "unchanged" } }
@@ -497,6 +487,234 @@ function TestSession.testCacheAndKeyedHooksPassThroughWithoutGameWrites()
         lu.assertEquals(run, currentRun); lu.assertEquals(room.Name, "unchanged"); return "a", "b"
     end, currentRun, currentRun.CurrentRoom)
     lu.assertEquals(first, "a"); lu.assertEquals(second, "b")
+end
+
+function TestSession.testOnlyExactOrdinaryDoorGenerationIsOwnedAndMismatchNeverFallsBack()
+    local plan, route = routeFixture("representative-f")
+    local game, state = contactGame(route), newState()
+    local currentRun = start(state, plan, game)
+    local hooks = {}
+    session.registerHooks({ hooks = { wrap = function(path, _key, callback) hooks[path] = callback end } },
+        { inbox = { load = function() return true, plan end }, game = game })
+    local writes, logs = {}, {}
+    local runtime = {
+        data = { cache = { currentRun = { get = function() return state end } } },
+        status = { write = function(_, value) writes[#writes + 1] = value end },
+    }
+    local host = { log = function(format, value) logs[#logs + 1] = string.format(format, value) end }
+    local baseCalls = 0
+    local function base(_, args, otherDoors)
+        baseCalls = baseCalls + 1
+        return { args = args, otherDoors = otherDoors, vanilla = true }
+    end
+    for _, args in ipairs({ {}, { ForceNextRoom = "Chaos_01" }, { ForceNextRoomSet = "Anomaly" } }) do
+        local otherDoors = args.ForceNextRoomSet and { { Name = "WrongDoor" } } or nil
+        local result = hooks.ChooseNextRoomData(host, runtime, base, currentRun, args, otherDoors)
+        lu.assertTrue(result.vanilla)
+        lu.assertEquals(result.args, args)
+        lu.assertEquals(result.otherDoors, otherDoors)
+        lu.assertNil(state.generation)
+    end
+    local result = hooks.ChooseNextRoomData(host, runtime, base, currentRun, {}, { { Name = "WrongDoor" } })
+    lu.assertNil(result)
+    lu.assertEquals(baseCalls, 3)
+    lu.assertEquals(state.state, "desynchronized")
+    lu.assertEquals(#writes, 1)
+    lu.assertEquals(#logs, 1)
+    lu.assertStrContains(writes[1], "state=desynchronized")
+    session.publishStatus(runtime, state, host)
+    lu.assertEquals(#writes, 2)
+    lu.assertEquals(#logs, 1)
+end
+
+function TestSession.testExactStartingRoomBypassesEligibilityAndUsesCompiledEntryOnly()
+    local plan, route = routeFixture("representative-f")
+    local game, state = contactGame(route), newState()
+    game.RoomData[route.instructions[1].gameName].RoomSetName = "F"
+    local created = {}
+    game.CreateRoom = function(roomData, args)
+        created.roomData, created.args = roomData, args
+        return { Name = roomData.Name, RoomSetName = roomData.RoomSetName }
+    end
+    local currentRun = { Revision = "test-revision" }
+    local inbox = { load = function() return true, plan end }
+    session.initialize(state, nil, inbox, game, currentRun, { StartingBiome = "F" })
+    lu.assertNil(state.context.roomName)
+    local result = session.chooseStartingRoom(state, currentRun, { StartingBiome = "F" }, game)
+    lu.assertEquals(result.Name, route.instructions[1].gameName)
+    lu.assertEquals(created.roomData, game.RoomData[route.instructions[1].gameName])
+    lu.assertEquals(created.args.StartingBiome, "F")
+    lu.assertEquals(state.context.roomSetName, "F")
+    lu.assertEquals(state.context.roomName, route.instructions[1].gameName)
+end
+
+function TestSession.testExactOrderedBatchKeepsUnpickedRoomsAndAdvancesOnlyFromObservedSelectedDoor()
+    local plan, route = routeFixture("representative-f")
+    local game, state = contactGame(route), newState()
+    local currentRun = start(state, plan, game)
+    local firstBatch = state.batchByParent[state.cursor]
+    local firstTarget = firstBatch.targets[1]
+    local first = session.chooseNextRoom(state, currentRun, { { Name = firstTarget.exit.type } }, game)
+    lu.assertEquals(first.__runPlannerInstructionId, firstTarget.room.instructionId)
+    lu.assertEquals(first.__runPlannerExitKey, firstTarget.exit.exitKey)
+    session.observeExit(state, currentRun, { Name = firstTarget.exit.type, Room = first })
+    lu.assertEquals(state.cursor, firstTarget.room.instructionId)
+
+    currentRun.CurrentRoom = {
+        Name = state.instructionById[firstTarget.room.instructionId].gameName,
+        GenusName = state.instructionById[firstTarget.room.instructionId].gameName,
+    }
+    state.cursor = firstTarget.room.instructionId
+    local batch = state.batchByParent[state.cursor]
+    local doors = {}
+    for index, target in ipairs(batch.targets) do doors[index] = { Name = target.exit.type } end
+    local picked = session.chooseNextRoom(state, currentRun, doors, game)
+    local unpicked = session.chooseNextRoom(state, currentRun, doors, game)
+    lu.assertEquals(picked.__runPlannerInstructionId, batch.targets[1].room.instructionId)
+    lu.assertEquals(unpicked.__runPlannerInstructionId, batch.targets[2].room.instructionId)
+    lu.assertNotEquals(picked, unpicked)
+    session.observeExit(state, currentRun, { Name = batch.targets[2].exit.type, Room = unpicked })
+    lu.assertEquals(state.state, "desynchronized")
+    lu.assertEquals(state.cursor, firstTarget.room.instructionId)
+end
+
+function TestSession.testPrebossCompletionAndBiomeHandoffAdvanceOnlyOnObservedHostRooms()
+    local plan, route = routeFixture("complete-underworld")
+    local game, state = contactGame(route), newState()
+    local currentRun = start(state, plan, game)
+    local prebossBatch
+    for _, instruction in ipairs(route.instructions) do
+        if instruction.kind == "batch" and instruction.targets[1].continuation == "startsCompletion" then
+            prebossBatch = instruction
+            break
+        end
+    end
+    state.cursor = prebossBatch.parent.instructionId
+    currentRun.CurrentRoom = { Name = route.instructions[1].gameName }
+    local parent = state.instructionById[state.cursor]
+    currentRun.CurrentRoom.Name = parent.gameName
+    local doors = {}
+    for index, target in ipairs(prebossBatch.targets) do doors[index] = { Name = target.exit.type } end
+    local preboss = session.chooseNextRoom(state, currentRun, doors, game)
+    for _ = 2, #prebossBatch.targets do session.chooseNextRoom(state, currentRun, doors, game) end
+    session.observeExit(state, currentRun, { Name = prebossBatch.targets[1].exit.type, Room = preboss })
+    lu.assertEquals(state.cursor, prebossBatch.targets[1].room.instructionId)
+    local biome = state.biomeByKey[parent.origin.biomeKey]
+    local boss = state.instructionById[biome.completionInstructionIds[1]]
+    local postboss = state.instructionById[biome.completionInstructionIds[2]]
+    currentRun.CurrentRoom = { Name = preboss.Name }
+    session.observeRoom(state, currentRun, currentRun.CurrentRoom)
+    session.observeExit(state, currentRun, { Name = "AutomaticDoor", Room = { Name = boss.gameName } })
+    lu.assertEquals(state.cursor, prebossBatch.targets[1].room.instructionId)
+    session.observeRoom(state, currentRun, { Name = boss.gameName })
+    lu.assertEquals(state.cursor, boss.id)
+    session.observeRoom(state, currentRun, { Name = postboss.gameName })
+    lu.assertEquals(state.cursor, postboss.id)
+    local nextBiome = route.biomes[(state.biomeIndexByKey[parent.origin.biomeKey]) + 1]
+    local entry = state.instructionById[nextBiome.entryInstructionId]
+    currentRun.CurrentRoom = { Name = postboss.gameName }
+    session.observeExit(state, currentRun, { Name = "AutomaticDoor", Room = { Name = entry.gameName } })
+    lu.assertEquals(state.state, "active")
+    session.observeRoom(state, currentRun, { Name = entry.gameName })
+    lu.assertEquals(state.cursor, entry.id)
+end
+
+function TestSession.testFinalCompiledCompletionRelinquishesToVanillaWithoutDesynchronizing()
+    local plan, route = routeFixture("representative-f")
+    local game, state = contactGame(route), newState()
+    local currentRun = start(state, plan, game)
+    local biome = state.biomeByKey.F
+    local postboss = state.instructionById[biome.completionInstructionIds[#biome.completionInstructionIds]]
+    state.cursor = postboss.id
+    currentRun.CurrentRoom = { Name = postboss.gameName }
+    session.observeExit(state, currentRun, { Name = "VanillaExit", Room = { Name = "G_Opening01" } })
+    lu.assertEquals(state.state, "inactive")
+    lu.assertEquals(state.reason, "route-complete")
+    lu.assertNil(state.firstMismatch)
+end
+
+function TestSession.testUnexpectedDoorAndRoomContactsLatchDesynchronization()
+    local plan, route = routeFixture("representative-f")
+    local game, state = contactGame(route), newState()
+    local currentRun = start(state, plan, game)
+    local batch = state.batchByParent[state.cursor]
+    session.chooseNextRoom(state, currentRun, { { Name = "UnexpectedDoor" } }, game)
+    lu.assertEquals(state.state, "desynchronized")
+    local first = state.firstMismatch
+    session.observeRoom(state, currentRun, { Name = "UnexpectedRoom" })
+    lu.assertEquals(state.firstMismatch, first)
+    lu.assertEquals(batch.id, state.firstMismatch.instructionId)
+end
+
+function TestSession.testAutomaticHostContinuationWaitsForItsMarkedRoomObservation()
+    local plan, route = routeFixture("representative-f")
+    local game, state = contactGame(route), newState()
+    local currentRun = start(state, plan, game)
+    local batch = state.batchByParent[state.cursor]
+    local selected = batch.targets[1]
+    selected.exit.behavior = "automaticHostContinuation"
+    local generated = session.chooseNextRoom(state, currentRun, { { Name = selected.exit.type } }, game)
+    session.observeExit(state, currentRun, { Name = selected.exit.type, Room = generated })
+    lu.assertEquals(state.cursor, batch.parent.instructionId)
+    lu.assertEquals(state.pendingAutomaticTargetId, selected.room.instructionId)
+    session.observeRoom(state, currentRun, generated)
+    lu.assertEquals(state.cursor, selected.room.instructionId)
+    lu.assertNil(state.pendingAutomaticTargetId)
+end
+
+function TestSession.testPreassignedPhysicalDoorCannotShiftTheCompiledBatchIndex()
+    local plan, route = routeFixture("representative-f")
+    local game, state = contactGame(route), newState()
+    local currentRun = start(state, plan, game)
+    local first = state.batchByParent[state.cursor].targets[1]
+    state.cursor = first.room.instructionId
+    currentRun.CurrentRoom = { Name = state.instructionById[state.cursor].gameName }
+    local batch = state.batchByParent[state.cursor]
+    local doors = {
+        { Name = batch.targets[1].exit.type },
+        { Name = batch.targets[2].exit.type, Room = { Name = "PredeterminedRoom" } },
+    }
+    local result = session.routeNextRoom(state, currentRun, {}, doors, game)
+    lu.assertEquals(result.kind, "failed")
+    lu.assertEquals(state.state, "desynchronized")
+end
+
+function TestSession.testSelectedDoorRequiresTheExactCompiledPhysicalExitMarker()
+    local plan, route = routeFixture("representative-f")
+    local game, state = contactGame(route), newState()
+    local currentRun = start(state, plan, game)
+    local batch = state.batchByParent[state.cursor]
+    local selected = batch.targets[1]
+    local generated = session.chooseNextRoom(state, currentRun, { { Name = selected.exit.type } }, game)
+    generated.__runPlannerExitKey = "wrong-exit"
+    session.observeExit(state, currentRun, { Name = selected.exit.type, Room = generated })
+    lu.assertEquals(state.state, "desynchronized")
+    lu.assertEquals(state.cursor, batch.parent.instructionId)
+end
+
+function TestSession.testAdditionalContinuationDoesNotGuessANormalTargetCursorAdvance()
+    local plan, route = routeFixture("representative-f")
+    local game, state = contactGame(route), newState()
+    local currentRun = start(state, plan, game)
+    local batch = state.batchByParent[state.cursor]
+    local normal = batch.targets[1]
+    batch.selectedContinuation = {
+        kind = "additional", additionalExitKey = "naturalChaos", instructionId = normal.room.instructionId,
+    }
+    local hooks = {}
+    session.registerHooks({ hooks = { wrap = function(path, _key, callback) hooks[path] = callback end } },
+        { inbox = { load = function() return true, plan end }, game = game })
+    local runtime = { data = { cache = { currentRun = { get = function() return state end } } } }
+    local fallbackCalls = 0
+    local generated = hooks.ChooseNextRoomData(nil, runtime, function()
+        fallbackCalls = fallbackCalls + 1
+        return { Name = "VanillaNext" }
+    end, currentRun, {}, { { Name = normal.exit.type } })
+    hooks.LeaveRoom(nil, runtime, function(_, door) return door end,
+        currentRun, { Name = normal.exit.type, Room = generated })
+    lu.assertEquals(state.state, "desynchronized")
+    lu.assertEquals(state.cursor, batch.parent.instructionId)
+    lu.assertEquals(fallbackCalls, 0)
 end
 
 function TestSession.testCurrentRunCacheSurvivesReloadWithoutRereadAndResetsForNewRun()
@@ -512,7 +730,8 @@ function TestSession.testCurrentRunCacheSurvivesReloadWithoutRereadAndResetsForN
     local inbox = { load = function() reads = reads + 1; return true, plan end }
     local function install()
         local hooks = {}
-        session.registerHooks({ hooks = { wrap = function(path, key, callback) hooks[path] = callback end } }, { inbox = inbox, game = game })
+        session.registerHooks({ hooks = { wrap = function(path, _key, callback) hooks[path] = callback end } },
+            { inbox = inbox, game = game })
         return hooks.StartNewRun
     end
     local run1 = { Revision = "r1", CurrentRoom = { RoomSetName = "F", Name = route.instructions[1].gameName } }

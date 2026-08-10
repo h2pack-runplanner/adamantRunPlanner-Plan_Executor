@@ -592,9 +592,18 @@ local function validateRoute(route)
     if not ids[route.entryInstructionId] then
         fail("execution.route.entryInstructionId references missing instruction")
     end
+    local batchParents = {}
     for index = 1, instructionCount do
-        validateInstruction(route.instructions[index], route.routeKey, ids,
+        local instruction = route.instructions[index]
+        validateInstruction(instruction, route.routeKey, ids,
             "execution.route.instructions[" .. index .. "]")
+        if instruction.kind == "batch" then
+            local parentId = instruction.parent.instructionId
+            if batchParents[parentId] then
+                fail("duplicate batch parent " .. parentId)
+            end
+            batchParents[parentId] = true
+        end
     end
     local biomeCount = isArray(route.biomes, protocol.MAX_BIOMES, "execution.route.biomes")
     for index = 1, biomeCount do

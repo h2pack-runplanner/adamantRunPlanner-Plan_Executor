@@ -138,6 +138,17 @@ function TestProtocol.testContinuationClosureRejectsUnrelatedOrAmbiguousSelectio
     end)
 end
 
+function TestProtocol.testDuplicateBatchParentsRejectAtTheProtocolBoundary()
+    rejectMutation("representative-f", function(value)
+        local route = value.execution.routes[1]
+        local original = firstInstruction(value, "batch")
+        local duplicate = {}
+        for key, item in pairs(original) do duplicate[key] = item end
+        duplicate.id = "duplicate-batch-parent"
+        table.insert(route.instructions, duplicate)
+    end)
+end
+
 function TestProtocol.testJsonKindsAndProjectDiscardAreClosed()
     rejectMutation("representative-f", function(value)
         value.project = value.execution.routes
