@@ -17,6 +17,17 @@ local function fixturePlan(name)
     return assert(protocol.decode(value))
 end
 
+local function withoutOpeningAcquisition(plan)
+    table.remove(plan.rooms[1].trace, 2)
+    return plan
+end
+
+local function openingCheckpointsOnly(plan)
+    local trace = plan.rooms[1].trace
+    plan.rooms[1].trace = { trace[1], trace[#trace] }
+    return plan
+end
+
 local function roomGame(plan)
     local roomData = {}
     for _, room in ipairs(plan.rooms) do
@@ -43,6 +54,7 @@ local function start(plan, currentRun)
 end
 
 local function applyRunState(run, snapshot)
+    _G.CurrentRun = run
     run.BiomeDepthCache = snapshot.counters.biomeDepthCache
     run.BiomeEncounterDepth = snapshot.counters.biomeEncounterDepth
     run.EncounterDepth = snapshot.counters.routeEncounterDepth
@@ -54,6 +66,33 @@ local function applyRunState(run, snapshot)
         local count = bag.remaining.count
         for index = 1, count do run.RewardStores[bag.storeKey][index] = {} end
     end
+    run.Hero = { Traits = {}, SlottedTraits = {} }
+    for _, trait in ipairs(snapshot.traits.equipped) do
+        run.Hero.Traits[#run.Hero.Traits + 1] = {
+            Name = trait.traitKey, Rarity = trait.rarity, StackNum = trait.level,
+            HammerRank = trait.hammerRank,
+        }
+    end
+    for _, slot in ipairs(snapshot.traits.slots) do
+        run.Hero.SlottedTraits[slot.slot] = slot.traitKey and { Name = slot.traitKey } or nil
+    end
+    run.Hero.Elements, run.Hero.GodBoonRarities = snapshot.traits.elements, snapshot.traits.godRarityCounts
+    run.Hero.UpgradableTraitCount = snapshot.traits.upgradableCount
+    run.BannedTraits = {}; for _, key in ipairs(snapshot.traits.bannedTraitKeys) do run.BannedTraits[key] = true end
+    run.ShrineUpgradesDisabled = {}; for _, key in ipairs(snapshot.vows.disabledKeys) do run.ShrineUpgradesDisabled[key] = true end
+    run.TemporaryMetaUpgrades = {}
+    run.BiomeBoonSkipCount = snapshot.forfeit == "consumed" and (snapshot.vows.effectiveRanks.BoonSkipShrineUpgrade or 0) or 0
+    _G.GameState = { ShrineUpgrades = snapshot.vows.configuredRanks, MetaUpgradeState = {} }
+    _G.MetaUpgradeCardData, _G.TraitRarityData = {}, { RarityUpgradeOrder = { "Common", "Rare", "Epic", "Heroic" } }
+    for _, card in ipairs(snapshot.arcana.active) do
+        _G.GameState.MetaUpgradeState[card.key] = { Equipped = true, Level = 1 }
+        _G.MetaUpgradeCardData[card.key] = {}
+        if card.origin == "temporary" then run.TemporaryMetaUpgrades[card.key] = true end
+    end
+    _G.GetInteractedGodsThisRun = function() return snapshot.godPool.acquiredSourceKeys end
+    _G.GetEligibleLootNames = function() return snapshot.godPool.effectiveSourceKeys end
+    _G.ReachedMaxGods = function() return snapshot.godPool.capNarrowed end
+    _G.GetNumShrineUpgrades = function(key) return snapshot.vows.effectiveRanks[key] or 0 end
 end
 
 function TestSession.testStartNewRunFreezesOnlyAtStartAndRealizesOpening()
@@ -223,9 +262,9 @@ function TestSession.testFixedPrebossBossPostbossLinksAndTerminalCompletion()
 end
 
 function TestSession.testRunStateDiagnosticsCompareExactCountersAndBags()
-    local plan = fixturePlan()
+    local plan = openingCheckpointsOnly(fixturePlan())
     local first = plan.rooms[1].trace[1].runState
-    local exit = plan.rooms[1].trace[2].runState
+    local exit = plan.rooms[1].trace[#plan.rooms[1].trace].runState
     local run = { CurrentRoom = { RoomSetName = "F" } }
     applyRunState(run, first)
     local state = start(plan, run)
@@ -244,7 +283,34 @@ function TestSession.testRunStateDiagnosticsCompareExactCountersAndBags()
     run.EncounterDepth = exit.counters.routeEncounterDepth + 1
     session.observeBeforeRoomExit(state, run)
     lu.assertEquals(state.state, "desynchronized")
-    lu.assertEquals(state.firstMismatch.checkpoint, "beforeRoomExit")
+    lu.assertEquals(state.firstMismatch.checkpoint, "trace-cursor")
+end
+
+function TestSession.testRunStateArcanaAutomaticOriginUsesCardDeclaration()
+    local plan = openingCheckpointsOnly(fixturePlan())
+    local snapshot = plan.rooms[1].trace[1].runState
+    snapshot.arcana.active = { { key = "AutoCard", origin = "automatic", rarity = "Common" } }
+    local run = { CurrentRoom = { RoomSetName = "F" } }
+    applyRunState(run, snapshot)
+    _G.MetaUpgradeCardData.AutoCard.AutoEquipRequirements = { { "example" } }
+    local state = start(plan, run)
+    session.observeRoom(state, run, { Name = "F_Opening01", RoomSetName = "F", __runPlannerExecutionRoomId = "golden-f-start" })
+    lu.assertEquals(state.state, "synchronized")
+end
+
+function TestSession.testTraceCursorRejectsAnOutOfOrderLifecycleCheckpoint()
+    local plan = fixturePlan()
+    local state, run = start(plan)
+    local opening = plan.rooms[1]
+    run.CurrentRoom = {
+        Name = opening.gameName, RoomSetName = opening.biomeKey,
+        __runPlannerExecutionRoomId = opening.id,
+    }
+    state.pendingExit = { sourceId = opening.id, destinationId = opening.outgoing.targets[1].room.id }
+    -- No room-entered observation has consumed the first trace instruction.
+    session.observeBeforeRoomExit(state, run)
+    lu.assertEquals(state.state, "desynchronized")
+    lu.assertEquals(state.firstMismatch.checkpoint, "trace-cursor")
 end
 
 function TestSession.testMissingRunStateValueIsAConformanceMismatch()
@@ -267,6 +333,194 @@ function TestSession.testMissingRunStateValueIsAConformanceMismatch()
     lu.assertEquals(missingBagState.state, "desynchronized")
     lu.assertEquals(missingBagState.firstMismatch.checkpoint, "roomEntered")
     lu.assertEquals(missingBagState.firstMismatch.disposition, "conformanceDiscrepancy")
+end
+
+function TestSession.testEncounterPhasesAreObservedInDeclaredOrder()
+    local plan = withoutOpeningAcquisition(fixturePlan())
+    local state, run = start(plan)
+    local opening = plan.rooms[1]
+    local room = { Name = opening.gameName, RoomSetName = "F", __runPlannerExecutionRoomId = opening.id }
+    applyRunState(run, opening.trace[1].runState)
+    run.CurrentRoom = room
+    session.observeRoom(state, run, room)
+    session.observeEncounterStart(state, run, room, { Name = opening.contents.encounterPhases[1].encounterKey })
+    session.observeEncounterEnd(state, run, room, { Name = opening.contents.encounterPhases[1].encounterKey })
+    lu.assertEquals(state.state, "synchronized")
+    session.observeEncounterStart(state, run, room, { Name = "WrongEncounter" })
+    lu.assertEquals(state.state, "desynchronized")
+    lu.assertEquals(state.firstMismatch.checkpoint, "encounter-start")
+end
+
+function TestSession.testMultiEncounterAssemblyIsVerifiedAfterVanillaSetup()
+    local plan = fixturePlan()
+    local state, run = start(plan)
+    local room = plan.rooms[1]
+    room = { Name = room.gameName, RoomSetName = "F", __runPlannerExecutionRoomId = room.id,
+        Encounters = { { Name = room.contents.encounterPhases[1].encounterKey } } }
+    run.CurrentRoom = room
+    session.verifyEncounterAssembly(state, run, room)
+    lu.assertEquals(state.state, "synchronized")
+end
+
+function TestSession.testMultipleEncounterResolutionUsesOnlyTheFrozenPhase()
+    local plan = fixturePlan()
+    local state, run = start(plan)
+    local expected = plan.rooms[1]
+    local room = { Name = expected.gameName, RoomSetName = "F", __runPlannerExecutionRoomId = expected.id }
+    run.CurrentRoom = room
+    local game = { EncounterData = { [expected.contents.encounterPhases[1].encounterKey] = { Name = expected.contents.encounterPhases[1].encounterKey } } }
+    session.beginMultipleEncounterResolution(state, run, room)
+    local resolved = session.chooseResolvedEncounter(state, run, room, game)
+    session.endMultipleEncounterResolution(state)
+    lu.assertEquals(resolved.Name, expected.contents.encounterPhases[1].encounterKey)
+    lu.assertEquals(state.state, "synchronized")
+end
+
+local function traceState(step)
+    local state = session.newState()
+    state.state, state.currentRoomId = "synchronized", "test"
+    state.roomsById = { test = { id = "test", trace = { step } } }
+    state.traceCursor = 1
+    return state
+end
+
+local function ordinaryAction()
+    return { id = "ordinary", kind = "acquireReward", roles = { {
+        gameName = "ApolloUpgrade", role = "source", settlement = { site = "site", entry = "entry" },
+        traitOffer = { kind = "traits", giver = "Apollo", selected = "option1", options = {
+            { key = "ApolloWeaponBoon", rarity = "Rare", effectiveLevel = 2 },
+            { key = "ApolloSpecialBoon", rarity = "Common", replacement = { replacedTraitKey = "OldSpecial", oldRarity = "Common" } },
+        } },
+    } } }
+end
+
+function TestSession.testOrdinaryLootRealizesExactOptionsAndVerifiesEffectiveLevel()
+    local state, loot = traceState(ordinaryAction()), { Name = "ApolloUpgrade" }
+    lu.assertEquals(session.prepareLootUse(state, loot).kind, "handled")
+    lu.assertEquals(loot.UpgradeOptions[1].ItemName, "ApolloWeaponBoon")
+    lu.assertEquals(loot.UpgradeOptions[1].Rarity, "Rare")
+    lu.assertEquals(loot.UpgradeOptions[1].StackNum, 2)
+    lu.assertEquals(loot.UpgradeOptions[2].TraitToReplace, "OldSpecial")
+    session.observeTraitSelection(state, "ApolloWeaponBoon")
+    session.verifyTraitAcquisition(state, { { Name = "ApolloWeaponBoon", Rarity = "Rare", StackNum = 2 } })
+    lu.assertEquals(state.traceCursor, 2)
+end
+
+function TestSession.testOrdinaryLootRejectsWrongTrait()
+    local state = traceState(ordinaryAction())
+    session.prepareLootUse(state, { Name = "ApolloUpgrade" })
+    session.observeTraitSelection(state, "ApolloCastBoon")
+    lu.assertEquals(state.firstMismatch.disposition, "playerDivergence")
+end
+
+function TestSession.testReplacementRequiresThePublishedOldTraitToBeGone()
+    local action = ordinaryAction()
+    action.roles[1].traitOffer.selected = "option2"
+    local state = traceState(action)
+    session.prepareLootUse(state, { Name = "ApolloUpgrade" })
+    session.observeTraitSelection(state, "ApolloSpecialBoon")
+    session.verifyTraitAcquisition(state, {
+        { Name = "ApolloSpecialBoon", Rarity = "Common" }, { Name = "OldSpecial", Rarity = "Common" },
+    })
+    lu.assertEquals(state.firstMismatch.checkpoint, "trait-acquisition")
+end
+
+function TestSession.testFallbackGoldIsSelectedAndVerifiedWithoutTraitLookup()
+    local step = { id = "fallback", kind = "acquireReward", roles = { { gameName = "ApolloUpgrade", role = "source", settlement = { site = "s", entry = "e" }, traitOffer = { kind = "fallbackGold", giver = "Apollo" } } } }
+    local state, loot = traceState(step), { Name = "ApolloUpgrade" }
+    session.prepareLootUse(state, loot)
+    lu.assertEquals(loot.UpgradeOptions[1].ItemName, "FallbackGold")
+    session.observeTraitSelection(state, "FallbackGold")
+    session.verifyTraitAcquisition(state, {})
+    lu.assertEquals(state.state, "synchronized")
+    lu.assertNil(state.pendingAcquisition)
+end
+
+function TestSession.testPomRequiresExactStackDelta()
+    local step = { id = "pom", kind = "acquireReward", roles = { { gameName = "StackUpgrade", role = "self", settlement = { site = "s", entry = "e" }, levelResolution = { offeredTargets = { "ApolloWeaponBoon" }, selectedTarget = "ApolloWeaponBoon", levelCount = 2 } } } }
+    local state, loot = traceState(step), { Name = "StackUpgrade" }
+    session.prepareLootUse(state, loot)
+    lu.assertEquals(loot.StackNum, 2)
+    session.observePomSelection(state, "ApolloWeaponBoon", { { Name = "ApolloWeaponBoon", StackNum = 3 } })
+    session.verifyPomResolution(state, { { Name = "ApolloWeaponBoon", StackNum = 5 } })
+    lu.assertEquals(state.traceCursor, 2)
+    lu.assertEquals(state.state, "synchronized")
+    lu.assertNil(state.pendingPom)
+end
+
+function TestSession.testSimpleConsumableConsumesOnlyAfterConfirmation()
+    local step = { id = "minor", kind = "acquireReward", roles = { { gameName = "HealDrop", role = "self", settlement = { site = "s", entry = "e" } } } }
+    local state = traceState(step)
+    lu.assertEquals(session.prepareLootUse(state, { Name = "HealDrop" }).kind, "handled")
+    session.markSimpleAcquisitionContact(state, "HealDrop")
+    session.completeSimpleAcquisition(state, "HealDrop")
+    lu.assertEquals(state.traceCursor, 2)
+end
+
+function TestSession.testCanonicalGStoryEncounterInteractionConsumesOnlyTheDeclaredRow()
+    local plan = fixturePlan("test/fixtures/execution-plan/fg.execution.json")
+    local story
+    for _, room in ipairs(plan.rooms) do if room.gameName == "G_Story01" then story = room end end
+    local state = session.newState()
+    state.state, state.currentRoomId, state.traceCursor = "synchronized", story.id, 2
+    state.roomsById = { [story.id] = story }
+    local room = { Name = story.gameName, RoomSetName = "G", __runPlannerExecutionRoomId = story.id }
+    session.observeEncounterInteraction(state, { CurrentRoom = room }, room)
+    lu.assertEquals(state.traceCursor, 3)
+    lu.assertEquals(state.state, "synchronized")
+    state.traceCursor = 1
+    session.observeEncounterInteraction(state, { CurrentRoom = room }, room)
+    lu.assertEquals(state.firstMismatch.checkpoint, "encounter-interaction")
+end
+
+function TestSession.testCleanupConsumesAuthoredSkipButRejectsRequiredPickup()
+    local skipped = { id = "skip", kind = "acquireReward", roles = { { gameName = "Ignored", role = "self" } } }
+    local state = traceState(skipped)
+    session.observeCleanup(state, {})
+    lu.assertEquals(state.traceCursor, 2)
+    local required = { id = "required", kind = "acquireReward", roles = { { gameName = "Required", role = "self", settlement = { site = "s", entry = "e" } } } }
+    state = traceState(required)
+    session.observeCleanup(state, {})
+    lu.assertEquals(state.firstMismatch.checkpoint, "acquisition-window-close")
+end
+
+function TestSession.testSteadyGrowthRequiresReturnedAndLiveNextRarity()
+    local state = traceState({ kind = "steadyGrowth", source = "SteadyGrowth", target = "ApolloWeaponBoon" })
+    _G.GetUpgradedRarity = function() return "Epic" end
+    local traits = { { Name = "ApolloWeaponBoon", Rarity = "Rare" } }
+    lu.assertEquals(session.prepareSteadyGrowth(state, "SteadyGrowth", {}, traits).kind, "handled")
+    traits[1].Rarity = "Epic"
+    session.verifySteadyGrowth(state, traits, { Name = "ApolloWeaponBoon", Rarity = "Epic" })
+    lu.assertEquals(state.traceCursor, 2)
+end
+
+function TestSession.testEmbryoRequiresExactReturnedTraitRarityAndDictionary()
+    local state = traceState({ kind = "transcendentEmbryo", target = "ChaosBlessing", rarity = "Heroic" })
+    lu.assertEquals(session.prepareEmbryo(state).target, "ChaosBlessing")
+    local trait = { Name = "ChaosBlessing", Rarity = "Heroic", FromChaosKeepsake = true }
+    session.verifyEmbryo(state, trait, { ChaosBlessing = { trait } })
+    lu.assertEquals(state.traceCursor, 2)
+end
+
+function TestSession.testRunStateHammerRanksUseLiveHammerRarity()
+    local plan = openingCheckpointsOnly(fixturePlan())
+    local snapshot = plan.rooms[1].trace[1].runState
+    snapshot.traits.equipped = {
+        { traitKey = "HammerOne", rarity = "Common", hammerRank = "RankI" },
+        { traitKey = "HammerTwo", rarity = "Legendary", hammerRank = "RankII" },
+    }
+    local run = { CurrentRoom = { RoomSetName = "F" } }
+    applyRunState(run, snapshot)
+    run.Hero.Traits[1].IsHammerTrait, run.Hero.Traits[2].IsHammerTrait = true, true
+    local state = start(plan, run)
+    session.observeRoom(state, run, { Name = "F_Opening01", RoomSetName = "F", __runPlannerExecutionRoomId = "golden-f-start" })
+    lu.assertEquals(state.state, "synchronized")
+    run.Hero.Traits[2].Rarity = "Common"
+    local mismatch = session.newState()
+    mismatch.state, mismatch.currentRoomId, mismatch.traceCursor = "synchronized", plan.rooms[1].id, 1
+    mismatch.roomsById = { [plan.rooms[1].id] = plan.rooms[1] }
+    session.observeRunState(mismatch, run, "roomEntered")
+    lu.assertEquals(mismatch.firstMismatch.checkpoint, "roomEntered")
 end
 
 function TestSession.testFirstMismatchBlocksFurtherObservation()

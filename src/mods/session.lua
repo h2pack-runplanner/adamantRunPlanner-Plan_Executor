@@ -15,6 +15,11 @@ local function newState()
         plan = nil, roomsById = {}, currentRoomId = nil, generation = nil,
         firstMismatch = nil, roomObserved = false, rewardObserved = false,
         diagnostics = {}, pendingExit = nil,
+        encounterPhase = nil,
+        -- The frozen trace is ordered data.  Keep one cursor instead of
+        -- rediscovering the next lifecycle action from the live room.
+        traceCursor = nil,
+        lastConfirmedAction = nil,
     }
 end
 
@@ -34,8 +39,13 @@ local function mismatch(state, checkpoint, expected, observed, beforeApply, disp
         beforeApply = beforeApply ~= false,
         disposition = disposition or "conformanceDiscrepancy",
         triggeringAgency = triggeringAgency or "game",
+        lastConfirmedAction = state.lastConfirmedAction,
     }
     state.state, state.reason = "desynchronized", "first-mismatch"
+end
+
+local function confirmAction(state, kind, key)
+    state.lastConfirmedAction = { kind = kind, key = key }
 end
 
 local function expectedRoom(state)
@@ -270,8 +280,267 @@ function session.prepareBatchRewardStore(state, currentRun)
     return { kind = "handled" }
 end
 
+local consumeTraceStep
+
 local function expectedReward(room)
     return room and room.contents and room.contents.incomingReward or nil
+end
+
+local function nextTrace(state)
+    local room = expectedRoom(state)
+    return room and room.trace and room.trace[state.traceCursor or 1] or nil
+end
+
+function session.prepareTraitOfferOption(state, itemIndex, itemData)
+    if state.state ~= "synchronized" then return { kind = "passThrough" } end
+    local action = nextTrace(state)
+    if action == nil or action.kind ~= "acquireReward" then return { kind = "passThrough" } end
+    local role
+    for _, candidate in ipairs(action.roles or {}) do if candidate.traitOffer ~= nil then role = candidate; break end end
+    if role == nil or role.traitOffer.kind == "fallbackGold" then return { kind = "passThrough" } end
+    local option = role.traitOffer.options[itemIndex]
+    if type(itemData) ~= "table" or option == nil then
+        mismatch(state, "trait-offer", { kind = "option", key = option and option.key }, { kind = "option", key = nil })
+        return { kind = "failed" }
+    end
+    itemData.ItemName, itemData.Rarity = option.key, option.rarity
+    if option.effectiveLevel ~= nil then itemData.StackNum = option.effectiveLevel end
+    if option.replacement ~= nil then
+        itemData.TraitToReplace, itemData.OldRarity = option.replacement.replacedTraitKey, option.replacement.oldRarity
+    end
+    state.pendingAcquisition = state.pendingAcquisition or { action = action, role = role, selected = role.traitOffer.selected }
+    return { kind = "handled" }
+end
+
+function session.observeTraitSelection(state, selectedTrait)
+    if state.state ~= "synchronized" then return end
+    local pending = state.pendingAcquisition
+    if pending == nil then
+        mismatch(state, "trait-selection", { kind = "planned", key = nil }, { kind = "trait", key = selectedTrait }, true, "playerDivergence", "player")
+        return
+    end
+    local offer = pending.role.traitOffer
+    if offer.kind == "fallbackGold" then
+        if selectedTrait ~= "FallbackGold" then
+            mismatch(state, "trait-selection", { kind = "trait", key = "FallbackGold" }, { kind = "trait", key = selectedTrait }, true, "playerDivergence", "player")
+            return
+        end
+        pending.selectedTrait = selectedTrait
+        confirmAction(state, "trait", selectedTrait)
+        return
+    end
+    local expected = offer.options[tonumber(pending.selected:sub(7))]
+    if expected == nil or selectedTrait ~= expected.key then
+        mismatch(state, "trait-selection", { kind = "trait", key = expected and expected.key }, { kind = "trait", key = selectedTrait }, true, "playerDivergence", "player")
+        return
+    end
+    pending.selectedTrait = selectedTrait
+    confirmAction(state, "trait", selectedTrait)
+end
+
+function session.verifyTraitAcquisition(state, heroTraits)
+    if state.state ~= "synchronized" or state.pendingAcquisition == nil then return end
+    local pending = state.pendingAcquisition
+    if pending.role.traitOffer.kind == "fallbackGold" then
+        if pending.selectedTrait ~= "FallbackGold" then
+            mismatch(state, "trait-acquisition", { kind = "trait", key = "FallbackGold" }, { kind = "trait", key = pending.selectedTrait }, false)
+            return
+        end
+        state.pendingAcquisition = nil
+        consumeTraceStep(state, "acquireReward")
+        return
+    end
+    local found = nil
+    for _, trait in pairs(heroTraits or {}) do
+        if type(trait) == "table" and (trait.Name == pending.selectedTrait or trait.TraitName == pending.selectedTrait) then found = trait; break end
+    end
+    local expected = pending.role.traitOffer.options[tonumber(pending.role.traitOffer.selected:sub(7))]
+    local replacedStillPresent = false
+    if expected.replacement then
+        for _, trait in pairs(heroTraits or {}) do
+            if type(trait) == "table" and trait.Name == expected.replacement.replacedTraitKey then replacedStillPresent = true end
+        end
+    end
+    if found == nil or (expected.rarity ~= nil and found.Rarity ~= expected.rarity)
+        or (expected.effectiveLevel ~= nil and found.StackNum ~= expected.effectiveLevel)
+        or replacedStillPresent then
+        mismatch(state, "trait-acquisition", { kind = "trait", key = pending.selectedTrait }, { kind = "trait", key = nil }, false)
+        return
+    end
+    state.pendingAcquisition = nil
+    consumeTraceStep(state, "acquireReward")
+end
+
+local function plannedRoleFor(state, itemName)
+    local action = nextTrace(state)
+    if action == nil or action.kind ~= "acquireReward" then return nil end
+    for _, role in ipairs(action.roles or {}) do
+        if role.gameName == itemName then return action, role end
+    end
+    return action, nil
+end
+
+-- UseLoot is the common natural acquisition seam for Boons, Devotions,
+-- Hammers and Poms. Resource-cost loot belongs to Gate D and passes through.
+function session.prepareLootUse(state, usee)
+    if state.state ~= "synchronized" then return { kind = "passThrough" } end
+    if type(usee) ~= "table" then return { kind = "passThrough" } end
+    if usee.ResourceCosts ~= nil and usee.IgnorePurchase ~= true then return { kind = "passThrough" } end
+    local action, role = plannedRoleFor(state, usee.Name)
+    if action == nil then
+        mismatch(state, "acquisition", { kind = "planned", key = nil }, { kind = "loot", key = usee.Name }, true, "playerDivergence", "player")
+        return { kind = "failed" }
+    end
+    if role == nil then
+        mismatch(state, "acquisition", { kind = "role", key = action.roles[1] and action.roles[1].gameName }, { kind = "loot", key = usee.Name }, true, "playerDivergence", "player")
+        return { kind = "failed" }
+    end
+    if role.traitOffer then
+        local offer = role.traitOffer
+        if offer.kind == "fallbackGold" then
+            usee.UpgradeOptions = { { ItemName = "FallbackGold", Rarity = "Common" } }
+        else
+            usee.UpgradeOptions = {}
+            for index, option in ipairs(offer.options) do
+                local item = { ItemName = option.key, Rarity = option.rarity, StackNum = option.effectiveLevel }
+                if option.replacement then item.TraitToReplace, item.OldRarity = option.replacement.replacedTraitKey, option.replacement.oldRarity end
+                usee.UpgradeOptions[index] = item
+            end
+        end
+        state.pendingAcquisition = { action = action, role = role, selected = offer.selected }
+    elseif role.levelResolution then
+        local resolution = role.levelResolution
+        usee.StackOnly, usee.StackNum, usee.UpgradeOptions = true, resolution.levelCount, {}
+        for index, key in ipairs(resolution.offeredTargets) do usee.UpgradeOptions[index] = { ItemName = key } end
+        state.pendingPom = { action = action, role = role, resolution = resolution, selectedBefore = nil }
+    else
+        state.pendingSimpleAcquisition = { action = action, role = role }
+    end
+    return { kind = "handled" }
+end
+
+function session.completeSimpleAcquisition(state, itemName)
+    local pending = state.pendingSimpleAcquisition
+    if state.state ~= "synchronized" or pending == nil then return end
+    if pending.contactReached ~= true then return end
+    if pending.role.gameName ~= itemName then
+        mismatch(state, "acquisition", { kind = "loot", key = pending.role.gameName }, { kind = "loot", key = itemName }, false)
+        return
+    end
+    confirmAction(state, "acquisition", itemName)
+    state.pendingSimpleAcquisition = nil
+    consumeTraceStep(state, "acquireReward")
+end
+
+function session.markSimpleAcquisitionContact(state, itemName)
+    local pending = state.pendingSimpleAcquisition
+    if pending and pending.role.gameName == itemName then pending.contactReached = true end
+end
+
+function session.observePomSelection(state, traitKey, heroTraits)
+    local pending = state.pendingPom
+    if state.state ~= "synchronized" or pending == nil then return end
+    if pending.resolution.selectedTarget ~= traitKey then
+        mismatch(state, "pom-selection", { kind = "trait", key = pending.resolution.selectedTarget }, { kind = "trait", key = traitKey }, true, "playerDivergence", "player")
+        return
+    end
+    for _, trait in pairs(heroTraits or {}) do
+        if type(trait) == "table" and traitKey == trait.Name then pending.selectedBefore = trait.StackNum; break end
+    end
+    if type(pending.selectedBefore) ~= "number" then
+        mismatch(state, "pom-selection", { kind = "trait", key = traitKey }, { kind = "trait", key = nil }, false)
+        return
+    end
+    confirmAction(state, "pom", traitKey)
+end
+
+function session.verifyPomResolution(state, heroTraits)
+    if state.state ~= "synchronized" or state.pendingPom == nil then return end
+    local pending = state.pendingPom
+    local selected = pending.resolution.selectedTarget
+    if selected == nil then
+        state.pendingPom = nil
+        consumeTraceStep(state, "acquireReward")
+        return
+    end
+    local trait = nil
+    for _, value in pairs(heroTraits or {}) do
+        if type(value) == "table" and (value.Name == selected or value.TraitName == selected) then trait = value; break end
+    end
+    local observed = trait and trait.StackNum or nil
+    local prior = pending.selectedBefore
+    if trait == nil or type(prior) ~= "number" or observed ~= prior + pending.resolution.levelCount then
+        mismatch(state, "pom-acquisition", { kind = "traitLevel", key = selected }, { kind = "traitLevel", key = observed }, false)
+        return
+    end
+    state.pendingPom = nil
+    consumeTraceStep(state, "acquireReward")
+end
+
+-- Automatic outcomes are still performed by the game.  These helpers only
+-- bind the already-published target to the game's narrow random seam.
+local function sourceName(value)
+    return type(value) == "table" and (value.Name or value.SourceName) or value
+end
+
+function session.prepareSteadyGrowth(state, source, args, heroTraits)
+    if state.state ~= "synchronized" then return { kind = "passThrough" } end
+    local step = nextTrace(state)
+    if step == nil or step.kind ~= "steadyGrowth" then return { kind = "passThrough" } end
+    local target
+    for _, trait in pairs(heroTraits or {}) do
+        if type(trait) == "table" and (trait.Name == step.target or trait.TraitName == step.target) then target = trait; break end
+    end
+    if target == nil or type(args) ~= "table" or sourceName(source) ~= step.source then
+        mismatch(state, "steady-growth", { kind = "trait", key = step.target }, { kind = "trait", key = nil })
+        return { kind = "failed" }
+    end
+    args.ForceUpgrade = { target }
+    state.pendingSteadyGrowth = { step = step, priorRarity = target.Rarity }
+    return { kind = "handled" }
+end
+
+function session.verifySteadyGrowth(state, heroTraits, returnedTrait)
+    local pending = state.pendingSteadyGrowth
+    if state.state ~= "synchronized" or pending == nil then return end
+    local step = pending.step
+    for _, trait in pairs(heroTraits or {}) do
+        if type(trait) == "table" and (trait.Name == step.target or trait.TraitName == step.target) then
+            local nextRarity = type(_G.GetUpgradedRarity) == "function" and _G.GetUpgradedRarity(pending.priorRarity) or nil
+            if nextRarity == nil or trait.Rarity ~= nextRarity
+                or type(returnedTrait) ~= "table" or returnedTrait.Name ~= step.target
+                or returnedTrait.Rarity ~= nextRarity then
+                mismatch(state, "steady-growth", { kind = "rarity", key = nextRarity }, { kind = "rarity", key = trait.Rarity }, false)
+                return
+            end
+            state.pendingSteadyGrowth = nil
+            consumeTraceStep(state, "steadyGrowth")
+            return
+        end
+    end
+    mismatch(state, "steady-growth", { kind = "trait", key = step.target }, { kind = "trait", key = nil }, false)
+end
+
+function session.prepareEmbryo(state)
+    if state.state ~= "synchronized" then return nil end
+    local step = nextTrace(state)
+    if step == nil or step.kind ~= "transcendentEmbryo" then return nil end
+    state.pendingEmbryo = step
+    return { target = step.target, rarity = step.rarity }
+end
+
+function session.verifyEmbryo(state, trait, traitDictionary)
+    local step = state.pendingEmbryo
+    if state.state ~= "synchronized" or step == nil then return end
+    local key = type(trait) == "table" and (trait.Name or trait.TraitName) or trait
+    if key ~= step.target or type(trait) ~= "table" or trait.Rarity ~= step.rarity
+        or trait.FromChaosKeepsake ~= true or type(traitDictionary) ~= "table"
+        or type(traitDictionary[step.target]) ~= "table" then
+        mismatch(state, "transcendent-embryo", { kind = "trait", key = step.target }, { kind = "trait", key = key }, false)
+        return
+    end
+    state.pendingEmbryo = nil
+    consumeTraceStep(state, "transcendentEmbryo")
 end
 
 function session.chooseRoomReward(state, currentRun, room, game, base, rewardStoreName, previouslyChosenRewards, args)
@@ -366,6 +635,136 @@ local function liveBag(currentRun, storeKey)
     return #store
 end
 
+local function sameArray(expected, observed, key)
+    if type(observed) ~= "table" or #expected ~= #observed then return false end
+    local actual, wanted = {}, {}
+    for _, value in ipairs(observed) do actual[key(value)] = (actual[key(value)] or 0) + 1 end
+    for _, value in ipairs(expected) do wanted[key(value)] = (wanted[key(value)] or 0) + 1 end
+    for value, count in pairs(wanted) do if actual[value] ~= count then return false end end
+    return true
+end
+
+local function traitKey(value) return type(value) == "table" and (value.Name or value.TraitName or value.Key) or value end
+
+-- Each field has one bounded adapter to its live owner.  Returning nil is
+-- intentional: it turns an unsupported contact into a conformance mismatch
+-- instead of quietly dropping a published field.
+local function callLive(name, ...)
+    local fn = _G[name]
+    if type(fn) ~= "function" then return nil end
+    local ok, value = pcall(fn, ...)
+    if not ok then return nil end
+    return value
+end
+
+local function keysOfEnabled(values)
+    if type(values) ~= "table" then return nil end
+    local result = {}
+    for key, enabled in pairs(values) do if enabled then result[#result + 1] = key end end
+    return result
+end
+
+local function liveArcana(currentRun)
+    local state, cards = _G.GameState and _G.GameState.MetaUpgradeState, _G.MetaUpgradeCardData
+    if type(state) ~= "table" or type(cards) ~= "table" then return nil end
+    local temporary = currentRun.TemporaryMetaUpgrades
+    if type(temporary) ~= "table" then return nil end
+    local order = _G.TraitRarityData and _G.TraitRarityData.RarityUpgradeOrder
+    if type(order) ~= "table" then return nil end
+    local result = {}
+    for key, entry in pairs(state) do
+        if type(entry) == "table" and entry.Equipped then
+            local card = cards[key]
+            if type(card) ~= "table" then return nil end
+            local rarity = order[entry.RarityLevel or entry.Level or 1]
+            if type(rarity) ~= "string" then return nil end
+            local origin = temporary[key] and "temporary"
+                or (card.AutoEquipRequirements ~= nil and "automatic" or "manual")
+            result[#result + 1] = { key = key, origin = origin, rarity = rarity }
+        end
+    end
+    return result
+end
+
+local function liveDiagnostic(currentRun, diagnostic)
+    if type(currentRun) ~= "table" then return nil end
+    local hero = currentRun.Hero
+    local traits = type(hero) == "table" and hero.Traits
+    if type(traits) ~= "table" then return nil end
+    local equipped = {}
+    for _, trait in pairs(traits) do
+        if type(trait) == "table" then
+            equipped[#equipped + 1] = {
+                traitKey = traitKey(trait), rarity = trait.Rarity,
+                level = trait.StackNum,
+            }
+            if trait.IsHammerTrait == true then
+                equipped[#equipped].hammerRank = trait.Rarity == "Legendary" and "RankII" or "RankI"
+            end
+        end
+    end
+    local slots = {}
+    local liveSlots = type(hero) == "table" and hero.SlottedTraits
+    if type(liveSlots) ~= "table" then return nil end
+    for _, expected in ipairs(diagnostic.traits.slots) do
+        slots[#slots + 1] = { slot = expected.slot, traitKey = traitKey(liveSlots[expected.slot]) }
+    end
+    local acquired = callLive("GetInteractedGodsThisRun")
+    local effective = callLive("GetEligibleLootNames")
+    local cap = callLive("ReachedMaxGods")
+    local arcana = liveArcana(currentRun)
+    local configured = _G.GameState and _G.GameState.ShrineUpgrades
+    local disabled = currentRun.ShrineUpgradesDisabled
+    if type(acquired) ~= "table" or type(effective) ~= "table" or type(cap) ~= "boolean"
+        or arcana == nil or type(configured) ~= "table" or type(disabled) ~= "table" then return nil end
+    local effectiveRanks = {}
+    for key in pairs(diagnostic.vows.effectiveRanks) do
+        local rank = callLive("GetNumShrineUpgrades", key)
+        if type(rank) ~= "number" then return nil end
+        effectiveRanks[key] = rank
+    end
+    local configuredRanks = {}
+    for key in pairs(diagnostic.vows.configuredRanks) do
+        if type(configured[key]) ~= "number" then return nil end
+        configuredRanks[key] = configured[key]
+    end
+    local forfeitRank = callLive("GetNumShrineUpgrades", "BoonSkipShrineUpgrade")
+    if type(forfeitRank) ~= "number" or type(currentRun.BiomeBoonSkipCount) ~= "number" then return nil end
+    local forfeit = forfeitRank <= 0 and "inactive" or (currentRun.BiomeBoonSkipCount >= forfeitRank and "consumed" or "available")
+    return {
+        godPool = {
+            acquiredSourceKeys = acquired, effectiveSourceKeys = effective, capNarrowed = cap,
+        },
+        traits = {
+            equipped = equipped, slots = slots, elements = hero.Elements,
+            godRarityCounts = hero.GodBoonRarities,
+            upgradableCount = hero.UpgradableTraitCount,
+            bannedTraitKeys = keysOfEnabled(currentRun.BannedTraits),
+        },
+        arcana = { active = arcana },
+        vows = {
+            configuredRanks = configuredRanks, effectiveRanks = effectiveRanks,
+            disabledKeys = keysOfEnabled(disabled),
+        },
+        forfeit = forfeit,
+    }
+end
+
+local function equalMap(expected, observed)
+    if type(observed) ~= "table" then return false end
+    for key, value in pairs(expected) do if observed[key] ~= value then return false end end
+    for key in pairs(observed) do if expected[key] == nil then return false end end
+    return true
+end
+
+local function traitMatches(expected, observed)
+    if type(observed) ~= "table" then return false end
+    for _, field in ipairs({ "traitKey", "rarity", "level", "hammerRank" }) do
+        if expected[field] ~= nil and observed[field] ~= expected[field] then return false end
+    end
+    return true
+end
+
 function session.observeRunState(state, currentRun, checkpoint)
     if state.state ~= "synchronized" then return false end
     local expected = expectedRoom(state)
@@ -387,11 +786,62 @@ function session.observeRunState(state, currentRun, checkpoint)
                     return false
                 end
             end
+            local live = liveDiagnostic(currentRun, diagnostic)
+            if live == nil then
+                mismatch(state, checkpoint, { kind = "runStateObserver", key = "complete-v3" }, { kind = "runStateObserver", key = nil }, false)
+                return false
+            end
+            if not sameArray(diagnostic.godPool.acquiredSourceKeys, live.godPool.acquiredSourceKeys, tostring)
+                or not sameArray(diagnostic.godPool.effectiveSourceKeys, live.godPool.effectiveSourceKeys, tostring)
+                or live.godPool.capNarrowed ~= diagnostic.godPool.capNarrowed then
+                mismatch(state, checkpoint, { kind = "godPool", key = diagnostic.godPool }, { kind = "godPool", key = live.godPool }, false)
+                return false
+            end
+            for _, expectedTrait in ipairs(diagnostic.traits.equipped) do
+                local actual
+                for _, candidate in ipairs(live.traits.equipped) do if candidate.traitKey == expectedTrait.traitKey then actual = candidate; break end end
+                if not traitMatches(expectedTrait, actual) then
+                    mismatch(state, checkpoint, { kind = "trait:" .. expectedTrait.traitKey, key = expectedTrait }, { kind = "trait:" .. expectedTrait.traitKey, key = actual }, false)
+                    return false
+                end
+            end
+            if #diagnostic.traits.equipped ~= #live.traits.equipped or not sameArray(diagnostic.traits.slots, live.traits.slots, function(value) return value.slot .. "=" .. tostring(value.traitKey) end)
+                or not equalMap(diagnostic.traits.elements, live.traits.elements)
+                or not equalMap(diagnostic.traits.godRarityCounts, live.traits.godRarityCounts)
+                or diagnostic.traits.upgradableCount ~= live.traits.upgradableCount
+                or not sameArray(diagnostic.traits.bannedTraitKeys, live.traits.bannedTraitKeys, tostring) then
+                mismatch(state, checkpoint, { kind = "traits", key = diagnostic.traits }, { kind = "traits", key = live.traits }, false)
+                return false
+            end
+            if not sameArray(diagnostic.arcana.active, live.arcana.active, function(value)
+                return tostring(value.key or value.Name) .. "|" .. tostring(value.origin or value.Origin) .. "|" .. tostring(value.rarity or value.Rarity)
+            end) or not equalMap(diagnostic.vows.configuredRanks, live.vows.configuredRanks)
+                or not equalMap(diagnostic.vows.effectiveRanks, live.vows.effectiveRanks)
+                or not sameArray(diagnostic.vows.disabledKeys, live.vows.disabledKeys, tostring)
+                or diagnostic.forfeit ~= live.forfeit then
+                mismatch(state, checkpoint, { kind = "retained-state", key = diagnostic.forfeit }, { kind = "retained-state", key = live.forfeit }, false)
+                return false
+            end
             state.diagnostics[checkpoint] = true
             return true
         end
     end
     return false
+end
+
+consumeTraceStep = function(state, kind)
+    local room = expectedRoom(state)
+    local trace = room and room.trace or nil
+    local index = state.traceCursor or 1
+    local step = type(trace) == "table" and trace[index] or nil
+    if step == nil or step.kind ~= kind then
+        mismatch(state, "trace-cursor",
+            { kind = "traceStep", key = step and step.kind or nil },
+            { kind = "traceStep", key = kind }, false)
+        return false
+    end
+    state.traceCursor = index + 1
+    return true
 end
 
 function session.observeRoom(state, currentRun, room)
@@ -401,14 +851,158 @@ function session.observeRoom(state, currentRun, room)
         mismatch(state, "room-entered", { kind = "room", key = expected and expected.id }, { kind = "room", key = roomName(observed) })
         return
     end
-    state.roomObserved, state.rewardObserved, state.generation = true, false, nil
+    state.roomObserved, state.rewardObserved, state.generation, state.encounterPhase = true, false, nil, nil
+    state.traceCursor = 1
     state.reason = "room-entry-observed"
+    if not consumeTraceStep(state, "roomEntered") then return end
     session.observeRunState(state, currentRun, "roomEntered")
+end
+
+-- Encounter declarations are already resolved by the planner.  Observe the
+-- game's normal phase boundaries; do not start, end, or substitute combat.
+local function encounterName(value)
+    return type(value) == "table" and (value.Name or value.EncounterName) or value
+end
+
+function session.observeEncounterStart(state, currentRun, room, encounter)
+    if state.state ~= "synchronized" then return end
+    local matched, expected, observed = currentRoomContact(state, currentRun, room)
+    if not matched then
+        mismatch(state, "encounter-start", { kind = "room", key = expected and expected.id },
+            { kind = "room", key = roomName(observed) })
+        return
+    end
+    local step = expected.trace and expected.trace[state.traceCursor or 1] or nil
+    local phase = step and step.kind == "encounterStart" and { slotKey = step.phase, encounterKey = step.encounter } or nil
+    if phase == nil or encounterName(encounter) ~= phase.encounterKey then
+        mismatch(state, "encounter-start", { kind = "encounter", key = phase and phase.encounterKey },
+            { kind = "encounter", key = encounterName(encounter) }, false)
+        return
+    end
+    state.encounterPhase = phase.slotKey
+    consumeTraceStep(state, "encounterStart")
+end
+
+function session.observeEncounterEnd(state, currentRun, room, encounter)
+    if state.state ~= "synchronized" then return end
+    local expected = expectedRoom(state)
+    local step = expected and expected.trace and expected.trace[state.traceCursor or 1] or nil
+    local phase = expected and expected.contents and expected.contents.encounterPhases or {}
+    local expectedEncounter
+    for _, candidate in ipairs(phase) do if candidate.slotKey == (step and step.phase) then expectedEncounter = candidate.encounterKey end end
+    if step == nil or step.kind ~= "encounterEnd" or step.phase ~= state.encounterPhase
+        or encounterName(encounter) ~= expectedEncounter then
+        mismatch(state, "encounter-end", { kind = "phase", key = step and step.phase },
+            { kind = "encounter", key = encounterName(encounter) }, false)
+        return
+    end
+    consumeTraceStep(state, "encounterEnd")
+end
+
+function session.observeEncounterInteraction(state, currentRun, room)
+    if state.state ~= "synchronized" then return end
+    local matched, expected, observed = currentRoomContact(state, currentRun, room)
+    if not matched then
+        mismatch(state, "encounter-interaction", { kind = "room", key = expected and expected.id }, { kind = "room", key = roomName(observed) })
+        return
+    end
+    local step = nextTrace(state)
+    local found = false
+    for _, phase in ipairs(expected.contents.encounterPhases or {}) do if phase.slotKey == (step and step.phaseKey) then found = true end end
+    if step == nil or step.kind ~= "encounterInteraction" or not found then
+        mismatch(state, "encounter-interaction", { kind = "phase", key = step and step.phaseKey }, { kind = "phase", key = nil }, false, "playerDivergence", "player")
+        return
+    end
+    confirmAction(state, "encounterInteraction", step.phaseKey)
+    consumeTraceStep(state, "encounterInteraction")
+end
+
+-- SetupRoomMultipleEncountersData remains responsible for cloning descriptor
+-- RoomChanges and normal encounter setup.  Verify its resulting ordered list
+-- after vanilla has resolved it; a plan never hand-builds Encounter records.
+function session.verifyEncounterAssembly(state, currentRun, room)
+    if state.state ~= "synchronized" then return end
+    local matched, expected, observed = currentRoomContact(state, currentRun, room)
+    if not matched then
+        mismatch(state, "encounter-assembly", { kind = "room", key = expected and expected.id },
+            { kind = "room", key = roomName(observed) })
+        return
+    end
+    local actual = type(room) == "table" and room.Encounters or nil
+    local phases = expected.contents and expected.contents.encounterPhases or {}
+    if #phases <= 1 then return end
+    if type(actual) ~= "table" then
+        mismatch(state, "encounter-assembly", { kind = "phaseCount", key = #phases },
+            { kind = "phaseCount", key = nil })
+        return
+    end
+    for index, phase in ipairs(phases) do
+        if encounterName(actual[index]) ~= phase.encounterKey then
+            mismatch(state, "encounter-assembly", { kind = "encounter", key = phase.encounterKey },
+                { kind = "encounter", key = encounterName(actual[index]) }, false)
+            return
+        end
+    end
+end
+
+function session.beginMultipleEncounterResolution(state, currentRun, room)
+    if state.state ~= "synchronized" then return end
+    local matched = currentRoomContact(state, currentRun, room)
+    if matched then state.encounterResolution = 0 end
+end
+
+function session.chooseResolvedEncounter(state, currentRun, room, game)
+    if state.state ~= "synchronized" or state.encounterResolution == nil then return nil end
+    local expected = expectedRoom(state)
+    local index = state.encounterResolution + 1
+    local phase = expected and expected.contents and expected.contents.encounterPhases[index] or nil
+    if phase == nil or type(game) ~= "table" or type(game.EncounterData) ~= "table" then
+        mismatch(state, "encounter-resolution", { kind = "encounter", key = phase and phase.encounterKey },
+            { kind = "encounter", key = nil })
+        return nil
+    end
+    local declaration = game.EncounterData[phase.encounterKey]
+    if type(declaration) ~= "table" then
+        mismatch(state, "encounter-resolution", { kind = "encounter", key = phase.encounterKey },
+            { kind = "encounter", key = nil })
+        return nil
+    end
+    state.encounterResolution = index
+    return declaration
+end
+
+function session.endMultipleEncounterResolution(state)
+    state.encounterResolution = nil
 end
 
 function session.observeBeforeRoomExit(state, currentRun)
     if state.state ~= "synchronized" or state.pendingExit == nil then return false end
+    -- The hook is normally reached once.  Keeping a completed checkpoint
+    -- observable makes repeated diagnostic calls harmless (and does not
+    -- advance or search the trace); only an attempt to skip its predecessor
+    -- is a cursor violation.
+    local expected = expectedRoom(state)
+    local step = expected and expected.trace and expected.trace[state.traceCursor or 1] or nil
+    if not consumeTraceStep(state, "beforeRoomExit") then return false end
     return session.observeRunState(state, currentRun, "beforeRoomExit")
+end
+
+function session.observeCleanup(state, currentRun)
+    if state.state ~= "synchronized" then return end
+    local expected = expectedRoom(state)
+    if expected == nil then return end
+    local step = nextTrace(state)
+    while step and step.kind == "acquireReward" do
+        local required = false
+        for _, role in ipairs(step.roles or {}) do if role.settlement ~= nil then required = true end end
+        if required then
+            mismatch(state, "acquisition-window-close", { kind = "requiredPickup", key = step.id }, { kind = "pickup", key = nil }, false, "playerDivergence", "player")
+            return
+        end
+        consumeTraceStep(state, "acquireReward")
+        step = nextTrace(state)
+    end
+    if step and step.kind == "cleanup" then consumeTraceStep(state, "cleanup") end
 end
 
 function session.observeExit(state, currentRun, door)
@@ -466,7 +1060,7 @@ function session.commitExit(state)
         return
     end
     state.currentRoomId = pending.destinationId
-    state.generation, state.roomObserved, state.rewardObserved = nil, false, false
+    state.generation, state.roomObserved, state.rewardObserved, state.traceCursor = nil, false, false, nil
 end
 
 function session.status(state)

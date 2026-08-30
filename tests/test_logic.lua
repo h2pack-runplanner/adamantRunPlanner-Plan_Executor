@@ -10,6 +10,17 @@ local function fixturePlan()
     return assert(protocol.decode(fixtures.decode()))
 end
 
+local function withoutOpeningAcquisition(plan)
+    table.remove(plan.rooms[1].trace, 2)
+    return plan
+end
+
+local function openingCheckpointsOnly(plan)
+    local trace = plan.rooms[1].trace
+    plan.rooms[1].trace = { trace[1], trace[#trace] }
+    return plan
+end
+
 local function gameFor(plan)
     local roomData = {}
     for _, room in ipairs(plan.rooms) do
@@ -27,6 +38,7 @@ local function gameFor(plan)
 end
 
 local function applyRunState(run, snapshot)
+    _G.CurrentRun = run
     run.BiomeDepthCache = snapshot.counters.biomeDepthCache
     run.BiomeEncounterDepth = snapshot.counters.biomeEncounterDepth
     run.EncounterDepth = snapshot.counters.routeEncounterDepth
@@ -37,10 +49,37 @@ local function applyRunState(run, snapshot)
         run.RewardStores[bag.storeKey] = {}
         for index = 1, bag.remaining.count do run.RewardStores[bag.storeKey][index] = {} end
     end
+    run.Hero = { Traits = {}, SlottedTraits = {} }
+    for _, trait in ipairs(snapshot.traits.equipped) do
+        run.Hero.Traits[#run.Hero.Traits + 1] = {
+            Name = trait.traitKey, Rarity = trait.rarity, StackNum = trait.level,
+            HammerRank = trait.hammerRank,
+        }
+    end
+    for _, slot in ipairs(snapshot.traits.slots) do
+        run.Hero.SlottedTraits[slot.slot] = slot.traitKey and { Name = slot.traitKey } or nil
+    end
+    run.Hero.Elements, run.Hero.GodBoonRarities = snapshot.traits.elements, snapshot.traits.godRarityCounts
+    run.Hero.UpgradableTraitCount = snapshot.traits.upgradableCount
+    run.BannedTraits = {}; for _, key in ipairs(snapshot.traits.bannedTraitKeys) do run.BannedTraits[key] = true end
+    run.ShrineUpgradesDisabled = {}; for _, key in ipairs(snapshot.vows.disabledKeys) do run.ShrineUpgradesDisabled[key] = true end
+    run.TemporaryMetaUpgrades = {}
+    run.BiomeBoonSkipCount = snapshot.forfeit == "consumed" and (snapshot.vows.effectiveRanks.BoonSkipShrineUpgrade or 0) or 0
+    _G.GameState = { ShrineUpgrades = snapshot.vows.configuredRanks, MetaUpgradeState = {} }
+    _G.MetaUpgradeCardData, _G.TraitRarityData = {}, { RarityUpgradeOrder = { "Common", "Rare", "Epic", "Heroic" } }
+    for _, card in ipairs(snapshot.arcana.active) do
+        _G.GameState.MetaUpgradeState[card.key] = { Equipped = true, Level = 1 }
+        _G.MetaUpgradeCardData[card.key] = {}
+        if card.origin == "temporary" then run.TemporaryMetaUpgrades[card.key] = true end
+    end
+    _G.GetInteractedGodsThisRun = function() return snapshot.godPool.acquiredSourceKeys end
+    _G.GetEligibleLootNames = function() return snapshot.godPool.effectiveSourceKeys end
+    _G.ReachedMaxGods = function() return snapshot.godPool.capNarrowed end
+    _G.GetNumShrineUpgrades = function(key) return snapshot.vows.effectiveRanks[key] or 0 end
 end
 
 function TestLogic.testGateBHooksRealizeBatchAndObserveSelectedRoom()
-    local plan = fixturePlan()
+    local plan = openingCheckpointsOnly(fixturePlan())
     local state = session.newState()
     local wrapped, statusWrites = {}, {}
     local data = {
@@ -102,7 +141,7 @@ function TestLogic.testGateBHooksRealizeBatchAndObserveSelectedRoom()
     lu.assertEquals(targetData.__runPlannerExecutionExitIndex, 1)
     doors[1].Room = targetData
     wrapped.DoUnlockRoomExits(nil, runtime, function(run, room) return room end, result, currentRun.StartingRoom)
-    applyRunState(currentRun, plan.rooms[1].trace[2].runState)
+    applyRunState(currentRun, plan.rooms[1].trace[#plan.rooms[1].trace].runState)
     local observedSourceAtCommit = false
     local destinationCommittedBeforeLeaveReturns = false
     local updated = wrapped.LeaveRoom(nil, runtime, function(run, door)
@@ -196,6 +235,129 @@ function TestLogic.testPreContactMismatchDelegatesToVanillaAndFreezesPlannerSuff
     end, run, {}, {})
     lu.assertEquals(second, "vanilla-suffix")
     lu.assertEquals(baseCalls, 2)
+end
+
+function TestLogic.testAcquisitionHooksWireOrdinaryOfferAndPostBaseVerification()
+    local state = session.newState()
+    state.state, state.currentRoomId, state.traceCursor = "synchronized", "room", 1
+    state.roomsById = { room = { trace = { { kind = "acquireReward", roles = { {
+        gameName = "ApolloUpgrade", role = "source", settlement = { site = "s", entry = "e" },
+        traitOffer = { kind = "traits", giver = "Apollo", selected = "option1", options = { { key = "ApolloWeaponBoon", rarity = "Rare", effectiveLevel = 2 } } },
+    } } } } } }
+    local wrapped = {}
+    local api = setmetatable({ defineCache = function() end, get = function() return state end }, { __index = session })
+    logic.attach({ hooks = { wrap = function(name, _, callback) wrapped[name] = callback end } }, { inbox = {}, session = api })
+    local runtime = { status = { write = function() end } }
+    _G.CurrentRun = { Hero = { Traits = {} } }
+    local loot = { Name = "ApolloUpgrade" }
+    wrapped.UseLoot(nil, runtime, function(usee, args, user)
+        lu.assertEquals(args.marker, "loot-args")
+        lu.assertEquals(user.Name, "hero")
+        return true
+    end, loot, { marker = "loot-args" }, { Name = "hero" })
+    lu.assertEquals(loot.UpgradeOptions[1].ItemName, "ApolloWeaponBoon")
+    local item = loot.UpgradeOptions[1]
+    wrapped.CreateUpgradeChoiceButton(nil, runtime, function(_, _, index, itemData)
+        lu.assertEquals(index, 1); return itemData
+    end, {}, loot, 1, item, {})
+    wrapped.HandleUpgradeChoiceSelection(nil, runtime, function(_, button)
+        _G.CurrentRun.Hero.Traits = { { Name = button.Data.Name, Rarity = button.Data.Rarity, StackNum = button.Data.StackNum } }
+        return "selected"
+    end, {}, { Data = { Name = "ApolloWeaponBoon", Rarity = "Rare", StackNum = 2 } }, {})
+    lu.assertEquals(state.state, "synchronized")
+    lu.assertEquals(state.traceCursor, 2)
+end
+
+function TestLogic.testSimpleLootHookRequiresNestedPickupContact()
+    local state = session.newState()
+    state.state, state.currentRoomId, state.traceCursor = "synchronized", "room", 1
+    state.roomsById = { room = { trace = { { kind = "acquireReward", roles = { { gameName = "MetaCurrencyDrop", role = "self", settlement = { site = "s", entry = "e" } } } } } } }
+    local wrapped = {}
+    local api = setmetatable({ defineCache = function() end, get = function() return state end }, { __index = session })
+    logic.attach({ hooks = { wrap = function(name, _, callback) wrapped[name] = callback end } }, { inbox = {}, session = api })
+    local runtime = { status = { write = function() end } }
+    wrapped.UseLoot(nil, runtime, function() return false end, { Name = "MetaCurrencyDrop" }, {}, {})
+    lu.assertEquals(state.traceCursor, 1)
+    wrapped.UseLoot(nil, runtime, function(usee, args, user)
+        return wrapped.HandleLootPickup(nil, runtime, function() return true end, {}, usee, args)
+    end, { Name = "MetaCurrencyDrop" }, {}, {})
+    lu.assertEquals(state.traceCursor, 2)
+end
+
+local function hookedTrace(step)
+    local state, wrapped = session.newState(), {}
+    state.state, state.currentRoomId, state.traceCursor = "synchronized", "room", 1
+    state.roomsById = { room = { trace = { step } } }
+    local api = setmetatable({ defineCache = function() end, get = function() return state end }, { __index = session })
+    logic.attach({ hooks = { wrap = function(name, _, callback) wrapped[name] = callback end } }, { inbox = {}, session = api })
+    return state, wrapped, { status = { write = function() end } }
+end
+
+function TestLogic.testSharedTraitHooksCoverDevotionHammerAndSpell()
+    for _, surface in ipairs({ { "Devotion", "AphroditeUpgrade" }, { "WeaponUpgrade", "WeaponUpgrade" }, { "Spell", "SpellUpgrade" } }) do
+        local step = { kind = "acquireReward", roles = { { gameName = surface[2], role = "source", settlement = { site = "s", entry = "e" }, traitOffer = { kind = "traits", giver = surface[1], selected = "option1", options = { { key = surface[1] .. "Trait", rarity = "Common", effectiveLevel = 1 } } } } } }
+        local state, wrapped, runtime = hookedTrace(step)
+        _G.CurrentRun = { Hero = { Traits = {} } }
+        local loot = { Name = surface[2] }
+        wrapped.UseLoot(nil, runtime, function() return true end, loot, {}, {})
+        local item = loot.UpgradeOptions[1]
+        wrapped.CreateUpgradeChoiceButton(nil, runtime, function(_, _, _, itemData) return itemData end, {}, loot, 1, item, {})
+        wrapped.HandleUpgradeChoiceSelection(nil, runtime, function(_, button)
+            _G.CurrentRun.Hero.Traits = { { Name = button.Data.Name, Rarity = button.Data.Rarity, StackNum = button.Data.StackNum } }
+        end, {}, { Data = { Name = surface[1] .. "Trait", Rarity = "Common", StackNum = 1 } }, {})
+        lu.assertEquals(state.traceCursor, 2)
+    end
+end
+
+function TestLogic.testTalentConsumableHookUsesNestedPresentation()
+    local step = { kind = "acquireReward", roles = { { gameName = "TalentPoint", role = "self", settlement = { site = "s", entry = "e" } } } }
+    local state, wrapped, runtime = hookedTrace(step)
+    local item = { Name = "TalentPoint", IgnorePurchase = true, ResourceCosts = { Money = 10 } }
+    wrapped.UseConsumableItem(nil, runtime, function(consumable, args)
+        return wrapped.ConsumableUsedPresentation(nil, runtime, function() return true end, {}, consumable, args)
+    end, item, {}, {})
+    lu.assertEquals(state.traceCursor, 2)
+end
+
+function TestLogic.testPomHookCapturesPreBaseStackAndVerifiesDelta()
+    local step = { kind = "acquireReward", roles = { { gameName = "StackUpgrade", role = "self", settlement = { site = "s", entry = "e" }, levelResolution = { offeredTargets = { "PomTrait" }, selectedTarget = "PomTrait", levelCount = 2 } } } }
+    local state, wrapped, runtime = hookedTrace(step)
+    _G.CurrentRun = { Hero = { Traits = { { Name = "PomTrait", StackNum = 1 } } } }
+    local loot = { Name = "StackUpgrade" }
+    wrapped.UseLoot(nil, runtime, function() return true end, loot, {}, {})
+    wrapped.HandleUpgradeChoiceSelection(nil, runtime, function()
+        _G.CurrentRun.Hero.Traits[1].StackNum = 3
+    end, {}, { Data = { Name = "PomTrait" } }, {})
+    lu.assertEquals(state.traceCursor, 2)
+    lu.assertNil(state.pendingPom)
+end
+
+function TestLogic.testSteadyEmbryoAndCleanupHooksUseTheirScopedContacts()
+    local steady = { kind = "steadyGrowth", source = "SteadyGrowth", target = "GrowthTrait" }
+    local state, wrapped, runtime = hookedTrace(steady)
+    _G.GetUpgradedRarity = function() return "Epic" end
+    _G.CurrentRun = { Hero = { Traits = { { Name = "GrowthTrait", Rarity = "Rare" } } } }
+    wrapped.AddRarityToTraits(nil, runtime, function(source, args)
+        lu.assertEquals(source, "SteadyGrowth"); lu.assertEquals(args.ForceUpgrade[1].Name, "GrowthTrait")
+        _G.CurrentRun.Hero.Traits[1].Rarity = "Epic"; return _G.CurrentRun.Hero.Traits[1]
+    end, "SteadyGrowth", {})
+    lu.assertEquals(state.traceCursor, 2)
+    local embryo = { kind = "transcendentEmbryo", source = "Embryo", target = "ChaosTrait", rarity = "Heroic" }
+    state, wrapped, runtime = hookedTrace(embryo)
+    _G.CurrentRun = { Hero = { TraitDictionary = { ChaosTrait = { {} } } } }
+    wrapped.AddRandomChaosBlessing(nil, runtime, function(rarity)
+        lu.assertEquals(rarity, "Heroic")
+        lu.assertEquals(wrapped.GetRandomArrayValue(nil, runtime, function() return "wrong" end, { "wrong", "ChaosTrait" }), "ChaosTrait")
+        return { Name = "ChaosTrait", Rarity = "Heroic", FromChaosKeepsake = true }
+    end, "Common")
+    lu.assertEquals(state.traceCursor, 2)
+    state, wrapped, runtime = hookedTrace({ kind = "cleanup" })
+    state.roomsById.room.outgoing = { kind = "terminal" }
+    _G.CurrentRun = {}
+    wrapped.LeaveRoom(nil, runtime, function()
+        wrapped.CleanupEnemies(nil, runtime, function() return true end, {})
+    end, {}, {})
+    lu.assertEquals(state.traceCursor, 2)
 end
 
 return TestLogic

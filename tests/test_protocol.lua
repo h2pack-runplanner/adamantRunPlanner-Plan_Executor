@@ -89,4 +89,24 @@ function TestProtocol.testDecodedPlanDoesNotAcceptArbitraryLuaTables()
     lu.assertNil(protocol.decode(json.decode("[]")))
 end
 
+function TestProtocol.testSemanticAddressClosureRejectsCrossRoomAndRoleMutations()
+    mutationRejected(function(value)
+        value.rooms[1].trace[2].sourceOwner = '["incomingReward","Underworld","F","other-occurrence"]'
+    end)
+    mutationRejected(function(value)
+        value.rooms[1].trace[2].owner = '["acquisitionRole","Underworld","F","[\\"incomingReward\\",\\"Underworld\\",\\"F\\",\\"golden-f-start\\"]","other"]'
+    end)
+    mutationRejected(function(value)
+        value.rooms[1].trace[2].roles[1].settlement.entry = '["acquisitionEntry","Underworld","F","wrong-site","source"]'
+    end)
+end
+
+function TestProtocol.testMalformedRunStateMapsReturnDecodeErrorsInsteadOfAsserting()
+    local value = fixtures.decode()
+    value.rooms[1].trace[1].runState.traits.elements = { bad = "not-a-number" }
+    local plan, errorMessage = protocol.decode(value)
+    lu.assertNil(plan)
+    lu.assertNotNil(errorMessage)
+end
+
 return TestProtocol
