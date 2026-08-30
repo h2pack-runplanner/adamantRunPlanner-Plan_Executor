@@ -71,11 +71,54 @@ function logic.attach(moduleRef, data)
         local room = data.session.chooseStartingRoom(state, currentRun, args, gameValue)
         return room or base(currentRun, args)
     end)
-    moduleRef.hooks.wrap("StartRoom", "execution-observe-room", function(_, runtime, base, currentRun, currentRoom)
+    -- StartRoom applies RunOverrides and initializes the live depth caches
+    -- before this existing nested seam. Observe here so room-entry diagnostics
+    -- see the game-owned values without pre-applying or duplicating them.
+    moduleRef.hooks.wrap("StartRoomPreLoadBinks", "execution-observe-room", function(_, runtime, base, args)
         local state = data.session.get(runtime)
+        local currentRun = type(args) == "table" and args.Run or nil
+        local currentRoom = type(args) == "table" and args.Room or nil
         data.session.observeRoom(state, currentRun, currentRoom)
         writeStatus(runtime, state)
-        return base(currentRun, currentRoom)
+        return base(args)
+    end)
+    moduleRef.hooks.wrap("ChooseNextRoomData", "execution-outgoing-room", function(_, runtime, base, currentRun, args, otherDoors)
+        local result = data.session.chooseNextRoomData(
+            data.session.get(runtime), currentRun, args, otherDoors, _G.game or game)
+        if result.kind == "passThrough" then return base(currentRun, args, otherDoors) end
+        if result.kind == "failed" then
+            writeStatus(runtime, data.session.get(runtime))
+            return base(currentRun, args, otherDoors)
+        end
+        return result.roomData
+    end)
+    moduleRef.hooks.wrap("DoUnlockRoomExits", "execution-batch-reward-store", function(_, runtime, base, currentRun, room)
+        local state = data.session.get(runtime)
+        local result = data.session.prepareBatchRewardStore(state, currentRun)
+        if result.kind == "failed" then
+            writeStatus(runtime, state)
+            return base(currentRun, room)
+        end
+        return base(currentRun, room)
+    end)
+    moduleRef.hooks.wrap("LeaveRoom", "execution-observe-exit", function(_, runtime, base, currentRun, door)
+        local state = data.session.get(runtime)
+        data.session.observeExit(state, currentRun, door)
+        local result = base(currentRun, door)
+        writeStatus(runtime, state)
+        return result
+    end)
+    moduleRef.hooks.wrap("UpdateRunHistoryCache", "execution-observe-before-exit", function(_, runtime, base, currentRun, roomAdded)
+        local result = base(currentRun, roomAdded)
+        local state = data.session.get(runtime)
+        if data.session.observeBeforeRoomExit(state, currentRun) then
+            -- Vanilla has appended the source and updated its caches, while
+            -- CurrentRoom still names that source. Commit before LeaveRoom
+            -- continues into target preparation and LoadMap.
+            data.session.commitExit(state)
+        end
+        writeStatus(runtime, state)
+        return result
     end)
     moduleRef.hooks.wrap(
         "ChooseRoomReward", "execution-opening-reward",
@@ -92,6 +135,15 @@ function logic.attach(moduleRef, data)
             return base(currentRun, room, rewardStoreName, previouslyChosenRewards, args)
         end
         return result.value
+    end)
+    moduleRef.hooks.wrap("SetupRoomReward", "execution-reward-source", function(_, runtime, base, currentRun, room, previouslyChosenRewards, args)
+        local state = data.session.get(runtime)
+        local result = data.session.prepareRewardSource(state, currentRun, room)
+        if result.kind == "failed" then
+            writeStatus(runtime, state)
+            return base(currentRun, room, previouslyChosenRewards, args)
+        end
+        return base(currentRun, room, previouslyChosenRewards, args)
     end)
 end
 

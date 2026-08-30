@@ -4,7 +4,7 @@
   "catalogVersion": "0.51.0-biome-i-encounter-profiles",
   "projectId": "golden-fg",
   "routeKey": "Underworld",
-  "extent": { "kind": "configuredPrefix", "biomeKeys": ["F"], "terminalBiomeKey": "F" },
+  "extent": { "kind": "configuredPrefix", "biomeKeys": ["F", "G"], "terminalBiomeKey": "G" },
   "rooms": [
     {
       "id": "golden-f-start",
@@ -1565,9 +1565,1218 @@
       ],
       "outgoing": {
         "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-preboss-shop:postboss\"]",
+        "kind": "fixed",
+        "target": { "id": "golden-g-intro", "biomeKey": "G", "gameName": "G_Intro" }
+      }
+    },
+    {
+      "id": "golden-g-intro",
+      "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-intro\"]",
+      "biomeKey": "G",
+      "gameName": "G_Intro",
+      "kind": "EmptyEncounter",
+      "entered": true,
+      "contents": { "encounterPhases": [], "requiredObjects": [] },
+      "trace": [
+        {
+          "id": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-intro\"]:roomEntered",
+          "kind": "roomEntered",
+          "checkpoint": "roomEntered",
+          "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-intro\"]",
+          "runState": {
+            "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"G\",\"golden-g-intro\",\"roomEntered\"]",
+            "checkpoint": "roomEntered",
+            "counters": {
+              "biomeDepthCache": 1,
+              "biomeEncounterDepth": 1,
+              "routeEncounterDepth": 12,
+              "roomHistoryOrdinal": 14
+            },
+            "bags": [
+              { "storeKey": "RunProgress", "remaining": { "kind": "exact", "count": 3 } },
+              { "storeKey": "MetaProgress", "remaining": { "kind": "exact", "count": 8 } },
+              { "storeKey": "HubRewards", "remaining": { "kind": "exact", "count": 10 } },
+              { "storeKey": "SubRoomRewards", "remaining": { "kind": "exact", "count": 23 } },
+              { "storeKey": "SubRoomRewardsHard", "remaining": { "kind": "exact", "count": 8 } },
+              {
+                "storeKey": "FieldsOptionalRewards",
+                "remaining": { "kind": "exact", "count": 19 }
+              },
+              { "storeKey": "TartarusRewards", "remaining": { "kind": "exact", "count": 9 } },
+              { "storeKey": "TyphonBossRewards", "remaining": { "kind": "exact", "count": 6 } }
+            ]
+          }
+        },
+        {
+          "id": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-intro\"]:beforeRoomExit",
+          "kind": "beforeRoomExit",
+          "checkpoint": "beforeRoomExit",
+          "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-intro\"]",
+          "runState": {
+            "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"G\",\"golden-g-intro\",\"beforeRoomExit\"]",
+            "checkpoint": "beforeRoomExit",
+            "counters": {
+              "biomeDepthCache": 2,
+              "biomeEncounterDepth": 1,
+              "routeEncounterDepth": 12,
+              "roomHistoryOrdinal": 15
+            },
+            "bags": [
+              { "storeKey": "RunProgress", "remaining": { "kind": "exact", "count": 20 } },
+              { "storeKey": "MetaProgress", "remaining": { "kind": "exact", "count": 8 } },
+              { "storeKey": "HubRewards", "remaining": { "kind": "exact", "count": 10 } },
+              { "storeKey": "SubRoomRewards", "remaining": { "kind": "exact", "count": 23 } },
+              { "storeKey": "SubRoomRewardsHard", "remaining": { "kind": "exact", "count": 8 } },
+              {
+                "storeKey": "FieldsOptionalRewards",
+                "remaining": { "kind": "exact", "count": 19 }
+              },
+              { "storeKey": "TartarusRewards", "remaining": { "kind": "exact", "count": 9 } },
+              { "storeKey": "TyphonBossRewards", "remaining": { "kind": "exact", "count": 6 } }
+            ]
+          }
+        }
+      ],
+      "outgoing": {
+        "owner": "[\"exitDecision\",\"Underworld\",\"G\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-g-intro\"}]",
+        "kind": "batch",
+        "targets": [
+          {
+            "exitKey": "exit1",
+            "index": 1,
+            "type": "OceanusExitDoor",
+            "room": { "id": "golden-g-b1-e1", "biomeKey": "G", "gameName": "G_Combat01" },
+            "picked": true
+          }
+        ],
+        "selectedExitKey": "exit1",
+        "resolvedSharedRewardStoreKey": "RunProgress"
+      }
+    },
+    {
+      "id": "golden-g-b1-e1",
+      "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b1-e1\"]",
+      "biomeKey": "G",
+      "gameName": "G_Combat01",
+      "kind": "SingleEncounter",
+      "entered": true,
+      "contents": {
+        "incomingReward": {
+          "rewardType": "Boon",
+          "producerLifecycleKey": "RoomReward",
+          "resolvedStoreKey": "RunProgress",
+          "source": "HestiaUpgrade"
+        },
+        "encounterPhases": [
+          { "slotKey": "Encounter", "encounterKey": "GeneratedG", "kind": "combat" }
+        ],
+        "requiredObjects": []
+      },
+      "trace": [
+        {
+          "id": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b1-e1\"]:roomEntered",
+          "kind": "roomEntered",
+          "checkpoint": "roomEntered",
+          "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b1-e1\"]",
+          "runState": {
+            "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"G\",\"golden-g-b1-e1\",\"roomEntered\"]",
+            "checkpoint": "roomEntered",
+            "counters": {
+              "biomeDepthCache": 2,
+              "biomeEncounterDepth": 1,
+              "routeEncounterDepth": 12,
+              "roomHistoryOrdinal": 15
+            },
+            "bags": [
+              { "storeKey": "RunProgress", "remaining": { "kind": "exact", "count": 20 } },
+              { "storeKey": "MetaProgress", "remaining": { "kind": "exact", "count": 8 } },
+              { "storeKey": "HubRewards", "remaining": { "kind": "exact", "count": 10 } },
+              { "storeKey": "SubRoomRewards", "remaining": { "kind": "exact", "count": 23 } },
+              { "storeKey": "SubRoomRewardsHard", "remaining": { "kind": "exact", "count": 8 } },
+              {
+                "storeKey": "FieldsOptionalRewards",
+                "remaining": { "kind": "exact", "count": 19 }
+              },
+              { "storeKey": "TartarusRewards", "remaining": { "kind": "exact", "count": 9 } },
+              { "storeKey": "TyphonBossRewards", "remaining": { "kind": "exact", "count": 6 } }
+            ]
+          }
+        },
+        {
+          "id": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b1-e1\"]:beforeRoomExit",
+          "kind": "beforeRoomExit",
+          "checkpoint": "beforeRoomExit",
+          "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b1-e1\"]",
+          "runState": {
+            "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"G\",\"golden-g-b1-e1\",\"beforeRoomExit\"]",
+            "checkpoint": "beforeRoomExit",
+            "counters": {
+              "biomeDepthCache": 3,
+              "biomeEncounterDepth": 2,
+              "routeEncounterDepth": 13,
+              "roomHistoryOrdinal": 16
+            },
+            "bags": [
+              { "storeKey": "RunProgress", "remaining": { "kind": "exact", "count": 20 } },
+              { "storeKey": "MetaProgress", "remaining": { "kind": "exact", "count": 6 } },
+              { "storeKey": "HubRewards", "remaining": { "kind": "exact", "count": 10 } },
+              { "storeKey": "SubRoomRewards", "remaining": { "kind": "exact", "count": 23 } },
+              { "storeKey": "SubRoomRewardsHard", "remaining": { "kind": "exact", "count": 8 } },
+              {
+                "storeKey": "FieldsOptionalRewards",
+                "remaining": { "kind": "exact", "count": 19 }
+              },
+              { "storeKey": "TartarusRewards", "remaining": { "kind": "exact", "count": 9 } },
+              { "storeKey": "TyphonBossRewards", "remaining": { "kind": "exact", "count": 6 } }
+            ]
+          }
+        }
+      ],
+      "outgoing": {
+        "owner": "[\"exitDecision\",\"Underworld\",\"G\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-g-b1-e1\"}]",
+        "kind": "batch",
+        "targets": [
+          {
+            "exitKey": "exit1",
+            "index": 1,
+            "type": "OceanusExitDoor",
+            "room": { "id": "golden-g-b2-e1", "biomeKey": "G", "gameName": "G_Combat02" },
+            "picked": true
+          },
+          {
+            "exitKey": "exit2",
+            "index": 2,
+            "type": "OceanusExitDoor",
+            "room": { "id": "golden-g-b2-e2", "biomeKey": "G", "gameName": "G_Combat02" },
+            "picked": false
+          }
+        ],
+        "selectedExitKey": "exit1",
+        "resolvedSharedRewardStoreKey": "MetaProgress"
+      }
+    },
+    {
+      "id": "golden-g-b2-e1",
+      "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b2-e1\"]",
+      "biomeKey": "G",
+      "gameName": "G_Combat02",
+      "kind": "SingleEncounter",
+      "entered": true,
+      "contents": {
+        "incomingReward": {
+          "rewardType": "MetaCurrencyBigDrop",
+          "producerLifecycleKey": "RoomReward",
+          "resolvedStoreKey": "MetaProgress"
+        },
+        "encounterPhases": [
+          { "slotKey": "Encounter", "encounterKey": "GeneratedG", "kind": "combat" }
+        ],
+        "requiredObjects": []
+      },
+      "trace": [
+        {
+          "id": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b2-e1\"]:roomEntered",
+          "kind": "roomEntered",
+          "checkpoint": "roomEntered",
+          "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b2-e1\"]",
+          "runState": {
+            "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"G\",\"golden-g-b2-e1\",\"roomEntered\"]",
+            "checkpoint": "roomEntered",
+            "counters": {
+              "biomeDepthCache": 3,
+              "biomeEncounterDepth": 2,
+              "routeEncounterDepth": 13,
+              "roomHistoryOrdinal": 16
+            },
+            "bags": [
+              { "storeKey": "RunProgress", "remaining": { "kind": "exact", "count": 20 } },
+              { "storeKey": "MetaProgress", "remaining": { "kind": "exact", "count": 6 } },
+              { "storeKey": "HubRewards", "remaining": { "kind": "exact", "count": 10 } },
+              { "storeKey": "SubRoomRewards", "remaining": { "kind": "exact", "count": 23 } },
+              { "storeKey": "SubRoomRewardsHard", "remaining": { "kind": "exact", "count": 8 } },
+              {
+                "storeKey": "FieldsOptionalRewards",
+                "remaining": { "kind": "exact", "count": 19 }
+              },
+              { "storeKey": "TartarusRewards", "remaining": { "kind": "exact", "count": 9 } },
+              { "storeKey": "TyphonBossRewards", "remaining": { "kind": "exact", "count": 6 } }
+            ]
+          }
+        },
+        {
+          "id": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b2-e1\"]:beforeRoomExit",
+          "kind": "beforeRoomExit",
+          "checkpoint": "beforeRoomExit",
+          "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b2-e1\"]",
+          "runState": {
+            "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"G\",\"golden-g-b2-e1\",\"beforeRoomExit\"]",
+            "checkpoint": "beforeRoomExit",
+            "counters": {
+              "biomeDepthCache": 4,
+              "biomeEncounterDepth": 3,
+              "routeEncounterDepth": 14,
+              "roomHistoryOrdinal": 17
+            },
+            "bags": [
+              { "storeKey": "RunProgress", "remaining": { "kind": "exact", "count": 18 } },
+              { "storeKey": "MetaProgress", "remaining": { "kind": "exact", "count": 6 } },
+              { "storeKey": "HubRewards", "remaining": { "kind": "exact", "count": 10 } },
+              { "storeKey": "SubRoomRewards", "remaining": { "kind": "exact", "count": 23 } },
+              { "storeKey": "SubRoomRewardsHard", "remaining": { "kind": "exact", "count": 8 } },
+              {
+                "storeKey": "FieldsOptionalRewards",
+                "remaining": { "kind": "exact", "count": 19 }
+              },
+              { "storeKey": "TartarusRewards", "remaining": { "kind": "exact", "count": 9 } },
+              { "storeKey": "TyphonBossRewards", "remaining": { "kind": "exact", "count": 6 } }
+            ]
+          }
+        }
+      ],
+      "outgoing": {
+        "owner": "[\"exitDecision\",\"Underworld\",\"G\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-g-b2-e1\"}]",
+        "kind": "batch",
+        "targets": [
+          {
+            "exitKey": "exit1",
+            "index": 1,
+            "type": "OceanusExitDoor",
+            "room": { "id": "golden-g-b3-e1", "biomeKey": "G", "gameName": "G_Story01" },
+            "picked": true
+          },
+          {
+            "exitKey": "exit2",
+            "index": 2,
+            "type": "OceanusExitDoor",
+            "room": { "id": "golden-g-b3-e2", "biomeKey": "G", "gameName": "G_Combat03" },
+            "picked": false
+          },
+          {
+            "exitKey": "exit3",
+            "index": 3,
+            "type": "OceanusExitDoor",
+            "room": { "id": "golden-g-b3-e3", "biomeKey": "G", "gameName": "G_Combat03" },
+            "picked": false
+          }
+        ],
+        "selectedExitKey": "exit1",
+        "resolvedSharedRewardStoreKey": "RunProgress"
+      }
+    },
+    {
+      "id": "golden-g-b2-e2",
+      "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b2-e2\"]",
+      "biomeKey": "G",
+      "gameName": "G_Combat02",
+      "kind": "SingleEncounter",
+      "entered": false,
+      "contents": {
+        "incomingReward": {
+          "rewardType": "MetaCardPointsCommonBigDrop",
+          "producerLifecycleKey": "RoomReward",
+          "resolvedStoreKey": "MetaProgress"
+        },
+        "encounterPhases": [
+          { "slotKey": "Encounter", "encounterKey": "GeneratedG", "kind": "combat" }
+        ],
+        "requiredObjects": []
+      },
+      "trace": [],
+      "outgoing": {
+        "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b2-e2\"]",
+        "kind": "terminal"
+      }
+    },
+    {
+      "id": "golden-g-b3-e1",
+      "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b3-e1\"]",
+      "biomeKey": "G",
+      "gameName": "G_Story01",
+      "kind": "SingleEncounter",
+      "entered": true,
+      "contents": {
+        "incomingReward": {
+          "rewardType": "Story",
+          "producerLifecycleKey": "RoomReward",
+          "resolvedStoreKey": "RunProgress"
+        },
+        "encounterPhases": [
+          { "slotKey": "Encounter", "encounterKey": "Story_Narcissus_01", "kind": "story" }
+        ],
+        "requiredObjects": []
+      },
+      "trace": [
+        {
+          "id": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b3-e1\"]:roomEntered",
+          "kind": "roomEntered",
+          "checkpoint": "roomEntered",
+          "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b3-e1\"]",
+          "runState": {
+            "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"G\",\"golden-g-b3-e1\",\"roomEntered\"]",
+            "checkpoint": "roomEntered",
+            "counters": {
+              "biomeDepthCache": 4,
+              "biomeEncounterDepth": 3,
+              "routeEncounterDepth": 14,
+              "roomHistoryOrdinal": 17
+            },
+            "bags": [
+              { "storeKey": "RunProgress", "remaining": { "kind": "exact", "count": 18 } },
+              { "storeKey": "MetaProgress", "remaining": { "kind": "exact", "count": 6 } },
+              { "storeKey": "HubRewards", "remaining": { "kind": "exact", "count": 10 } },
+              { "storeKey": "SubRoomRewards", "remaining": { "kind": "exact", "count": 23 } },
+              { "storeKey": "SubRoomRewardsHard", "remaining": { "kind": "exact", "count": 8 } },
+              {
+                "storeKey": "FieldsOptionalRewards",
+                "remaining": { "kind": "exact", "count": 19 }
+              },
+              { "storeKey": "TartarusRewards", "remaining": { "kind": "exact", "count": 9 } },
+              { "storeKey": "TyphonBossRewards", "remaining": { "kind": "exact", "count": 6 } }
+            ]
+          }
+        },
+        {
+          "id": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b3-e1\"]:beforeRoomExit",
+          "kind": "beforeRoomExit",
+          "checkpoint": "beforeRoomExit",
+          "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b3-e1\"]",
+          "runState": {
+            "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"G\",\"golden-g-b3-e1\",\"beforeRoomExit\"]",
+            "checkpoint": "beforeRoomExit",
+            "counters": {
+              "biomeDepthCache": 5,
+              "biomeEncounterDepth": 3,
+              "routeEncounterDepth": 14,
+              "roomHistoryOrdinal": 18
+            },
+            "bags": [
+              { "storeKey": "RunProgress", "remaining": { "kind": "exact", "count": 18 } },
+              { "storeKey": "MetaProgress", "remaining": { "kind": "exact", "count": 5 } },
+              { "storeKey": "HubRewards", "remaining": { "kind": "exact", "count": 10 } },
+              { "storeKey": "SubRoomRewards", "remaining": { "kind": "exact", "count": 23 } },
+              { "storeKey": "SubRoomRewardsHard", "remaining": { "kind": "exact", "count": 8 } },
+              {
+                "storeKey": "FieldsOptionalRewards",
+                "remaining": { "kind": "exact", "count": 19 }
+              },
+              { "storeKey": "TartarusRewards", "remaining": { "kind": "exact", "count": 9 } },
+              { "storeKey": "TyphonBossRewards", "remaining": { "kind": "exact", "count": 6 } }
+            ]
+          }
+        }
+      ],
+      "outgoing": {
+        "owner": "[\"exitDecision\",\"Underworld\",\"G\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-g-b3-e1\"}]",
+        "kind": "batch",
+        "targets": [
+          {
+            "exitKey": "exit1",
+            "index": 1,
+            "type": "OceanusExitDoor",
+            "room": { "id": "golden-g-b4-e1", "biomeKey": "G", "gameName": "G_Combat10" },
+            "picked": true
+          }
+        ],
+        "selectedExitKey": "exit1",
+        "resolvedSharedRewardStoreKey": "MetaProgress"
+      }
+    },
+    {
+      "id": "golden-g-b3-e2",
+      "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b3-e2\"]",
+      "biomeKey": "G",
+      "gameName": "G_Combat03",
+      "kind": "SingleEncounter",
+      "entered": false,
+      "contents": {
+        "incomingReward": {
+          "rewardType": "MaxManaDrop",
+          "producerLifecycleKey": "RoomReward",
+          "resolvedStoreKey": "RunProgress"
+        },
+        "encounterPhases": [
+          { "slotKey": "Encounter", "encounterKey": "GeneratedG", "kind": "combat" }
+        ],
+        "requiredObjects": []
+      },
+      "trace": [],
+      "outgoing": {
+        "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b3-e2\"]",
+        "kind": "terminal"
+      }
+    },
+    {
+      "id": "golden-g-b3-e3",
+      "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b3-e3\"]",
+      "biomeKey": "G",
+      "gameName": "G_Combat03",
+      "kind": "SingleEncounter",
+      "entered": false,
+      "contents": {
+        "incomingReward": {
+          "rewardType": "RoomMoneyDrop",
+          "producerLifecycleKey": "RoomReward",
+          "resolvedStoreKey": "RunProgress"
+        },
+        "encounterPhases": [
+          { "slotKey": "Encounter", "encounterKey": "GeneratedG", "kind": "combat" }
+        ],
+        "requiredObjects": []
+      },
+      "trace": [],
+      "outgoing": {
+        "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b3-e3\"]",
+        "kind": "terminal"
+      }
+    },
+    {
+      "id": "golden-g-b4-e1",
+      "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b4-e1\"]",
+      "biomeKey": "G",
+      "gameName": "G_Combat10",
+      "kind": "SingleEncounter",
+      "entered": true,
+      "contents": {
+        "incomingReward": {
+          "rewardType": "MetaCardPointsCommonBigDrop",
+          "producerLifecycleKey": "RoomReward",
+          "resolvedStoreKey": "MetaProgress"
+        },
+        "encounterPhases": [
+          { "slotKey": "Encounter", "encounterKey": "GeneratedG", "kind": "combat" }
+        ],
+        "requiredObjects": []
+      },
+      "trace": [
+        {
+          "id": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b4-e1\"]:roomEntered",
+          "kind": "roomEntered",
+          "checkpoint": "roomEntered",
+          "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b4-e1\"]",
+          "runState": {
+            "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"G\",\"golden-g-b4-e1\",\"roomEntered\"]",
+            "checkpoint": "roomEntered",
+            "counters": {
+              "biomeDepthCache": 5,
+              "biomeEncounterDepth": 3,
+              "routeEncounterDepth": 14,
+              "roomHistoryOrdinal": 18
+            },
+            "bags": [
+              { "storeKey": "RunProgress", "remaining": { "kind": "exact", "count": 18 } },
+              { "storeKey": "MetaProgress", "remaining": { "kind": "exact", "count": 5 } },
+              { "storeKey": "HubRewards", "remaining": { "kind": "exact", "count": 10 } },
+              { "storeKey": "SubRoomRewards", "remaining": { "kind": "exact", "count": 23 } },
+              { "storeKey": "SubRoomRewardsHard", "remaining": { "kind": "exact", "count": 8 } },
+              {
+                "storeKey": "FieldsOptionalRewards",
+                "remaining": { "kind": "exact", "count": 19 }
+              },
+              { "storeKey": "TartarusRewards", "remaining": { "kind": "exact", "count": 9 } },
+              { "storeKey": "TyphonBossRewards", "remaining": { "kind": "exact", "count": 6 } }
+            ]
+          }
+        },
+        {
+          "id": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b4-e1\"]:beforeRoomExit",
+          "kind": "beforeRoomExit",
+          "checkpoint": "beforeRoomExit",
+          "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b4-e1\"]",
+          "runState": {
+            "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"G\",\"golden-g-b4-e1\",\"beforeRoomExit\"]",
+            "checkpoint": "beforeRoomExit",
+            "counters": {
+              "biomeDepthCache": 6,
+              "biomeEncounterDepth": 4,
+              "routeEncounterDepth": 15,
+              "roomHistoryOrdinal": 19
+            },
+            "bags": [
+              { "storeKey": "RunProgress", "remaining": { "kind": "exact", "count": 17 } },
+              { "storeKey": "MetaProgress", "remaining": { "kind": "exact", "count": 5 } },
+              { "storeKey": "HubRewards", "remaining": { "kind": "exact", "count": 10 } },
+              { "storeKey": "SubRoomRewards", "remaining": { "kind": "exact", "count": 23 } },
+              { "storeKey": "SubRoomRewardsHard", "remaining": { "kind": "exact", "count": 8 } },
+              {
+                "storeKey": "FieldsOptionalRewards",
+                "remaining": { "kind": "exact", "count": 19 }
+              },
+              { "storeKey": "TartarusRewards", "remaining": { "kind": "exact", "count": 9 } },
+              { "storeKey": "TyphonBossRewards", "remaining": { "kind": "exact", "count": 6 } }
+            ]
+          }
+        }
+      ],
+      "outgoing": {
+        "owner": "[\"exitDecision\",\"Underworld\",\"G\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-g-b4-e1\"}]",
+        "kind": "batch",
+        "targets": [
+          {
+            "exitKey": "exit1",
+            "index": 1,
+            "type": "OceanusExitDoor",
+            "room": { "id": "golden-g-b5-e1", "biomeKey": "G", "gameName": "G_Shop01" },
+            "picked": true
+          },
+          {
+            "exitKey": "exit2",
+            "index": 2,
+            "type": "OceanusExitDoor",
+            "room": { "id": "golden-g-b5-e2", "biomeKey": "G", "gameName": "G_Combat12" },
+            "picked": false
+          }
+        ],
+        "selectedExitKey": "exit1",
+        "resolvedSharedRewardStoreKey": "RunProgress"
+      }
+    },
+    {
+      "id": "golden-g-b5-e1",
+      "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b5-e1\"]",
+      "biomeKey": "G",
+      "gameName": "G_Shop01",
+      "kind": "SingleEncounter",
+      "entered": true,
+      "contents": {
+        "incomingReward": {
+          "rewardType": "Shop",
+          "producerLifecycleKey": "RoomReward",
+          "resolvedStoreKey": "RunProgress"
+        },
+        "encounterPhases": [
+          { "slotKey": "Encounter", "encounterKey": "Shop", "kind": "nonCombat" }
+        ],
+        "requiredObjects": []
+      },
+      "trace": [
+        {
+          "id": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b5-e1\"]:roomEntered",
+          "kind": "roomEntered",
+          "checkpoint": "roomEntered",
+          "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b5-e1\"]",
+          "runState": {
+            "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"G\",\"golden-g-b5-e1\",\"roomEntered\"]",
+            "checkpoint": "roomEntered",
+            "counters": {
+              "biomeDepthCache": 6,
+              "biomeEncounterDepth": 4,
+              "routeEncounterDepth": 15,
+              "roomHistoryOrdinal": 19
+            },
+            "bags": [
+              { "storeKey": "RunProgress", "remaining": { "kind": "exact", "count": 17 } },
+              { "storeKey": "MetaProgress", "remaining": { "kind": "exact", "count": 5 } },
+              { "storeKey": "HubRewards", "remaining": { "kind": "exact", "count": 10 } },
+              { "storeKey": "SubRoomRewards", "remaining": { "kind": "exact", "count": 23 } },
+              { "storeKey": "SubRoomRewardsHard", "remaining": { "kind": "exact", "count": 8 } },
+              {
+                "storeKey": "FieldsOptionalRewards",
+                "remaining": { "kind": "exact", "count": 19 }
+              },
+              { "storeKey": "TartarusRewards", "remaining": { "kind": "exact", "count": 9 } },
+              { "storeKey": "TyphonBossRewards", "remaining": { "kind": "exact", "count": 6 } }
+            ]
+          }
+        },
+        {
+          "id": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b5-e1\"]:beforeRoomExit",
+          "kind": "beforeRoomExit",
+          "checkpoint": "beforeRoomExit",
+          "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b5-e1\"]",
+          "runState": {
+            "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"G\",\"golden-g-b5-e1\",\"beforeRoomExit\"]",
+            "checkpoint": "beforeRoomExit",
+            "counters": {
+              "biomeDepthCache": 7,
+              "biomeEncounterDepth": 4,
+              "routeEncounterDepth": 15,
+              "roomHistoryOrdinal": 20
+            },
+            "bags": [
+              { "storeKey": "RunProgress", "remaining": { "kind": "exact", "count": 15 } },
+              { "storeKey": "MetaProgress", "remaining": { "kind": "exact", "count": 5 } },
+              { "storeKey": "HubRewards", "remaining": { "kind": "exact", "count": 10 } },
+              { "storeKey": "SubRoomRewards", "remaining": { "kind": "exact", "count": 23 } },
+              { "storeKey": "SubRoomRewardsHard", "remaining": { "kind": "exact", "count": 8 } },
+              {
+                "storeKey": "FieldsOptionalRewards",
+                "remaining": { "kind": "exact", "count": 19 }
+              },
+              { "storeKey": "TartarusRewards", "remaining": { "kind": "exact", "count": 9 } },
+              { "storeKey": "TyphonBossRewards", "remaining": { "kind": "exact", "count": 6 } }
+            ]
+          }
+        }
+      ],
+      "outgoing": {
+        "owner": "[\"exitDecision\",\"Underworld\",\"G\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-g-b5-e1\"}]",
+        "kind": "batch",
+        "targets": [
+          {
+            "exitKey": "exit1",
+            "index": 1,
+            "type": "OceanusExitDoor",
+            "room": { "id": "golden-g-b6-e1", "biomeKey": "G", "gameName": "G_MiniBoss01" },
+            "picked": true
+          },
+          {
+            "exitKey": "exit2",
+            "index": 2,
+            "type": "OceanusExitDoor",
+            "room": { "id": "golden-g-b6-e2", "biomeKey": "G", "gameName": "G_MiniBoss02" },
+            "picked": false
+          }
+        ],
+        "selectedExitKey": "exit1",
+        "resolvedSharedRewardStoreKey": "RunProgress"
+      }
+    },
+    {
+      "id": "golden-g-b5-e2",
+      "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b5-e2\"]",
+      "biomeKey": "G",
+      "gameName": "G_Combat12",
+      "kind": "SingleEncounter",
+      "entered": false,
+      "contents": {
+        "incomingReward": {
+          "rewardType": "StackUpgrade",
+          "producerLifecycleKey": "RoomReward",
+          "resolvedStoreKey": "RunProgress"
+        },
+        "encounterPhases": [
+          { "slotKey": "Encounter", "encounterKey": "GeneratedG", "kind": "combat" }
+        ],
+        "requiredObjects": []
+      },
+      "trace": [],
+      "outgoing": {
+        "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b5-e2\"]",
+        "kind": "terminal"
+      }
+    },
+    {
+      "id": "golden-g-b6-e1",
+      "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b6-e1\"]",
+      "biomeKey": "G",
+      "gameName": "G_MiniBoss01",
+      "kind": "SingleEncounter",
+      "entered": true,
+      "contents": {
+        "incomingReward": {
+          "rewardType": "Boon",
+          "producerLifecycleKey": "RoomReward",
+          "resolvedStoreKey": "RunProgress",
+          "source": "HestiaUpgrade"
+        },
+        "encounterPhases": [
+          { "slotKey": "Encounter", "encounterKey": "MiniBossWaterUnit", "kind": "miniboss" }
+        ],
+        "requiredObjects": []
+      },
+      "trace": [
+        {
+          "id": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b6-e1\"]:roomEntered",
+          "kind": "roomEntered",
+          "checkpoint": "roomEntered",
+          "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b6-e1\"]",
+          "runState": {
+            "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"G\",\"golden-g-b6-e1\",\"roomEntered\"]",
+            "checkpoint": "roomEntered",
+            "counters": {
+              "biomeDepthCache": 7,
+              "biomeEncounterDepth": 4,
+              "routeEncounterDepth": 15,
+              "roomHistoryOrdinal": 20
+            },
+            "bags": [
+              { "storeKey": "RunProgress", "remaining": { "kind": "exact", "count": 15 } },
+              { "storeKey": "MetaProgress", "remaining": { "kind": "exact", "count": 5 } },
+              { "storeKey": "HubRewards", "remaining": { "kind": "exact", "count": 10 } },
+              { "storeKey": "SubRoomRewards", "remaining": { "kind": "exact", "count": 23 } },
+              { "storeKey": "SubRoomRewardsHard", "remaining": { "kind": "exact", "count": 8 } },
+              {
+                "storeKey": "FieldsOptionalRewards",
+                "remaining": { "kind": "exact", "count": 19 }
+              },
+              { "storeKey": "TartarusRewards", "remaining": { "kind": "exact", "count": 9 } },
+              { "storeKey": "TyphonBossRewards", "remaining": { "kind": "exact", "count": 6 } }
+            ]
+          }
+        },
+        {
+          "id": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b6-e1\"]:beforeRoomExit",
+          "kind": "beforeRoomExit",
+          "checkpoint": "beforeRoomExit",
+          "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b6-e1\"]",
+          "runState": {
+            "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"G\",\"golden-g-b6-e1\",\"beforeRoomExit\"]",
+            "checkpoint": "beforeRoomExit",
+            "counters": {
+              "biomeDepthCache": 8,
+              "biomeEncounterDepth": 5,
+              "routeEncounterDepth": 16,
+              "roomHistoryOrdinal": 21
+            },
+            "bags": [
+              { "storeKey": "RunProgress", "remaining": { "kind": "exact", "count": 13 } },
+              { "storeKey": "MetaProgress", "remaining": { "kind": "exact", "count": 5 } },
+              { "storeKey": "HubRewards", "remaining": { "kind": "exact", "count": 10 } },
+              { "storeKey": "SubRoomRewards", "remaining": { "kind": "exact", "count": 23 } },
+              { "storeKey": "SubRoomRewardsHard", "remaining": { "kind": "exact", "count": 8 } },
+              {
+                "storeKey": "FieldsOptionalRewards",
+                "remaining": { "kind": "exact", "count": 19 }
+              },
+              { "storeKey": "TartarusRewards", "remaining": { "kind": "exact", "count": 9 } },
+              { "storeKey": "TyphonBossRewards", "remaining": { "kind": "exact", "count": 6 } }
+            ]
+          }
+        }
+      ],
+      "outgoing": {
+        "owner": "[\"exitDecision\",\"Underworld\",\"G\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-g-b6-e1\"}]",
+        "kind": "batch",
+        "targets": [
+          {
+            "exitKey": "exit1",
+            "index": 1,
+            "type": "OceanusExitDoor",
+            "room": { "id": "golden-g-b7-e1", "biomeKey": "G", "gameName": "G_Combat12" },
+            "picked": true
+          },
+          {
+            "exitKey": "exit2",
+            "index": 2,
+            "type": "OceanusExitDoor",
+            "room": { "id": "golden-g-b7-e2", "biomeKey": "G", "gameName": "G_Combat13" },
+            "picked": false
+          }
+        ],
+        "selectedExitKey": "exit1",
+        "resolvedSharedRewardStoreKey": "RunProgress"
+      }
+    },
+    {
+      "id": "golden-g-b6-e2",
+      "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b6-e2\"]",
+      "biomeKey": "G",
+      "gameName": "G_MiniBoss02",
+      "kind": "SingleEncounter",
+      "entered": false,
+      "contents": {
+        "incomingReward": {
+          "rewardType": "Boon",
+          "producerLifecycleKey": "RoomReward",
+          "resolvedStoreKey": "RunProgress",
+          "source": "ZeusUpgrade"
+        },
+        "encounterPhases": [
+          { "slotKey": "Encounter", "encounterKey": "MiniBossCrawler", "kind": "miniboss" }
+        ],
+        "requiredObjects": []
+      },
+      "trace": [],
+      "outgoing": {
+        "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b6-e2\"]",
+        "kind": "terminal"
+      }
+    },
+    {
+      "id": "golden-g-b7-e1",
+      "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b7-e1\"]",
+      "biomeKey": "G",
+      "gameName": "G_Combat12",
+      "kind": "SingleEncounter",
+      "entered": true,
+      "contents": {
+        "incomingReward": {
+          "rewardType": "Boon",
+          "producerLifecycleKey": "RoomReward",
+          "resolvedStoreKey": "RunProgress",
+          "source": "HestiaUpgrade"
+        },
+        "encounterPhases": [
+          { "slotKey": "Encounter", "encounterKey": "GeneratedG", "kind": "combat" }
+        ],
+        "requiredObjects": []
+      },
+      "trace": [
+        {
+          "id": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b7-e1\"]:roomEntered",
+          "kind": "roomEntered",
+          "checkpoint": "roomEntered",
+          "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b7-e1\"]",
+          "runState": {
+            "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"G\",\"golden-g-b7-e1\",\"roomEntered\"]",
+            "checkpoint": "roomEntered",
+            "counters": {
+              "biomeDepthCache": 8,
+              "biomeEncounterDepth": 5,
+              "routeEncounterDepth": 16,
+              "roomHistoryOrdinal": 21
+            },
+            "bags": [
+              { "storeKey": "RunProgress", "remaining": { "kind": "exact", "count": 13 } },
+              { "storeKey": "MetaProgress", "remaining": { "kind": "exact", "count": 5 } },
+              { "storeKey": "HubRewards", "remaining": { "kind": "exact", "count": 10 } },
+              { "storeKey": "SubRoomRewards", "remaining": { "kind": "exact", "count": 23 } },
+              { "storeKey": "SubRoomRewardsHard", "remaining": { "kind": "exact", "count": 8 } },
+              {
+                "storeKey": "FieldsOptionalRewards",
+                "remaining": { "kind": "exact", "count": 19 }
+              },
+              { "storeKey": "TartarusRewards", "remaining": { "kind": "exact", "count": 9 } },
+              { "storeKey": "TyphonBossRewards", "remaining": { "kind": "exact", "count": 6 } }
+            ]
+          }
+        },
+        {
+          "id": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b7-e1\"]:beforeRoomExit",
+          "kind": "beforeRoomExit",
+          "checkpoint": "beforeRoomExit",
+          "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b7-e1\"]",
+          "runState": {
+            "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"G\",\"golden-g-b7-e1\",\"beforeRoomExit\"]",
+            "checkpoint": "beforeRoomExit",
+            "counters": {
+              "biomeDepthCache": 9,
+              "biomeEncounterDepth": 6,
+              "routeEncounterDepth": 17,
+              "roomHistoryOrdinal": 22
+            },
+            "bags": [
+              { "storeKey": "RunProgress", "remaining": { "kind": "exact", "count": 12 } },
+              { "storeKey": "MetaProgress", "remaining": { "kind": "exact", "count": 5 } },
+              { "storeKey": "HubRewards", "remaining": { "kind": "exact", "count": 10 } },
+              { "storeKey": "SubRoomRewards", "remaining": { "kind": "exact", "count": 23 } },
+              { "storeKey": "SubRoomRewardsHard", "remaining": { "kind": "exact", "count": 8 } },
+              {
+                "storeKey": "FieldsOptionalRewards",
+                "remaining": { "kind": "exact", "count": 19 }
+              },
+              { "storeKey": "TartarusRewards", "remaining": { "kind": "exact", "count": 9 } },
+              { "storeKey": "TyphonBossRewards", "remaining": { "kind": "exact", "count": 6 } }
+            ]
+          }
+        }
+      ],
+      "outgoing": {
+        "owner": "[\"exitDecision\",\"Underworld\",\"G\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-g-b7-e1\"}]",
+        "kind": "batch",
+        "targets": [
+          {
+            "exitKey": "exit1",
+            "index": 1,
+            "type": "OceanusExitDoor",
+            "room": { "id": "golden-g-preboss-shop", "biomeKey": "G", "gameName": "G_PreBoss01" },
+            "picked": true
+          },
+          {
+            "exitKey": "exit2",
+            "index": 2,
+            "type": "OceanusExitDoor",
+            "room": { "id": "golden-g-preboss-free-2", "biomeKey": "G", "gameName": "G_PreBoss01" },
+            "picked": false
+          }
+        ],
+        "selectedExitKey": "exit1",
+        "resolvedSharedRewardStoreKey": "RunProgress"
+      }
+    },
+    {
+      "id": "golden-g-b7-e2",
+      "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b7-e2\"]",
+      "biomeKey": "G",
+      "gameName": "G_Combat13",
+      "kind": "SingleEncounter",
+      "entered": false,
+      "contents": {
+        "incomingReward": {
+          "rewardType": "RoomMoneyDrop",
+          "producerLifecycleKey": "RoomReward",
+          "resolvedStoreKey": "RunProgress"
+        },
+        "encounterPhases": [
+          { "slotKey": "Encounter", "encounterKey": "GeneratedG", "kind": "combat" }
+        ],
+        "requiredObjects": []
+      },
+      "trace": [],
+      "outgoing": {
+        "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b7-e2\"]",
+        "kind": "terminal"
+      }
+    },
+    {
+      "id": "golden-g-preboss-shop",
+      "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-preboss-shop\"]",
+      "biomeKey": "G",
+      "gameName": "G_PreBoss01",
+      "kind": "SingleEncounter",
+      "entered": true,
+      "contents": {
+        "incomingReward": {
+          "rewardType": "Shop",
+          "producerLifecycleKey": "RoomReward",
+          "resolvedStoreKey": "RunProgress"
+        },
+        "encounterPhases": [
+          { "slotKey": "Encounter", "encounterKey": "Shop", "kind": "nonCombat" }
+        ],
+        "requiredObjects": []
+      },
+      "trace": [
+        {
+          "id": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-preboss-shop\"]:roomEntered",
+          "kind": "roomEntered",
+          "checkpoint": "roomEntered",
+          "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-preboss-shop\"]",
+          "runState": {
+            "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"G\",\"golden-g-preboss-shop\",\"roomEntered\"]",
+            "checkpoint": "roomEntered",
+            "counters": {
+              "biomeDepthCache": 9,
+              "biomeEncounterDepth": 6,
+              "routeEncounterDepth": 17,
+              "roomHistoryOrdinal": 22
+            },
+            "bags": [
+              { "storeKey": "RunProgress", "remaining": { "kind": "exact", "count": 12 } },
+              { "storeKey": "MetaProgress", "remaining": { "kind": "exact", "count": 5 } },
+              { "storeKey": "HubRewards", "remaining": { "kind": "exact", "count": 10 } },
+              { "storeKey": "SubRoomRewards", "remaining": { "kind": "exact", "count": 23 } },
+              { "storeKey": "SubRoomRewardsHard", "remaining": { "kind": "exact", "count": 8 } },
+              {
+                "storeKey": "FieldsOptionalRewards",
+                "remaining": { "kind": "exact", "count": 19 }
+              },
+              { "storeKey": "TartarusRewards", "remaining": { "kind": "exact", "count": 9 } },
+              { "storeKey": "TyphonBossRewards", "remaining": { "kind": "exact", "count": 6 } }
+            ]
+          }
+        },
+        {
+          "id": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-preboss-shop\"]:beforeRoomExit",
+          "kind": "beforeRoomExit",
+          "checkpoint": "beforeRoomExit",
+          "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-preboss-shop\"]",
+          "runState": {
+            "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"G\",\"golden-g-preboss-shop\",\"beforeRoomExit\"]",
+            "checkpoint": "beforeRoomExit",
+            "counters": {
+              "biomeDepthCache": 9,
+              "biomeEncounterDepth": 6,
+              "routeEncounterDepth": 17,
+              "roomHistoryOrdinal": 23
+            },
+            "bags": [
+              { "storeKey": "RunProgress", "remaining": { "kind": "exact", "count": 12 } },
+              { "storeKey": "MetaProgress", "remaining": { "kind": "exact", "count": 5 } },
+              { "storeKey": "HubRewards", "remaining": { "kind": "exact", "count": 10 } },
+              { "storeKey": "SubRoomRewards", "remaining": { "kind": "exact", "count": 23 } },
+              { "storeKey": "SubRoomRewardsHard", "remaining": { "kind": "exact", "count": 8 } },
+              {
+                "storeKey": "FieldsOptionalRewards",
+                "remaining": { "kind": "exact", "count": 19 }
+              },
+              { "storeKey": "TartarusRewards", "remaining": { "kind": "exact", "count": 9 } },
+              { "storeKey": "TyphonBossRewards", "remaining": { "kind": "exact", "count": 6 } }
+            ]
+          }
+        }
+      ],
+      "outgoing": {
+        "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-preboss-shop\"]",
+        "kind": "fixed",
+        "target": { "id": "golden-g-preboss-shop:boss", "biomeKey": "G", "gameName": "G_Boss01" }
+      }
+    },
+    {
+      "id": "golden-g-preboss-free-2",
+      "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-preboss-free-2\"]",
+      "biomeKey": "G",
+      "gameName": "G_PreBoss01",
+      "kind": "SingleEncounter",
+      "entered": false,
+      "contents": {
+        "incomingReward": {
+          "rewardType": "StackUpgrade",
+          "producerLifecycleKey": "RoomReward",
+          "resolvedStoreKey": "RunProgress"
+        },
+        "encounterPhases": [
+          { "slotKey": "Encounter", "encounterKey": "Shop", "kind": "nonCombat" }
+        ],
+        "requiredObjects": []
+      },
+      "trace": [],
+      "outgoing": {
+        "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-preboss-free-2\"]",
+        "kind": "terminal"
+      }
+    },
+    {
+      "id": "golden-g-preboss-shop:boss",
+      "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-preboss-shop:boss\"]",
+      "biomeKey": "G",
+      "gameName": "G_Boss01",
+      "kind": "SingleEncounter",
+      "entered": true,
+      "contents": {
+        "encounterPhases": [
+          { "slotKey": "Encounter", "encounterKey": "BossScylla01", "kind": "boss" }
+        ],
+        "requiredObjects": []
+      },
+      "trace": [
+        {
+          "id": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-preboss-shop:boss\"]:roomEntered",
+          "kind": "roomEntered",
+          "checkpoint": "roomEntered",
+          "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-preboss-shop:boss\"]",
+          "runState": {
+            "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"G\",\"golden-g-preboss-shop:boss\",\"roomEntered\"]",
+            "checkpoint": "roomEntered",
+            "counters": {
+              "biomeDepthCache": 9,
+              "biomeEncounterDepth": 6,
+              "routeEncounterDepth": 17,
+              "roomHistoryOrdinal": 23
+            },
+            "bags": [
+              { "storeKey": "RunProgress", "remaining": { "kind": "exact", "count": 12 } },
+              { "storeKey": "MetaProgress", "remaining": { "kind": "exact", "count": 5 } },
+              { "storeKey": "HubRewards", "remaining": { "kind": "exact", "count": 10 } },
+              { "storeKey": "SubRoomRewards", "remaining": { "kind": "exact", "count": 23 } },
+              { "storeKey": "SubRoomRewardsHard", "remaining": { "kind": "exact", "count": 8 } },
+              {
+                "storeKey": "FieldsOptionalRewards",
+                "remaining": { "kind": "exact", "count": 19 }
+              },
+              { "storeKey": "TartarusRewards", "remaining": { "kind": "exact", "count": 9 } },
+              { "storeKey": "TyphonBossRewards", "remaining": { "kind": "exact", "count": 6 } }
+            ]
+          }
+        },
+        {
+          "id": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-preboss-shop:boss\"]:beforeRoomExit",
+          "kind": "beforeRoomExit",
+          "checkpoint": "beforeRoomExit",
+          "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-preboss-shop:boss\"]",
+          "runState": {
+            "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"G\",\"golden-g-preboss-shop:boss\",\"beforeRoomExit\"]",
+            "checkpoint": "beforeRoomExit",
+            "counters": {
+              "biomeDepthCache": 10,
+              "biomeEncounterDepth": 6,
+              "routeEncounterDepth": 17,
+              "roomHistoryOrdinal": 24
+            },
+            "bags": [
+              { "storeKey": "RunProgress", "remaining": { "kind": "exact", "count": 12 } },
+              { "storeKey": "MetaProgress", "remaining": { "kind": "exact", "count": 5 } },
+              { "storeKey": "HubRewards", "remaining": { "kind": "exact", "count": 10 } },
+              { "storeKey": "SubRoomRewards", "remaining": { "kind": "exact", "count": 23 } },
+              { "storeKey": "SubRoomRewardsHard", "remaining": { "kind": "exact", "count": 8 } },
+              {
+                "storeKey": "FieldsOptionalRewards",
+                "remaining": { "kind": "exact", "count": 19 }
+              },
+              { "storeKey": "TartarusRewards", "remaining": { "kind": "exact", "count": 9 } },
+              { "storeKey": "TyphonBossRewards", "remaining": { "kind": "exact", "count": 6 } }
+            ]
+          }
+        }
+      ],
+      "outgoing": {
+        "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-preboss-shop:boss\"]",
+        "kind": "fixed",
+        "target": {
+          "id": "golden-g-preboss-shop:postboss",
+          "biomeKey": "G",
+          "gameName": "G_PostBoss01"
+        }
+      }
+    },
+    {
+      "id": "golden-g-preboss-shop:postboss",
+      "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-preboss-shop:postboss\"]",
+      "biomeKey": "G",
+      "gameName": "G_PostBoss01",
+      "kind": "SingleEncounter",
+      "entered": true,
+      "contents": {
+        "encounterPhases": [
+          { "slotKey": "Encounter", "encounterKey": "Empty", "kind": "nonCombat" }
+        ],
+        "requiredObjects": []
+      },
+      "trace": [
+        {
+          "id": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-preboss-shop:postboss\"]:roomEntered",
+          "kind": "roomEntered",
+          "checkpoint": "roomEntered",
+          "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-preboss-shop:postboss\"]",
+          "runState": {
+            "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"G\",\"golden-g-preboss-shop:postboss\",\"roomEntered\"]",
+            "checkpoint": "roomEntered",
+            "counters": {
+              "biomeDepthCache": 10,
+              "biomeEncounterDepth": 6,
+              "routeEncounterDepth": 17,
+              "roomHistoryOrdinal": 24
+            },
+            "bags": [
+              { "storeKey": "RunProgress", "remaining": { "kind": "exact", "count": 12 } },
+              { "storeKey": "MetaProgress", "remaining": { "kind": "exact", "count": 5 } },
+              { "storeKey": "HubRewards", "remaining": { "kind": "exact", "count": 10 } },
+              { "storeKey": "SubRoomRewards", "remaining": { "kind": "exact", "count": 23 } },
+              { "storeKey": "SubRoomRewardsHard", "remaining": { "kind": "exact", "count": 8 } },
+              {
+                "storeKey": "FieldsOptionalRewards",
+                "remaining": { "kind": "exact", "count": 19 }
+              },
+              { "storeKey": "TartarusRewards", "remaining": { "kind": "exact", "count": 9 } },
+              { "storeKey": "TyphonBossRewards", "remaining": { "kind": "exact", "count": 6 } }
+            ]
+          }
+        },
+        {
+          "id": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-preboss-shop:postboss\"]:beforeRoomExit",
+          "kind": "beforeRoomExit",
+          "checkpoint": "beforeRoomExit",
+          "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-preboss-shop:postboss\"]",
+          "runState": {
+            "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"G\",\"golden-g-preboss-shop:postboss\",\"beforeRoomExit\"]",
+            "checkpoint": "beforeRoomExit",
+            "counters": {
+              "biomeDepthCache": 11,
+              "biomeEncounterDepth": 6,
+              "routeEncounterDepth": 17,
+              "roomHistoryOrdinal": 25
+            },
+            "bags": [
+              { "storeKey": "RunProgress", "remaining": { "kind": "exact", "count": 12 } },
+              { "storeKey": "MetaProgress", "remaining": { "kind": "exact", "count": 5 } },
+              { "storeKey": "HubRewards", "remaining": { "kind": "exact", "count": 10 } },
+              { "storeKey": "SubRoomRewards", "remaining": { "kind": "exact", "count": 23 } },
+              { "storeKey": "SubRoomRewardsHard", "remaining": { "kind": "exact", "count": 8 } },
+              {
+                "storeKey": "FieldsOptionalRewards",
+                "remaining": { "kind": "exact", "count": 19 }
+              },
+              { "storeKey": "TartarusRewards", "remaining": { "kind": "exact", "count": 9 } },
+              { "storeKey": "TyphonBossRewards", "remaining": { "kind": "exact", "count": 6 } }
+            ]
+          }
+        }
+      ],
+      "outgoing": {
+        "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-preboss-shop:postboss\"]",
         "kind": "terminal"
       }
     }
   ],
-  "planFingerprint": "5e2dcff2"
+  "planFingerprint": "309a143f"
 }
