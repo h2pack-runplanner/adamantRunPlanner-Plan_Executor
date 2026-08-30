@@ -410,23 +410,27 @@ function TestSession.testDiagnosticRendersActiveInactiveAndBothMismatchShapes()
         state = "desynchronized", reason = "live-contact-failure", routeKey = "Surface", cursor = "i7",
         firstMismatch = {
             checkpoint = "live-contact", instructionId = "i7", gameVersion = "r2",
+            beforeApply = false,
             expected = { kind = "encounter", key = "MissingEncounter" },
             observed = { kind = "encounter", key = nil },
             instructionOwner = { kind = "occurrence", routeKey = "Surface", biomeKey = "N", occurrenceId = "o1" },
         }, context = {},
     })
     lu.assertStrContains(live, "checkpoint=live-contact")
+    lu.assertStrContains(live, "beforeApply=false")
     lu.assertStrContains(live, "expected.kind=encounter")
     lu.assertStrContains(live, "expected.key=MissingEncounter")
     lu.assertStrContains(live, "observed.key=none")
     lu.assertStrContains(live, "origin.occurrence=o1")
     local starting = session.statusText({
         state = "desynchronized", reason = "live-contact-failure", firstMismatch = {
-            checkpoint = "starting-room", expected = "F_Opening01", observed = "WrongRoom",
+            checkpoint = "starting-room", beforeApply = true,
+            expected = "F_Opening01", observed = "WrongRoom",
         }, context = {},
     })
     lu.assertStrContains(starting, "expected.value=F_Opening01")
     lu.assertStrContains(starting, "observed.value=WrongRoom")
+    lu.assertStrContains(starting, "beforeApply=true")
 end
 
 function TestSession.testDiagnosticProjectsDecodedExitDecisionOriginSource()
@@ -542,10 +546,358 @@ function TestSession.testExactStartingRoomBypassesEligibilityAndUsesCompiledEntr
     lu.assertNil(state.context.roomName)
     local result = session.chooseStartingRoom(state, currentRun, { StartingBiome = "F" }, game)
     lu.assertEquals(result.Name, route.instructions[1].gameName)
-    lu.assertEquals(created.roomData, game.RoomData[route.instructions[1].gameName])
+    lu.assertEquals(created.roomData.Name, game.RoomData[route.instructions[1].gameName].Name)
+    lu.assertEquals(created.roomData.__runPlannerInstructionId, route.instructions[1].id)
+    lu.assertTrue(created.roomData.__runPlannerStartingRoom)
     lu.assertEquals(created.args.StartingBiome, "F")
     lu.assertEquals(state.context.roomSetName, "F")
     lu.assertEquals(state.context.roomName, route.instructions[1].gameName)
+end
+
+function TestSession.testStartingAndPhysicalRewardContactsUseCompiledTypesAndSources()
+    local plan, route = routeFixture("representative-f")
+    local game, state = contactGame(route), newState()
+    game.CreateRoom = function(roomData) return roomData end
+    local currentRun = start(state, plan, game)
+    currentRun.RewardPriorities = {}
+    local starting = assert(session.chooseStartingRoom(state, currentRun, { StartingBiome = "F" }, game))
+    local chosen = session.chooseRoomReward(state, currentRun, starting, "RunProgress", nil, nil,
+        function(_, room) return { Name = "Boon", room = room } end)
+    lu.assertEquals(chosen.value.Name, "Boon")
+    starting.ChosenRewardType = "Boon"
+    lu.assertEquals(starting.ForceLootName, "ApolloUpgrade")
+    local setup = session.setupRoomReward(state, currentRun, starting, nil, nil, function(_, room)
+        lu.assertEquals(room.ForceLootName, "ApolloUpgrade")
+        return "vanilla-setup"
+    end)
+    lu.assertEquals(setup.result, "vanilla-setup")
+
+    local batch = state.batchByParent[state.cursor]
+    local door = { Name = batch.targets[1].exit.type }
+    local target = session.chooseNextRoom(state, currentRun, { door }, game)
+    door.Room = target
+    currentRun.RewardPriorities = { "GiftDrop", "ExistingPriority" }
+    local targetChoice = session.chooseRoomReward(state, currentRun, target,
+        target.__runPlannerBatchId == batch.id and "MetaProgress" or "wrong", {}, { Door = door },
+        function(run, room)
+            lu.assertEquals(run.RewardPriorities[1], "GiftDrop")
+            table.remove(run.RewardPriorities, 1)
+            return room.__runPlannerInstructionId == batch.targets[1].room.instructionId and "GiftDrop"
+        end)
+    lu.assertEquals(targetChoice.value, "GiftDrop")
+    lu.assertEquals(currentRun.RewardPriorities, { "GiftDrop", "ExistingPriority" })
+    local ok = pcall(session.chooseRoomReward, state, currentRun, target, "MetaProgress", {}, { Door = door },
+        function(run)
+            lu.assertEquals(run.RewardPriorities[1], "GiftDrop")
+            table.remove(run.RewardPriorities, 1)
+            error("base failure")
+        end)
+    lu.assertFalse(ok)
+    lu.assertEquals(currentRun.RewardPriorities, { "GiftDrop", "ExistingPriority" })
+    lu.assertEquals(state.state, "active")
+    local wrongSource = session.setupRoomReward(state, currentRun, starting, nil, nil, function(_, room)
+        room.ForceLootName = "WrongUpgrade"
+    end)
+    lu.assertEquals(wrongSource.kind, "failed")
+    lu.assertEquals(state.firstMismatch.checkpoint, "reward-source")
+    lu.assertFalse(state.firstMismatch.beforeApply)
+end
+
+function TestSession.testCompiledStoreIsSetForEveryAlternatingBatch()
+    local plan, route = routeFixture("representative-f")
+    local game, state = contactGame(route), newState()
+    local currentRun = start(state, plan, game)
+    local first = state.batchByParent[state.cursor]
+    lu.assertEquals(first.resolvedSharedRewardStoreKey, "MetaProgress")
+    lu.assertEquals(session.prepareBatchRewardStore(state, currentRun).kind, "handled")
+    lu.assertEquals(currentRun.NextRewardStoreName, "MetaProgress")
+    local firstTarget = first.targets[1]
+    state.cursor = firstTarget.room.instructionId
+    currentRun.CurrentRoom = { Name = state.instructionById[state.cursor].gameName }
+    local second = state.batchByParent[state.cursor]
+    lu.assertEquals(second.resolvedSharedRewardStoreKey, "RunProgress")
+    lu.assertEquals(session.prepareBatchRewardStore(state, currentRun).kind, "handled")
+    lu.assertEquals(currentRun.NextRewardStoreName, "RunProgress")
+end
+
+function TestSession.testDevotionAndLocalCageRewardsCarryExactCompiledContacts()
+    local plan, route = routeFixture("two-route-stress", "Surface")
+    local game, state = contactGame(route), newState()
+    local currentRun = start(state, plan, game, { routeKey = "Surface", biome = "N" })
+    local devotion
+    for _, instruction in ipairs(route.instructions) do
+        if instruction.incomingReward and instruction.incomingReward.offer.rewardType == "Devotion" then
+            devotion = instruction
+            break
+        end
+    end
+    local parent = nil
+    for parentId, batch in pairs(state.batchByParent) do
+        for _, target in ipairs(batch.targets) do
+            if target.room.instructionId == devotion.id then parent = parentId; break end
+        end
+        if parent then break end
+    end
+    state.cursor = parent
+    currentRun.CurrentRoom = { Name = state.instructionById[parent].gameName }
+    local batch = state.batchByParent[parent]
+    local doors, generated = {}, {}
+    for index, target in ipairs(batch.targets) do doors[index] = { Name = target.exit.type } end
+    for _ = 1, #batch.targets do
+        local room = session.chooseNextRoom(state, currentRun, doors, game)
+        generated[room.__runPlannerInstructionId] = room
+    end
+    local room, door = generated[devotion.id], doors[1]
+    for _, candidate in ipairs(batch.targets) do
+        if candidate.room.instructionId == devotion.id then door = doors[candidate.exit.index] end
+    end
+    door.Room = room
+    local choice = session.chooseRoomReward(state, currentRun, room, "RunProgress", {}, { Door = door },
+        function() return "Devotion" end)
+    lu.assertEquals(choice.value, "Devotion")
+    room.ChosenRewardType = "Devotion"
+    session.setupRoomReward(state, currentRun, room, nil, { Door = door }, function(_, setupRoom)
+        setupRoom.Encounter = { LootAName = "wrong-a", LootBName = "wrong-b" }
+    end)
+    lu.assertEquals(room.Encounter.LootAName, "AresUpgrade")
+    lu.assertEquals(room.Encounter.LootBName, "HephaestusUpgrade")
+    state.cursor = devotion.id
+    currentRun.CurrentRoom = room
+    room.Encounter.ChosenGodName = "AresUpgrade"
+    room.Encounter.SpurnedGodName = "HephaestusUpgrade"
+    lu.assertEquals(session.observeDevotionSelection(state, currentRun, room.Encounter).kind, "handled")
+    room.Encounter.ChosenGodName = "HephaestusUpgrade"
+    room.Encounter.SpurnedGodName = "AresUpgrade"
+    lu.assertEquals(session.observeDevotionSelection(state, currentRun, room.Encounter).kind, "failed")
+    lu.assertEquals(state.firstMismatch.checkpoint, "devotion-choice")
+    lu.assertFalse(state.firstMismatch.beforeApply)
+
+    local underworldPlan, underworld = routeFixture("complete-underworld")
+    local hGame, hState = contactGame(underworld), newState()
+    local hRun = start(hState, underworldPlan, hGame)
+    local localInstruction
+    for _, instruction in ipairs(underworld.instructions) do
+        if instruction.localRewards and #instruction.localRewards > 0 then localInstruction = instruction; break end
+    end
+    local hParent
+    for parentId, hBatch in pairs(hState.batchByParent) do
+        for _, target in ipairs(hBatch.targets) do
+            if target.room.instructionId == localInstruction.id then hParent = parentId; break end
+        end
+        if hParent then break end
+    end
+    hState.cursor = hParent
+    hRun.CurrentRoom = { Name = hState.instructionById[hParent].gameName }
+    local hBatch, hDoor = hState.batchByParent[hParent], nil
+    local hDoors = {}
+    for index, target in ipairs(hBatch.targets) do hDoors[index] = { Name = target.exit.type } end
+    local hRoom
+    for _ = 1, #hBatch.targets do
+        local generatedRoom = session.chooseNextRoom(hState, hRun, hDoors, hGame)
+        if generatedRoom.__runPlannerInstructionId == localInstruction.id then hRoom = generatedRoom end
+    end
+    for _, target in ipairs(hBatch.targets) do
+        if target.room.instructionId == localInstruction.id then hDoor = hDoors[target.exit.index] end
+    end
+    hDoor.Room = hRoom
+    lu.assertEquals(session.chooseRoomReward(hState, hRun, hRoom, "RunProgress", {}, { Door = hDoor },
+        function() return nil end).kind, "handled")
+    local cage = {}
+    for key, value in pairs(hRoom) do cage[key] = value end
+    hRun.RewardPriorities = {}
+    local localChoice = session.chooseRoomReward(hState, hRun, cage, "RunProgress", {}, nil,
+        function(run)
+            lu.assertEquals(run.RewardPriorities[1], "MaxHealthDrop")
+            table.remove(run.RewardPriorities, 1)
+            return "MaxHealthDrop"
+        end)
+    lu.assertEquals(localChoice.value, "MaxHealthDrop")
+    cage.ChosenRewardType = "MaxHealthDrop"
+    lu.assertEquals(session.setupRoomReward(hState, hRun, cage, nil, { Door = hDoor }, function()
+        return "local-setup"
+    end).result, "local-setup")
+    local staleCage = {}
+    for key, value in pairs(cage) do staleCage[key] = value end
+    staleCage.__runPlannerExitType = "WrongDoor"
+    local consumed = hState.localRewardCounts[localInstruction.id]
+    local baseCalled = false
+    local stale = session.chooseRoomReward(hState, hRun, staleCage, "RunProgress", {}, nil,
+        function() baseCalled = true; return "MaxManaDrop" end)
+    lu.assertEquals(stale.kind, "failed")
+    lu.assertFalse(baseCalled)
+    lu.assertEquals(hState.localRewardCounts[localInstruction.id], consumed)
+    lu.assertEquals(hState.state, "desynchronized")
+    lu.assertEquals(hState.firstMismatch.checkpoint, "reward-marker")
+    lu.assertTrue(hState.firstMismatch.beforeApply)
+    lu.assertEquals(hState.firstMismatch.expected, { kind = "exitType", key = hDoor.Name })
+    lu.assertEquals(hState.firstMismatch.observed, { kind = "exitType", key = "WrongDoor" })
+end
+
+function TestSession.testAnomalyAcquisitionContactObservesBothOutcomesWithoutPolicyRepair()
+    local plan, route = routeFixture("two-route-stress")
+    local game, state = contactGame(route), newState()
+    local currentRun = start(state, plan, game)
+    local anomaly
+    for _, instruction in ipairs(route.instructions) do
+        if instruction.anomalyReplacement then anomaly = instruction; break end
+    end
+    state.cursor = anomaly.id
+    currentRun.CurrentRoom = { Name = anomaly.gameName, __runPlannerInstructionId = anomaly.id }
+    lu.assertEquals(session.observeAnomalyReward(state, currentRun, { CapturePointProgress = 100 }).kind, "handled")
+    anomaly.incomingReward.acquisitionEnabled = false
+    lu.assertEquals(session.observeAnomalyReward(state, currentRun, { CapturePointProgress = 100 }).kind, "failed")
+    lu.assertEquals(state.state, "desynchronized")
+    lu.assertEquals(state.firstMismatch.checkpoint, "anomaly-reward")
+    lu.assertFalse(state.firstMismatch.beforeApply)
+end
+
+function TestSession.testFixedFreeAndUnpickedPhysicalOffersKeepVanillaBagContacts()
+    local plan, route = routeFixture("complete-underworld")
+    local game, state = contactGame(route), newState()
+    local currentRun = start(state, plan, game)
+    local prebossBatch
+    for _, batch in pairs(state.batchByParent) do
+        if #batch.targets == 2 then
+            local kinds = {}
+            for _, target in ipairs(batch.targets) do
+                local reward = state.instructionById[target.room.instructionId].incomingReward
+                if reward then kinds[reward.producerKind] = true end
+            end
+            if kinds.shop and kinds.freeReward then prebossBatch = batch; break end
+        end
+    end
+    state.cursor = prebossBatch.parent.instructionId
+    currentRun.CurrentRoom = { Name = state.instructionById[state.cursor].gameName }
+    local doors, rooms = {}, {}
+    for index, target in ipairs(prebossBatch.targets) do doors[index] = { Name = target.exit.type } end
+    for _ = 1, #prebossBatch.targets do
+        local room = session.chooseNextRoom(state, currentRun, doors, game)
+        rooms[room.__runPlannerInstructionId] = room
+    end
+    local calls = 0
+    local sharedBag = { "StackUpgrade" }
+    currentRun.RewardPriorities = { "ExistingPriority" }
+    for _, target in ipairs(prebossBatch.targets) do
+        local room = rooms[target.room.instructionId]
+        local reward = state.instructionById[target.room.instructionId].incomingReward
+        local door = doors[target.exit.index]
+        door.Room = room
+        local beforeBagCount = #sharedBag
+        local choice = session.chooseRoomReward(state, currentRun, room, "RunProgress", {}, { Door = door },
+            function(run, targetRoom)
+                calls = calls + 1
+                if reward.producerKind == "freeReward" then
+                    lu.assertEquals(run.RewardPriorities[1], reward.offer.rewardType)
+                    table.remove(run.RewardPriorities, 1)
+                    lu.assertEquals(sharedBag[1], "StackUpgrade")
+                    table.remove(sharedBag, 1)
+                else
+                    lu.assertEquals(run.RewardPriorities[1], "ExistingPriority")
+                end
+                targetRoom.Reward = { Name = reward.offer.rewardType }
+                return reward.offer.rewardType
+            end)
+        lu.assertEquals(choice.value, reward.offer.rewardType)
+        lu.assertEquals(room.Reward.Name, reward.offer.rewardType)
+        if reward.producerKind == "shop" then lu.assertEquals(#sharedBag, beforeBagCount) end
+    end
+    lu.assertEquals(calls, 2)
+    lu.assertEquals(sharedBag, {})
+    lu.assertEquals(currentRun.RewardPriorities, { "ExistingPriority" })
+
+    local fixedInstruction
+    for _, instruction in ipairs(route.instructions) do
+        if instruction.incomingReward and instruction.incomingReward.producerKind == "fixed" then
+            fixedInstruction = instruction
+            break
+        end
+    end
+    local fixedParent
+    for parentId, batch in pairs(state.batchByParent) do
+        for _, target in ipairs(batch.targets) do
+            if target.room.instructionId == fixedInstruction.id then fixedParent = parentId; break end
+        end
+        if fixedParent then break end
+    end
+    state.cursor = fixedParent
+    state.generation = nil
+    currentRun.CurrentRoom = { Name = state.instructionById[fixedParent].gameName }
+    local fixedBatch, fixedDoors = state.batchByParent[fixedParent], {}
+    for index, target in ipairs(fixedBatch.targets) do fixedDoors[index] = { Name = target.exit.type } end
+    local fixedRoom
+    for _ = 1, #fixedBatch.targets do
+        local room = session.chooseNextRoom(state, currentRun, fixedDoors, game)
+        if room.__runPlannerInstructionId == fixedInstruction.id then fixedRoom = room end
+    end
+    local fixedDoor
+    for _, target in ipairs(fixedBatch.targets) do
+        if target.room.instructionId == fixedInstruction.id then fixedDoor = fixedDoors[target.exit.index] end
+    end
+    fixedDoor.Room = fixedRoom
+    currentRun.RewardPriorities = { "ExistingPriority" }
+    local fixedBag = { "Story" }
+    local fixed = session.chooseRoomReward(state, currentRun, fixedRoom, "RunProgress", {}, { Door = fixedDoor },
+        function(run)
+            lu.assertEquals(run.RewardPriorities, { "ExistingPriority" })
+            lu.assertEquals(fixedBag, { "Story" })
+            return { Name = "Story" }
+        end)
+    lu.assertEquals(fixed.value.Name, "Story")
+    lu.assertEquals(fixedBag, { "Story" })
+    lu.assertEquals(currentRun.RewardPriorities, { "ExistingPriority" })
+end
+
+function TestSession.testRuntimeSourceFailureAndUnmarkedRewardCallsFailClosedOrPassThrough()
+    local plan, route = routeFixture("representative-f")
+    local game, state = contactGame(route), newState()
+    local currentRun = start(state, plan, game)
+    lu.assertEquals(session.chooseRoomReward(state, currentRun, { Name = "VanillaRoom" }, "RunProgress", {}, nil,
+        function() return "VanillaReward" end).kind, "passThrough")
+    local sourceInstruction, sourceParent
+    for parentId, candidateBatch in pairs(state.batchByParent) do
+        for _, candidate in ipairs(candidateBatch.targets) do
+            local instruction = state.instructionById[candidate.room.instructionId]
+            if instruction.incomingReward and instruction.incomingReward.offer.rewardType == "Boon" then
+                sourceInstruction, sourceParent = instruction, parentId
+                break
+            end
+        end
+        if sourceParent then break end
+    end
+    state.cursor, state.generation = sourceParent, nil
+    currentRun.CurrentRoom = { Name = state.instructionById[sourceParent].gameName }
+    local batch = state.batchByParent[sourceParent]
+    local doors = {}
+    for index, target in ipairs(batch.targets) do doors[index] = { Name = target.exit.type } end
+    local target
+    for _ = 1, #batch.targets do
+        local room = session.chooseNextRoom(state, currentRun, doors, game)
+        if room.__runPlannerInstructionId == sourceInstruction.id then target = room end
+    end
+    local door = doors[target.__runPlannerExitIndex]
+    door.Room = target
+    state.instructionById[target.__runPlannerInstructionId].incomingReward.offer.payload = nil
+    local called = false
+    local result = session.chooseRoomReward(state, currentRun, target, "MetaProgress", {}, { Door = door },
+        function() called = true; return "Boon" end)
+    lu.assertEquals(result.kind, "failed")
+    lu.assertFalse(called)
+    lu.assertEquals(state.state, "desynchronized")
+    lu.assertEquals(state.firstMismatch.checkpoint, "reward-source")
+    lu.assertTrue(state.firstMismatch.beforeApply)
+end
+
+function TestSession.testVanillaRewardReturnMismatchIsPostApply()
+    local plan, route = routeFixture("representative-f")
+    local game, state = contactGame(route), newState()
+    game.CreateRoom = function(roomData) return roomData end
+    local currentRun = start(state, plan, game)
+    local starting = assert(session.chooseStartingRoom(state, currentRun, { StartingBiome = "F" }, game))
+    local result = session.chooseRoomReward(state, currentRun, starting, "RunProgress", {}, nil,
+        function() return "WrongReward" end)
+    lu.assertEquals(result.kind, "failed")
+    lu.assertEquals(state.firstMismatch.checkpoint, "reward-type")
+    lu.assertFalse(state.firstMismatch.beforeApply)
 end
 
 function TestSession.testExactOrderedBatchKeepsUnpickedRoomsAndAdvancesOnlyFromObservedSelectedDoor()

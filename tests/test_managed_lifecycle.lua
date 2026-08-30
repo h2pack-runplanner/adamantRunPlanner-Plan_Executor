@@ -90,7 +90,7 @@ local function assertReplacement(state, expectedStatus, expectedLogCount)
     lu.assertEquals(boot:getLiveModule(PLUGIN_GUID), newModule)
     lu.assertEquals(cacheState(currentRun), state)
     lu.assertEquals(boot.env.rom.game.StartNewRun, startDispatcher)
-    lu.assertEquals(#boot.callbacks.wraps, 5)
+    lu.assertEquals(#boot.callbacks.wraps, 10)
     lu.assertEquals(#oldRecord.effectReceipts, 0)
     lu.assertStrContains(newRecord.runtime.status.read("ExecutionSessionStatus"), expectedStatus)
     lu.assertEquals(reads.count, 0)
@@ -192,6 +192,65 @@ function TestManagedLifecycle.testManagedHooksForceAndObserveOneCompiledDoorBatc
     game.LeaveRoom(currentRun, doors[1])
     lu.assertEquals(state.cursor, "target")
     lu.assertEquals(vanillaCalls, 0)
+end
+
+function TestManagedLifecycle.testManagedRewardHooksUseThePhysicalMarkedDoor()
+    local entry = { id = "entry", kind = "authored", gameName = "F_Opening01", origin = { biomeKey = "F" } }
+    local target = {
+        id = "target", kind = "authored", gameName = "F_Combat02", origin = { biomeKey = "F" },
+        incomingReward = {
+            producerKind = "countedChoice", resolvedStoreKey = "MetaProgress",
+            offer = { rewardType = "Boon", payload = { kind = "BoonSource", source = "ApolloUpgrade" } },
+        },
+    }
+    local batch = {
+        id = "batch", kind = "batch", parent = { instructionId = "entry" },
+        resolvedSharedRewardStoreKey = "MetaProgress", targets = {
+            {
+                exit = { exitKey = "exit1", index = 1, type = "TestDoor", behavior = "playerSelected" },
+                room = { instructionId = "target" }, picked = true, continuation = "continuesSpine",
+            },
+        }, selectedContinuation = { kind = "normal", exitKey = "exit1", instructionId = "target" },
+    }
+    local route = {
+        routeKey = "Underworld", entryInstructionId = "entry", instructions = { entry, target, batch },
+        biomes = { { biomeKey = "F", entryInstructionId = "entry", completionInstructionIds = {} } },
+    }
+    local state = {
+        initialized = true, state = "active", routeKey = "Underworld", cursor = "entry", program = route,
+        instructionById = { entry = entry, target = target, batch = batch }, batchByParent = { entry = batch },
+        biomeByKey = { F = route.biomes[1] }, biomeIndexByKey = { F = 1 }, context = {},
+    }
+    local boot, currentRun = bootWithState(state)
+    local game = boot.env.rom.game
+    game.RoomData = {
+        F_Opening01 = { Name = "F_Opening01" }, F_Combat02 = { Name = "F_Combat02" },
+    }
+    currentRun.RewardPriorities = {}
+    game.ChooseNextRoomData = function() error("marked target must not fall through") end
+    game.ChooseRoomReward = function(run, _room, store)
+        lu.assertEquals(store, "MetaProgress")
+        lu.assertEquals(run.RewardPriorities[1], "Boon")
+        table.remove(run.RewardPriorities, 1)
+        return "Boon"
+    end
+    game.SetupRoomReward = function(_, room)
+        lu.assertEquals(room.ForceLootName, "ApolloUpgrade")
+        return "vanilla-setup"
+    end
+    game.DoUnlockRoomExits = function(run)
+        local door = { Name = "TestDoor" }
+        door.Room = game.ChooseNextRoomData(run, {}, { door })
+        door.Room.ChosenRewardType = game.ChooseRoomReward(run, door.Room, run.NextRewardStoreName, {}, { Door = door })
+        local result = game.SetupRoomReward(run, door.Room, {}, { Door = door })
+        return door, result
+    end
+    createReplacement(boot, { count = 0 })
+    local door, result = game.DoUnlockRoomExits(currentRun, currentRun.CurrentRoom)
+    lu.assertEquals(currentRun.NextRewardStoreName, "MetaProgress")
+    lu.assertEquals(door.Room.__runPlannerInstructionId, "target")
+    lu.assertEquals(result, "vanilla-setup")
+    lu.assertEquals(state.state, "active")
 end
 
 function TestManagedLifecycle.testManagedAutomaticHostAndCompletionAdvanceOnlyAtStartRoom()

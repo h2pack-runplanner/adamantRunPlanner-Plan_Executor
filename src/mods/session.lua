@@ -72,6 +72,7 @@ local function sessionStatus(state)
         "cursor=" .. boundedScalar(state.cursor),
         "instruction=" .. boundedScalar(mismatch.instructionId),
         "checkpoint=" .. boundedScalar(mismatch.checkpoint),
+        "beforeApply=" .. boundedScalar(mismatch.beforeApply),
         contactText("expected", mismatch.expected),
         contactText("observed", mismatch.observed),
         "plan=" .. boundedScalar(state.planFingerprint),
@@ -113,7 +114,7 @@ local function instructionOwner(instruction)
     return instruction and instruction.origin or nil
 end
 
-local function mismatch(state, checkpoint, expected, observed, instruction, currentRun)
+local function mismatch(state, checkpoint, expected, observed, instruction, currentRun, beforeApply)
     if state.firstMismatch ~= nil then return end
     state.firstMismatch = {
         catalogVersion = state.catalogVersion,
@@ -124,7 +125,7 @@ local function mismatch(state, checkpoint, expected, observed, instruction, curr
         checkpoint = checkpoint,
         expected = expected,
         observed = observed,
-        beforeApply = true,
+        beforeApply = beforeApply ~= false,
         instructionId = instruction and instruction.id or nil,
         instructionOwner = instructionOwner(instruction),
         context = state.context,
@@ -388,6 +389,8 @@ local function roomInstruction(state, id)
     return instruction and instruction.gameName and instruction or nil
 end
 
+local currentInstructionMatches
+
 local function markRoomData(game, state, target, batch)
     local instruction = roomInstruction(state, target.room.instructionId)
     if not instruction or type(game.RoomData) ~= "table" or game.RoomData[instruction.gameName] == nil then
@@ -404,7 +407,270 @@ local function markRoomData(game, state, target, batch)
     return copy
 end
 
-local function currentInstructionMatches(state, currentRun, currentRunRoom)
+local function markStartingRoomData(game, instruction)
+    if type(game.RoomData) ~= "table" or game.RoomData[instruction.gameName] == nil then return nil end
+    local copy = {}
+    for key, value in pairs(game.RoomData[instruction.gameName]) do copy[key] = value end
+    copy.__runPlannerInstructionId = instruction.id
+    copy.__runPlannerStartingRoom = true
+    return copy
+end
+
+local function physicalTarget(state, currentRun, room, instruction)
+    local batch = state.batchByParent and state.batchByParent[state.cursor] or nil
+    if not batch or not instruction then
+        mismatch(state, "reward-marker", { kind = "instruction", key = state.cursor },
+            { kind = "instruction", key = room and room.__runPlannerInstructionId }, instruction, currentRun)
+        return nil
+    end
+    local target
+    for _, candidate in ipairs(batch.targets) do
+        if candidate.room.instructionId == instruction.id then target = candidate; break end
+    end
+    if not target then
+        mismatch(state, "reward-marker", { kind = "instruction", key = instruction.id },
+            { kind = "instruction", key = room.__runPlannerInstructionId }, instruction, currentRun)
+        return nil
+    end
+    local checks = {
+        { "batch", batch.id, room.__runPlannerBatchId },
+        { "exitKey", target.exit.exitKey, room.__runPlannerExitKey },
+        { "exitIndex", target.exit.index, room.__runPlannerExitIndex },
+        { "exitType", target.exit.type, room.__runPlannerExitType },
+        { "exitBehavior", target.exit.behavior, room.__runPlannerExitBehavior },
+        { "room", instruction.gameName, roomName(room) },
+    }
+    for _, check in ipairs(checks) do
+        if check[2] ~= check[3] then
+            mismatch(state, "reward-marker", { kind = check[1], key = check[2] },
+                { kind = check[1], key = check[3] }, instruction, currentRun)
+            return nil
+        end
+    end
+    return target
+end
+
+-- A generated room copy is the sole reward-routing authority.  Do not infer a
+-- reward from the room name: a physical batch can contain repeated game names
+-- (notably the two preboss targets) with distinct compiled rewards.
+local function markedRewardInstruction(state, currentRun, room, args)
+    if state == nil or state.state ~= "active" then return { kind = "passThrough" } end
+    if type(room) ~= "table" or room.__runPlannerInstructionId == nil then
+        return { kind = "passThrough" }
+    end
+    local instruction = roomInstruction(state, room.__runPlannerInstructionId)
+    if room.__runPlannerStartingRoom then
+        if instruction and instruction.id == state.cursor and roomName(room) == instruction.gameName then
+            if instruction.incomingReward then
+                return { kind = "handled", instruction = instruction, reward = instruction.incomingReward,
+                    role = "starting" }
+            end
+            return { kind = "nilExpected", instruction = instruction, role = "starting" }
+        end
+        mismatch(state, "reward-marker", { kind = "instruction", key = state.cursor },
+            { kind = "instruction", key = room.__runPlannerInstructionId }, instruction, currentRun)
+        return { kind = "failed" }
+    end
+    if room.__runPlannerRewardRole == "local" and instruction and instruction.localRewards then
+        if not physicalTarget(state, currentRun, room, instruction) then return { kind = "failed" } end
+        local index = room.__runPlannerLocalRewardIndex
+        local reward = instruction.localRewards[index]
+        if reward then return { kind = "handled", instruction = instruction, reward = reward, role = "local" } end
+        mismatch(state, "local-reward", { kind = "local-reward", key = index },
+            { kind = "local-reward", key = nil }, instruction, currentRun)
+        return { kind = "failed" }
+    end
+    local isDoorTarget = type(args) == "table" and type(args.Door) == "table" and args.Door.Room == room
+    if not isDoorTarget and room.__runPlannerTargetRewardInitialized and instruction
+        and instruction.localRewards and #instruction.localRewards > 0 and args == nil then
+        if not physicalTarget(state, currentRun, room, instruction) then return { kind = "failed" } end
+        local counts = state.localRewardCounts or {}
+        state.localRewardCounts = counts
+        local index = (counts[instruction.id] or 0) + 1
+        local reward = instruction.localRewards[index]
+        if reward == nil then
+            mismatch(state, "local-reward", { kind = "local-reward", key = index },
+                { kind = "local-reward", key = nil }, instruction, currentRun)
+            return { kind = "failed" }
+        end
+        counts[instruction.id] = index
+        room.__runPlannerLocalRewardIndex = index
+        room.__runPlannerRewardRole = "local"
+        return { kind = "handled", instruction = instruction, reward = reward, role = "local" }
+    end
+    if not isDoorTarget then return { kind = "passThrough" } end
+    if not physicalTarget(state, currentRun, room, instruction) then return { kind = "failed" } end
+    if not instruction.incomingReward then
+        return { kind = "nilExpected", instruction = instruction, role = "target", localReady = true }
+    end
+    return { kind = "handled", instruction = instruction, reward = instruction.incomingReward, role = "target" }
+end
+
+local function copyTable(source)
+    local copy = {}
+    for key, value in pairs(source) do copy[key] = value end
+    return copy
+end
+
+local function restoreTable(target, source)
+    for key in pairs(target) do target[key] = nil end
+    for key, value in pairs(source) do target[key] = value end
+end
+
+local function requiredPayload(state, currentRun, instruction, reward)
+    local payload = reward.offer.payload
+    local kind = reward.offer.rewardType
+    if kind == "Boon" and (not payload or payload.kind ~= "BoonSource") then
+        mismatch(state, "reward-source", { kind = "BoonSource", key = nil },
+            { kind = "payload", key = payload and payload.kind or nil }, instruction, currentRun)
+        return nil
+    end
+    if kind == "Devotion" and (not payload or payload.kind ~= "DevotionPair") then
+        mismatch(state, "reward-source", { kind = "DevotionPair", key = nil },
+            { kind = "payload", key = payload and payload.kind or nil }, instruction, currentRun)
+        return nil
+    end
+    return payload
+end
+
+local function observedRewardType(value)
+    return type(value) == "table" and value.Name or value
+end
+
+function session.prepareBatchRewardStore(state, currentRun)
+    if state == nil or state.state ~= "active" then return { kind = "passThrough" } end
+    local batch = state.batchByParent and state.batchByParent[state.cursor] or nil
+    if not batch then return { kind = "passThrough" } end
+    if not currentInstructionMatches(state, currentRun) then
+        mismatch(state, "reward-store", { kind = "room", key = state.cursor },
+            { kind = "room", key = roomName(currentRun and currentRun.CurrentRoom) },
+            roomInstruction(state, state.cursor), currentRun)
+        return { kind = "failed" }
+    end
+    if type(batch.resolvedSharedRewardStoreKey) ~= "string" then return { kind = "passThrough" } end
+    currentRun.NextRewardStoreName = batch.resolvedSharedRewardStoreKey
+    return { kind = "handled" }
+end
+
+function session.chooseRoomReward(state, currentRun, room, rewardStoreName, previouslyChosenRewards, args, base)
+    local contact = markedRewardInstruction(state, currentRun, room, args)
+    if contact.kind == "nilExpected" then
+        if contact.localReady then room.__runPlannerTargetRewardInitialized = true end
+        local actual = base(currentRun, room, rewardStoreName, previouslyChosenRewards, args)
+        if actual ~= nil then
+            mismatch(state, "reward-type", { kind = "reward", key = nil },
+                { kind = "reward", key = observedRewardType(actual) }, contact.instruction, currentRun, false)
+            return { kind = "failed", value = actual }
+        end
+        return { kind = "handled", value = actual }
+    end
+    if contact.kind ~= "handled" then
+        if contact.localReady then room.__runPlannerTargetRewardInitialized = true end
+        return contact
+    end
+    local expected = contact.reward
+    local payload = requiredPayload(state, currentRun, contact.instruction, expected)
+    if (expected.offer.rewardType == "Boon" or expected.offer.rewardType == "Devotion") and not payload then
+        return { kind = "failed" }
+    end
+    if expected.resolvedStoreKey ~= nil and rewardStoreName ~= expected.resolvedStoreKey then
+        mismatch(state, "reward-store", { kind = "rewardStore", key = expected.resolvedStoreKey },
+            { kind = "rewardStore", key = rewardStoreName }, contact.instruction, currentRun)
+        return { kind = "failed" }
+    end
+    local priorities = currentRun and currentRun.RewardPriorities
+    local needsPriority = contact.role == "local" or expected.producerKind == "countedChoice"
+        or expected.producerKind == "freeReward"
+    local originalPriorities = needsPriority and type(priorities) == "table" and copyTable(priorities) or nil
+    if originalPriorities then table.insert(priorities, 1, expected.offer.rewardType) end
+    local ok, actual = pcall(base, currentRun, room, rewardStoreName, previouslyChosenRewards, args)
+    if originalPriorities then restoreTable(priorities, originalPriorities) end
+    if not ok then error(actual, 0) end
+    local actualType = observedRewardType(actual)
+    if actualType ~= expected.offer.rewardType then
+        mismatch(state, "reward-type", { kind = "reward", key = expected.offer.rewardType },
+            { kind = "reward", key = actualType }, contact.instruction, currentRun, false)
+        return { kind = "failed", value = actual }
+    end
+    if payload and payload.kind == "BoonSource" then room.ForceLootName = payload.source end
+    if contact.role == "target" then room.__runPlannerTargetRewardInitialized = true end
+    return { kind = "handled", value = actual, instruction = contact.instruction }
+end
+
+function session.setupRoomReward(state, currentRun, room, previouslyChosenRewards, args, base)
+    local contact = markedRewardInstruction(state, currentRun, room, args)
+    if contact.kind ~= "handled" then return contact end
+    local expected = contact.reward
+    local payload = requiredPayload(state, currentRun, contact.instruction, expected)
+    if (expected.offer.rewardType == "Boon" or expected.offer.rewardType == "Devotion") and not payload then
+        return { kind = "failed" }
+    end
+    if room.ChosenRewardType ~= expected.offer.rewardType then
+        mismatch(state, "reward-type", { kind = "reward", key = expected.offer.rewardType },
+            { kind = "reward", key = room.ChosenRewardType }, contact.instruction, currentRun)
+        return { kind = "failed" }
+    end
+    local result = base(currentRun, room, previouslyChosenRewards, args)
+    if payload and payload.kind == "BoonSource" then
+        if room.ForceLootName ~= payload.source then
+            mismatch(state, "reward-source", { kind = "BoonSource", key = payload.source },
+                { kind = "BoonSource", key = room.ForceLootName }, contact.instruction, currentRun, false)
+            return { kind = "failed" }
+        end
+    elseif payload and payload.kind == "DevotionPair" then
+        if type(room.Encounter) ~= "table" then
+            mismatch(state, "reward-source", { kind = "DevotionPair", key = payload.chosenSource },
+                { kind = "DevotionPair", key = nil }, contact.instruction, currentRun, false)
+            return { kind = "failed" }
+        end
+        room.Encounter.LootAName = payload.chosenSource
+        room.Encounter.LootBName = payload.spurnedSource
+    end
+    return { kind = "handled", result = result }
+end
+
+function session.observeAnomalyReward(state, currentRun, encounter)
+    if state == nil or state.state ~= "active" then return { kind = "passThrough" } end
+    local instruction = roomInstruction(state, state.cursor)
+    local room = currentRun and currentRun.CurrentRoom
+    if not instruction or not instruction.anomalyReplacement or roomName(room) ~= instruction.gameName
+        or room.__runPlannerInstructionId ~= instruction.id
+    then
+        return { kind = "passThrough" }
+    end
+    local expected = instruction.incomingReward and instruction.incomingReward.acquisitionEnabled
+    if type(expected) ~= "boolean" then return { kind = "passThrough" } end
+    local succeeded = type(encounter) == "table" and encounter.CapturePointProgress >= 100
+    if succeeded ~= expected then
+        mismatch(state, "anomaly-reward", { kind = "acquisition", key = expected },
+            { kind = "acquisition", key = succeeded }, instruction, currentRun, false)
+        return { kind = "failed" }
+    end
+    return { kind = "handled" }
+end
+
+function session.observeDevotionSelection(state, currentRun, encounter)
+    if state == nil or state.state ~= "active" then return { kind = "passThrough" } end
+    local instruction = roomInstruction(state, state.cursor)
+    local room = currentRun and currentRun.CurrentRoom
+    local reward = instruction and instruction.incomingReward or nil
+    local payload = reward and reward.offer and reward.offer.payload or nil
+    if not instruction or room == nil or room.__runPlannerInstructionId ~= instruction.id
+        or roomName(room) ~= instruction.gameName or not payload or payload.kind ~= "DevotionPair" then
+        return { kind = "passThrough" }
+    end
+    if type(encounter) ~= "table" or encounter.ChosenGodName ~= payload.chosenSource
+        or encounter.SpurnedGodName ~= payload.spurnedSource
+    then
+        mismatch(state, "devotion-choice", { kind = "DevotionPair", key = payload.chosenSource },
+            { kind = "DevotionPair", key = type(encounter) == "table" and encounter.ChosenGodName or nil },
+            instruction, currentRun, false)
+        return { kind = "failed" }
+    end
+    return { kind = "handled" }
+end
+
+currentInstructionMatches = function(state, currentRun, currentRunRoom)
     local instruction = roomInstruction(state, state and state.cursor)
     local observedRoom = currentRunRoom or (currentRun and currentRun.CurrentRoom)
     return instruction ~= nil and roomName(observedRoom) == instruction.gameName
@@ -457,7 +723,7 @@ function session.chooseStartingRoom(state, currentRun, args, game)
         mismatch(state, "starting-room", instruction and instruction.gameName or nil, nil, instruction, currentRun)
         return nil
     end
-    local roomData = game.RoomData[instruction.gameName]
+    local roomData = markStartingRoomData(game, instruction)
     if roomData == nil then
         mismatch(state, "starting-room", instruction.gameName, nil, instruction, currentRun)
         return nil
@@ -701,6 +967,61 @@ function session.registerHooks(moduleRef, deps)
             return nil
         end
         return base(currentRun, args, otherDoors)
+    end)
+    moduleRef.hooks.wrap("DoUnlockRoomExits", "execution-session-batch-store",
+        function(host, runtime, base, currentRun, room)
+        local state = session.get(runtime)
+        local result = session.prepareBatchRewardStore(state, currentRun)
+        if result.kind == "failed" then
+            session.publishStatus(runtime, state, host)
+            return nil
+        end
+        return base(currentRun, room)
+    end)
+    moduleRef.hooks.wrap("ChooseRoomReward", "execution-session-target-reward",
+        function(host, runtime, base, currentRun, room, rewardStoreName, previouslyChosenRewards, args)
+        local state = session.get(runtime)
+        local result = session.chooseRoomReward(state, currentRun, room, rewardStoreName,
+            previouslyChosenRewards, args, base)
+        if result.kind == "passThrough" then
+            return base(currentRun, room, rewardStoreName, previouslyChosenRewards, args)
+        end
+        if result.kind == "failed" then
+            session.publishStatus(runtime, state, host)
+            return result.value
+        end
+        return result.value
+    end)
+    moduleRef.hooks.wrap("SetupRoomReward", "execution-session-target-reward-setup",
+        function(host, runtime, base, currentRun, room, previouslyChosenRewards, args)
+        local state = session.get(runtime)
+        local result = session.setupRoomReward(state, currentRun, room, previouslyChosenRewards,
+            args, base)
+        if result.kind == "passThrough" then return base(currentRun, room, previouslyChosenRewards, args) end
+        if result.kind == "failed" then
+            session.publishStatus(runtime, state, host)
+            return nil
+        end
+        return result.result
+    end)
+    moduleRef.hooks.wrap("EndCapturePointChallengeEncounter", "execution-session-anomaly-reward",
+        function(host, runtime, base, encounter)
+        local state = session.get(runtime)
+        local currentRun = deps.game.CurrentRun or _G.CurrentRun
+        local result = session.observeAnomalyReward(state, currentRun, encounter)
+        if result.kind == "failed" then
+            session.publishStatus(runtime, state, host)
+        end
+        return base(encounter)
+    end)
+    moduleRef.hooks.wrap("StartDevotionTest", "execution-session-devotion-choice",
+        function(host, runtime, base, encounter, args)
+        local result = base(encounter, args)
+        local state = session.get(runtime)
+        local currentRun = deps.game.CurrentRun or _G.CurrentRun
+        local observed = session.observeDevotionSelection(state, currentRun, encounter)
+        if observed.kind == "failed" then session.publishStatus(runtime, state, host) end
+        return result
     end)
     moduleRef.hooks.wrap("LeaveRoom", "execution-session-selected-exit",
         function(host, runtime, base, currentRun, door)

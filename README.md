@@ -14,11 +14,13 @@ explicit diagnostic action. A loaded project-only bundle is reported as having
 no executable plan.
 
 At each new run, the module freezes one decoded route in a ModpackLib
-current-run cache, verifies referenced live identifiers, and observes the
-starting room. Disabled, dream, unknown, unavailable, and unconfigured routes
-remain vanilla/inactive. A contact failure is recorded once and never triggers
-a fallback. Runtime adapters that execute resolved instructions arrive in later
-Phase 9 slices.
+current-run cache, verifies referenced live identifiers, and applies exact
+compiled starting rooms, physical normal-door targets, and generated reward
+types and Boon/Devotion sources through narrow vanilla contacts. Disabled,
+dream, unknown, unavailable, and unconfigured routes remain vanilla/inactive.
+A contact failure is recorded once and never triggers a fallback. Encounter
+selection, Shop and wheel inventories, local-room topology, and detours remain
+later Phase 9 slices.
 
 ## How To Use
 
