@@ -2,7 +2,7 @@
 
 `f-opening.execution.json` and `fg.execution.json` are readable wire fixtures
 produced by RunPlanner-main at commit
-`ab7031445693fd6f4dba583fa9124e945a41511a` (`ab703144`). They use execution
+`4c88b45f774d89942a08139759a8f5a3a3bf8283` (`4c88b45f`). They use execution
 protocol version `3`, and cover F-only and
 configured F/G execution extents. They include closed room traces, trait and
 level settlements, and expanded Run State diagnostics. Automatic outcomes are

@@ -1,7 +1,7 @@
 {
   "format": "run-planner-execution",
   "protocolVersion": 3,
-  "catalogVersion": "0.51.0-biome-i-encounter-profiles",
+  "catalogVersion": "0.52.0-boss-preboss-variants",
   "projectId": "golden-fg",
   "routeKey": "Underworld",
   "extent": { "kind": "configuredPrefix", "biomeKeys": ["F", "G"], "terminalBiomeKey": "G" },
@@ -8314,5 +8314,5 @@
       }
     }
   ],
-  "planFingerprint": "969d82ac"
+  "planFingerprint": "0ebf19dd"
 }

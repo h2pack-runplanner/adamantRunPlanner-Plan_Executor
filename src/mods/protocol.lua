@@ -6,7 +6,7 @@ local protocol = {}
 
 protocol.FORMAT = "run-planner-execution"
 protocol.VERSION = 3
-protocol.CATALOG_VERSION = "0.51.0-biome-i-encounter-profiles"
+protocol.CATALOG_VERSION = "0.52.0-boss-preboss-variants"
 protocol.MAX_STRING = 512
 protocol.MAX_ROOMS = 256
 protocol.MAX_TRACE = 64

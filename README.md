@@ -14,7 +14,7 @@ field-level evidence and blocks the remaining plan suffix; it never searches,
 selects a fallback, or repairs the run.
 
 The checked-in Gate C fixtures were produced by RunPlanner-main commit
-`ab7031445693fd6f4dba583fa9124e945a41511a`.
+`4c88b45f774d89942a08139759a8f5a3a3bf8283`.
 
 Use the desktop Run Planner's **Publish to Game** action. The browser build
 cannot publish directly. The archived `archive/phase9-prototype/` directory is
