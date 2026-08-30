@@ -1,0 +1,54 @@
+{
+  "format": "run-planner-execution",
+  "protocolVersion": 1,
+  "catalogVersion": "0.51.0-biome-i-encounter-profiles",
+  "projectId": "golden-fg",
+  "routeKey": "Underworld",
+  "extent": {
+    "kind": "configuredPrefix",
+    "biomeKeys": ["F"],
+    "terminalBiomeKey": "F"
+  },
+  "rooms": [
+    {
+      "id": "golden-f-start",
+      "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-start\"]",
+      "biomeKey": "F",
+      "gameName": "F_Opening01",
+      "contents": {
+        "incomingReward": {
+          "rewardType": "Boon",
+          "producerLifecycleKey": "RoomReward",
+          "resolvedStoreKey": "RunProgress",
+          "source": "ApolloUpgrade"
+        }
+      },
+      "trace": [
+        {
+          "id": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-start\"]:roomEntered",
+          "kind": "roomEntered",
+          "checkpoint": "roomEntered",
+          "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-start\"]"
+        }
+      ],
+      "outgoing": {
+        "owner": "[\"exitDecision\",\"Underworld\",\"F\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-f-start\"}]",
+        "targets": [
+          {
+            "exitKey": "exit1",
+            "index": 1,
+            "type": "ErebusExitDoor",
+            "room": {
+              "id": "golden-f-b1-e1",
+              "biomeKey": "F",
+              "gameName": "F_Combat02"
+            },
+            "picked": true
+          }
+        ],
+        "selectedExitKey": "exit1"
+      }
+    }
+  ],
+  "planFingerprint": "17ac5535"
+}
