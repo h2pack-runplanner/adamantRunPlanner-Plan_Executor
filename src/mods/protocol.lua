@@ -5,7 +5,7 @@ local json = require("mods/json")
 local protocol = {}
 
 protocol.FORMAT = "run-planner-execution"
-protocol.VERSION = 5
+protocol.VERSION = 6
 protocol.CATALOG_VERSION = "0.52.0-boss-preboss-variants"
 protocol.MAX_STRING = 512
 protocol.MAX_ROOMS = 256
@@ -239,7 +239,7 @@ local function parseCount(value, label)
 end
 
 local function parseReward(value, label)
-    local reward, errorMessage = keys(value, { "rewardType", "producerLifecycleKey" }, { "resolvedStoreKey", "source", "spurnedSource" }, label)
+    local reward, errorMessage = keys(value, { "rewardType", "producerLifecycleKey" }, { "resolvedStoreKey", "source", "spurnedSource", "acquisitionEnabled" }, label)
     if not reward then return nil, errorMessage end
     local rewardType, rewardError = stringValue(reward.rewardType, label .. ".rewardType")
     if not rewardType then return nil, rewardError end
@@ -252,6 +252,12 @@ local function parseReward(value, label)
             if not text then return nil, textError end
             result[field] = text
         end
+    end
+    if reward.acquisitionEnabled ~= nil then
+        if type(reward.acquisitionEnabled) ~= "boolean" then
+            return fail(label .. ".acquisitionEnabled must be boolean")
+        end
+        result.acquisitionEnabled = reward.acquisitionEnabled
     end
     return result
 end
@@ -566,7 +572,7 @@ end
 
 local function parseRoom(value, index)
     local label = "rooms[" .. index .. "]"
-    local room, errorMessage = keys(value, { "id", "owner", "biomeKey", "gameName", "kind", "entered", "contents", "trace", "outgoing" }, nil, label)
+    local room, errorMessage = keys(value, { "id", "owner", "biomeKey", "gameName", "kind", "entered", "contents", "trace", "outgoing" }, { "anomaly" }, label)
     if not room then return nil, errorMessage end
     local result = {}
     for _, field in ipairs({ "id", "owner", "biomeKey", "gameName", "kind" }) do
@@ -578,6 +584,14 @@ local function parseRoom(value, index)
     if result.owner ~= occurrenceOwner(context) then return fail(label .. ".owner does not identify this occurrence") end
     if type(room.entered) ~= "boolean" then return fail(label .. ".entered invalid") end
     result.entered = room.entered
+    if room.anomaly ~= nil then
+        local anomaly, anomalyError = keys(room.anomaly, { "replacedRoomGameName", "success" }, nil, label .. ".anomaly")
+        if not anomaly then return nil, anomalyError end
+        local replaced, replacedError = stringValue(anomaly.replacedRoomGameName, label .. ".anomaly.replacedRoomGameName")
+        if not replaced then return nil, replacedError end
+        if type(anomaly.success) ~= "boolean" then return fail(label .. ".anomaly.success must be boolean") end
+        result.anomaly = { replacedRoomGameName = replaced, success = anomaly.success }
+    end
     local contents, contentsError = keys(room.contents, { "encounterPhases", "requiredObjects" }, { "incomingReward", "shop", "stygianWell", "purgingPool", "keepsakeRack", "fountain", "resources" }, label .. ".contents")
     if not contents then return nil, contentsError end
     result.contents = { encounterPhases = {}, requiredObjects = {} }
@@ -754,7 +768,7 @@ local function parseRoom(value, index)
             if owner ~= result.owner or not phasesByKey[step.phase] or type(step.endEffectsExpected) ~= "boolean" then return fail(label .. ".trace encounter end mismatch") end
             parsed.phase, parsed.endEffectsExpected = step.phase, step.endEffectsExpected
         elseif step.kind == "encounterInteraction" then
-            local checked, checkedError = keys(step, { "id", "kind", "owner", "phaseKey" }, nil, label .. ".trace[" .. traceIndex .. "]")
+            local checked, checkedError = keys(step, { "id", "kind", "owner", "phaseKey" }, { "resolution" }, label .. ".trace[" .. traceIndex .. "]")
             if not checked then return nil, checkedError end
             local phase, phaseError = stringValue(step.phaseKey, label .. ".trace phaseKey")
             if not phase then return nil, phaseError end
@@ -762,6 +776,41 @@ local function parseRoom(value, index)
             if not ownerPhase then return nil, ownerPhaseError end
             if ownerPhase ~= phase then return fail(label .. ".trace encounter interaction mismatch") end
             parsed.phaseKey = phase
+            if step.resolution ~= nil then
+                local resolution = step.resolution
+                if type(resolution) ~= "table" then return fail(label .. ".trace resolution must be an object") end
+                if resolution.kind == "traitOffer" then
+                    local checkedResolution, resolutionError = keys(resolution, { "kind", "offer" }, nil, label .. ".trace resolution")
+                    if not checkedResolution then return nil, resolutionError end
+                    local offer, offerError = parseTraitOffer(resolution.offer, label .. ".trace resolution.offer")
+                    if not offer then return nil, offerError end
+                    parsed.resolution = { kind = "traitOffer", offer = offer }
+                elseif resolution.kind == "nemesisRandomEvent" then
+                    local checkedResolution, resolutionError = keys(resolution, { "kind", "outcome" }, nil, label .. ".trace resolution")
+                    if not checkedResolution then return nil, resolutionError end
+                    local outcome = resolution.outcome
+                    if type(outcome) ~= "table" then return fail(label .. ".trace resolution.outcome must be an object") end
+                    if outcome.kind == "freeItem" then
+                        local checkedOutcome, outcomeError = keys(outcome, { "kind" }, nil, label .. ".trace resolution.outcome")
+                        if not checkedOutcome then return nil, outcomeError end
+                    elseif outcome.kind == "goldTrade" or outcome.kind == "damageTrade" then
+                        local checkedOutcome, outcomeError = keys(outcome, { "kind", "response" }, nil, label .. ".trace resolution.outcome")
+                        if not checkedOutcome then return nil, outcomeError end
+                        if outcome.response ~= "accept" and outcome.response ~= "decline" then return fail(label .. ".trace trade response invalid") end
+                    elseif outcome.kind == "traitTrade" then
+                        local checkedOutcome, outcomeError = keys(outcome, { "kind", "traitKey", "response" }, nil, label .. ".trace resolution.outcome")
+                        if not checkedOutcome then return nil, outcomeError end
+                        local trait, traitError = stringValue(outcome.traitKey, label .. ".trace traitTrade traitKey")
+                        if not trait then return nil, traitError end
+                        if outcome.response ~= "accept" and outcome.response ~= "decline" then return fail(label .. ".trace trade response invalid") end
+                    elseif outcome.kind == "damageContest" then
+                        local checkedOutcome, outcomeError = keys(outcome, { "kind", "result" }, nil, label .. ".trace resolution.outcome")
+                        if not checkedOutcome then return nil, outcomeError end
+                        if outcome.result ~= "success" and outcome.result ~= "failure" then return fail(label .. ".trace contest result invalid") end
+                    else return fail(label .. ".trace Nemesis outcome unsupported") end
+                    parsed.resolution = { kind = "nemesisRandomEvent", outcome = outcome }
+                else return fail(label .. ".trace resolution unsupported") end
+            end
         elseif step.kind == "steadyGrowth" or step.kind == "transcendentEmbryo" then
             local required = step.kind == "steadyGrowth" and { "id", "kind", "owner", "phase", "source", "target" } or { "id", "kind", "owner", "phase", "source", "target", "rarity" }
             local checked, checkedError = keys(step, required, nil, label .. ".trace[" .. traceIndex .. "]")

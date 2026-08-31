@@ -16,6 +16,59 @@ function TestProtocol.testProducerFixtureDecodesToReadyFOpening()
     lu.assertEquals(plan.rooms[1].outgoing.resolvedSharedRewardStoreKey, "MetaProgress")
 end
 
+function TestProtocol.testIncomingRewardAcquisitionDispositionIsDecodedExactly()
+    local value = fixtures.decode()
+    value.rooms[1].contents.incomingReward.acquisitionEnabled = false
+    local plan, errorMessage = protocol.decode(value)
+    lu.assertNotNil(plan, errorMessage)
+    lu.assertFalse(plan.rooms[1].contents.incomingReward.acquisitionEnabled)
+    value.rooms[1].contents.incomingReward.acquisitionEnabled = "false"
+    lu.assertNil(protocol.decode(value))
+end
+
+local function firstResolvedEncounterInteraction(value)
+    for _, room in ipairs(value.rooms) do
+        for _, step in ipairs(room.trace) do
+            if step.kind == "encounterInteraction" and step.resolution ~= nil then return step end
+        end
+    end
+    error("fixture has no resolved encounter interaction")
+end
+
+local function decodeFixture(path)
+    local file = assert(io.open(path, "rb"))
+    local value = assert(json.decode(file:read("*a")))
+    file:close()
+    return value
+end
+
+function TestProtocol.testEncounterResolutionClosedUnionsRejectCrossVariantFields()
+    local value = decodeFixture("test/fixtures/execution-plan/fg.execution.json")
+    local step = firstResolvedEncounterInteraction(value)
+    step.resolution.outcome = { kind = "freeItem" }
+    lu.assertNil(protocol.decode(value))
+
+    value = decodeFixture("test/fixtures/execution-plan/fg.execution.json")
+    step = firstResolvedEncounterInteraction(value)
+    local offer = step.resolution.offer
+    step.resolution = { kind = "nemesisRandomEvent", outcome = { kind = "freeItem" }, offer = offer }
+    lu.assertNil(protocol.decode(value))
+
+    value = decodeFixture("test/fixtures/execution-plan/fg.execution.json")
+    step = firstResolvedEncounterInteraction(value)
+    step.resolution = { kind = "nemesisRandomEvent", outcome = {
+        kind = "goldTrade", response = "accept", traitKey = "ApolloWeaponBoon",
+    } }
+    lu.assertNil(protocol.decode(value))
+
+    value = decodeFixture("test/fixtures/execution-plan/fg.execution.json")
+    step = firstResolvedEncounterInteraction(value)
+    step.resolution = { kind = "nemesisRandomEvent", outcome = {
+        kind = "damageContest", result = "success", response = "accept",
+    } }
+    lu.assertNil(protocol.decode(value))
+end
+
 function TestProtocol.testProducerFixtureDecodesFAndGPeerAndFixedTopology()
     local file = assert(io.open("test/fixtures/execution-plan/fg.execution.json", "rb"))
     local value = assert(json.decode(file:read("*a")))

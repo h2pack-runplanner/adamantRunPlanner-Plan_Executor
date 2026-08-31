@@ -1,6 +1,6 @@
 {
   "format": "run-planner-execution",
-  "protocolVersion": 5,
+  "protocolVersion": 6,
   "catalogVersion": "0.52.0-boss-preboss-variants",
   "projectId": "golden-fg",
   "routeKey": "Underworld",
@@ -7263,5 +7263,5 @@
       }
     }
   ],
-  "planFingerprint": "66ac4e17"
+  "planFingerprint": "974618c8"
 }

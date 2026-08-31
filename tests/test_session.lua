@@ -445,6 +445,23 @@ function TestSession.testEncounterPhasesAreObservedInDeclaredOrder()
     lu.assertEquals(state.firstMismatch.checkpoint, "encounter-start")
 end
 
+function TestSession.testFGRoomDataSuppressesExcludedSpontaneousNpcFamiliesAndReportsContact()
+    local plan = withoutOpeningAcquisition(fixturePlan())
+    local state, run, game = start(plan)
+    local opening = plan.rooms[1]
+    game.RoomData[opening.gameName].LegalEncounters = { "NPC_Nemesis_01", "Narcissus" }
+    local generated = session.chooseStartingRoom(state, run, { StartingBiome = "F" }, game)
+    lu.assertEquals(#generated.LegalEncounters, 1)
+    lu.assertEquals(generated.LegalEncounters[1], opening.contents.encounterPhases[1].encounterKey)
+    local room = { Name = opening.gameName, RoomSetName = "F", __runPlannerExecutionRoomId = opening.id }
+    run.CurrentRoom = room
+    applyRunState(run, opening.trace[1].runState)
+    session.observeRoom(state, run, room)
+    session.observeEncounterStart(state, run, room, { Name = "NPC_Nemesis_01" })
+    lu.assertEquals(state.state, "desynchronized")
+    lu.assertEquals(state.firstMismatch.checkpoint, "encounter-start")
+end
+
 function TestSession.testMultiEncounterAssemblyIsVerifiedAfterVanillaSetup()
     local plan = fixturePlan()
     local state, run = start(plan)
@@ -498,6 +515,249 @@ function TestSession.testOrdinaryLootRealizesExactOptionsAndVerifiesEffectiveLev
     session.observeTraitSelection(state, "ApolloWeaponBoon")
     session.verifyTraitAcquisition(state, { { Name = "ApolloWeaponBoon", Rarity = "Rare", StackNum = 2 } })
     lu.assertEquals(state.traceCursor, 2)
+end
+
+function TestSession.testEncounterOwnedTraitOfferUsesTheFollowingPublishedAcquisition()
+    local offer = ordinaryAction().roles[1].traitOffer
+    local interaction = {
+        id = "artemis", kind = "encounterInteraction", phaseKey = "Encounter",
+        resolution = { kind = "traitOffer", offer = offer },
+    }
+    local acquisition = ordinaryAction()
+    local state = session.newState()
+    state.state, state.currentRoomId, state.traceCursor = "synchronized", "room", 1
+    state.roomsById = { room = {
+        id = "room", gameName = "G_Combat01",
+        contents = { encounterPhases = { { slotKey = "Encounter" } } },
+        outgoing = { kind = "terminal" },
+        trace = { interaction, acquisition },
+    } }
+    local loot = { Name = "NPC_Artemis_Field_01" }
+    lu.assertEquals(session.prepareLootUse(state, loot).kind, "handled")
+    lu.assertEquals(loot.UpgradeOptions[1].ItemName, "ApolloWeaponBoon")
+    lu.assertEquals(state.traceCursor, 2)
+    session.observeTraitSelection(state, "ApolloWeaponBoon")
+    session.verifyTraitAcquisition(state, { { Name = "ApolloWeaponBoon", Rarity = "Rare", StackNum = 2 } })
+    lu.assertEquals(state.traceCursor, 3)
+    local room = { Name = "G_Combat01", __runPlannerExecutionRoomId = "room" }
+    session.observeEncounterInteraction(state, { CurrentRoom = room }, room)
+    lu.assertNil(state.encounterInteractionConsumed)
+    lu.assertEquals(state.state, "synchronized")
+end
+
+function TestSession.testNarcissusResolvesItsDescriptorAtInteractionAndLeavesDropsSeparate()
+    local offer = ordinaryAction().roles[1].traitOffer
+    offer.giver = "Narcissus"
+    local interaction = {
+        id = "narcissus", kind = "encounterInteraction", phaseKey = "Encounter",
+        resolution = { kind = "traitOffer", offer = offer },
+    }
+    local cleanup = { id = "cleanup", kind = "cleanup" }
+    local state = session.newState()
+    state.state, state.currentRoomId, state.traceCursor = "synchronized", "room", 1
+    state.roomsById = { room = {
+        id = "room", gameName = "G_Story01",
+        contents = { encounterPhases = { { slotKey = "Encounter" } } },
+        outgoing = { kind = "terminal" },
+        trace = { interaction, cleanup },
+    } }
+    local args = { UpgradeOptions = {
+        { ItemName = "ApolloWeaponBoon", Rarity = "Common" },
+        { ItemName = "ApolloSpecialBoon", Rarity = "Common" },
+    } }
+    session.prepareNarcissusBenefit(state, args)
+    lu.assertEquals(state.traceCursor, 2)
+    lu.assertEquals(args.UpgradeOptions[1].Rarity, "Rare")
+    session.observeTraitSelection(state, "ApolloWeaponBoon")
+    session.verifyTraitAcquisition(state, { { Name = "ApolloWeaponBoon" } })
+    lu.assertNil(state.pendingNarcissusOffer)
+    lu.assertEquals(state.traceCursor, 2)
+    local room = { Name = "G_Story01", __runPlannerExecutionRoomId = "room" }
+    session.observeEncounterInteraction(state, { CurrentRoom = room }, room)
+    lu.assertNil(state.encounterInteractionConsumed)
+    lu.assertEquals(state.traceCursor, 2)
+    lu.assertEquals(state.state, "synchronized")
+end
+
+function TestSession.testAnomalyOutcomeUsesThePublishedSuccessWithoutChangingRewardProvenance()
+    local state = session.newState()
+    state.state, state.currentRoomId = "synchronized", "anomaly"
+    state.roomsById = { anomaly = { id = "anomaly", anomaly = { replacedRoomGameName = "G_Combat01", success = true } } }
+    local encounter = { CapturePointProgress = 100 }
+    session.verifyAnomalyOutcome(state, encounter)
+    lu.assertEquals(state.state, "synchronized")
+    state.roomsById.anomaly.anomaly.success = false
+    encounter.CapturePointProgress = 0
+    session.verifyAnomalyOutcome(state, encounter)
+    lu.assertEquals(state.state, "synchronized")
+    encounter.CapturePointProgress = 100
+    session.verifyAnomalyOutcome(state, encounter)
+    lu.assertEquals(state.state, "desynchronized")
+end
+
+function TestSession.testAnomalyGenerationPreservesItsHiddenOrdinaryReturn()
+    local state = session.newState()
+    state.state, state.currentRoomId, state.plan = "synchronized", "source", { planFingerprint = "test" }
+    state.roomsById = {
+        source = {
+            id = "source", gameName = "G_Combat01", biomeKey = "G",
+            outgoing = { kind = "batch", owner = "batch", targets = {
+                { index = 1, exitKey = "exit1", type = "OceanusExitDoor", room = { id = "anomaly" } },
+            } },
+        },
+        anomaly = {
+            id = "anomaly", gameName = "B_Combat01", biomeKey = "G",
+            anomaly = { replacedRoomGameName = "G_Combat02", success = true },
+            outgoing = { kind = "batch", owner = "return", targets = {
+                { index = 1, exitKey = "exit1", type = "OceanusExitDoor", room = { id = "return" } },
+            } },
+        },
+        ["return"] = { id = "return", gameName = "G_Combat03", biomeKey = "G", outgoing = { kind = "terminal" } },
+    }
+    local run = { CurrentRoom = { Name = "G_Combat01", RoomSetName = "G", __runPlannerExecutionRoomId = "source" } }
+    local game = { RoomData = {
+        B_Combat01 = { Name = "B_Combat01", RoomSetName = "G" },
+        G_Combat03 = { Name = "G_Combat03", RoomSetName = "G" },
+    } }
+    local generated = session.chooseNextRoomData(state, run, { ForceNextRoomSet = "Anomaly" }, { { Name = "OceanusExitDoor" } }, game)
+    lu.assertEquals(generated.kind, "handled")
+    lu.assertTrue(generated.roomData.__runPlannerExecutionAnomaly)
+    state.currentRoomId = "anomaly"
+    state.generation = nil -- observeRoom resets per-room batch generation before the hidden return.
+    run.CurrentRoom = { Name = "B_Combat01", RoomSetName = "G", __runPlannerExecutionRoomId = "anomaly" }
+    local returned = session.chooseNextRoomData(state, run, {}, { { Name = "OceanusExitDoor" } }, game)
+    lu.assertEquals(returned.kind, "handled")
+    lu.assertEquals(returned.roomData.__runPlannerExecutionRoomId, "return")
+end
+
+function TestSession.testNemesisTradeUsesClosedResponseAndExactTrait()
+    local interaction = {
+        id = "nemesis", kind = "encounterInteraction", phaseKey = "Encounter",
+        resolution = { kind = "nemesisRandomEvent", outcome = {
+            kind = "traitTrade", traitKey = "ApolloWeaponBoon", response = "accept",
+        } },
+    }
+    local child = { kind = "acquireReward", roles = { { gameName = "HealDrop", role = "self" } } }
+    local state = session.newState()
+    state.state, state.currentRoomId, state.traceCursor = "synchronized", "test", 1
+    state.roomsById = { test = { id = "test", trace = { interaction, child } } }
+    local source = {}
+    local args = {
+        GiveOptions = { { TraitName = "Other" }, { TraitName = "ApolloWeaponBoon" } },
+        GetOptions = { { Name = "OtherDrop" }, { Name = "HealDrop" } },
+    }
+    session.prepareNemesisTrade(state, source, args)
+    lu.assertNil(source.Accepted)
+    lu.assertEquals(#args.GiveOptions, 1)
+    lu.assertEquals(args.GiveOptions[1].TraitName, "ApolloWeaponBoon")
+    lu.assertEquals(#args.GetOptions, 1)
+    lu.assertEquals(args.GetOptions[1].Name, "HealDrop")
+    -- Record the pending outcome as the native post-text interaction seam
+    -- would after its validated room contact.
+    state.state, state.pendingNemesisOutcome = "synchronized", interaction.resolution.outcome
+    session.observeNemesisTraitRemoval(state, "ApolloWeaponBoon")
+    lu.assertNil(state.pendingNemesisOutcome)
+end
+
+function TestSession.testNemesisFamilyFiltersNativeTextLinesBeforeSelection()
+    local interaction = {
+        id = "nemesis", kind = "encounterInteraction", phaseKey = "Encounter",
+        resolution = { kind = "nemesisRandomEvent", outcome = { kind = "freeItem" } },
+    }
+    local state = traceState(interaction)
+    local lines = session.nemesisTextLines(state, { Name = "NPC_Nemesis_01" }, {
+        NemesisGetFreeItem01 = {}, NemesisBuyItem01 = {}, NemesisDamageContest01 = {},
+    })
+    lu.assertNotNil(lines.NemesisGetFreeItem01)
+    lu.assertNil(lines.NemesisBuyItem01)
+    lu.assertNil(lines.NemesisDamageContest01)
+end
+
+function TestSession.testNemesisTradeObservesThePlayerResponse()
+    local interaction = {
+        id = "nemesis", kind = "encounterInteraction", phaseKey = "Encounter",
+        resolution = { kind = "nemesisRandomEvent", outcome = { kind = "goldTrade", response = "decline" } },
+    }
+    local state = traceState(interaction)
+    session.verifyNemesisTradeResponse(state, { Accepted = true })
+    lu.assertEquals(state.firstMismatch.disposition, "playerDivergence")
+end
+
+function TestSession.testNemesisDamageContestObservesThePublishedResult()
+    local interaction = {
+        id = "nemesis", kind = "encounterInteraction", phaseKey = "Encounter",
+        resolution = { kind = "nemesisRandomEvent", outcome = { kind = "damageContest", result = "success" } },
+    }
+    local state = traceState(interaction)
+    session.verifyNemesisDamageContest(state, { DamageContestAmount = 1000, DamageContestArgs = { DamageGoal = 1000 } })
+    lu.assertEquals(state.state, "synchronized")
+    session.verifyNemesisDamageContest(state, { DamageContestAmount = 999, DamageContestArgs = { DamageGoal = 1000 } })
+    lu.assertEquals(state.firstMismatch.disposition, "playerDivergence")
+end
+
+function TestSession.testNemesisRewardDropUsesTheFollowingOrdinaryAcquisition()
+    for _, outcome in ipairs({
+        { kind = "freeItem" },
+        { kind = "goldTrade", response = "accept" },
+        { kind = "damageTrade", response = "accept" },
+        { kind = "traitTrade", traitKey = "ApolloWeaponBoon", response = "accept" },
+        { kind = "damageContest", result = "success" },
+        { kind = "damageContest", result = "failure" },
+    }) do
+        local interaction = { id = "nemesis", kind = "encounterInteraction", phaseKey = "Encounter", resolution = { kind = "nemesisRandomEvent", outcome = outcome } }
+        local child = { kind = "acquireReward", roles = { { gameName = "HealDrop", role = "self" } } }
+        local state = session.newState()
+        state.state, state.currentRoomId, state.traceCursor = "synchronized", "room", 1
+        state.roomsById = { room = { id = "room", trace = { interaction, child } } }
+        local args = { Consumables = { RandomSelection = true, { Name = "Other" }, { Name = "HealDrop" } } }
+        session.prepareNemesisRewardDrop(state, args)
+        lu.assertEquals(#args.Consumables, 1)
+        lu.assertEquals(args.Consumables[1].Name, "HealDrop")
+    end
+end
+
+function TestSession.testNemesisDeclineDoesNotClaimAChildAcquisition()
+    for _, outcome in ipairs({
+        { kind = "goldTrade", response = "decline" },
+        { kind = "damageTrade", response = "decline" },
+        { kind = "traitTrade", traitKey = "ApolloWeaponBoon", response = "decline" },
+    }) do
+        local interaction = { id = "nemesis", kind = "encounterInteraction", phaseKey = "Encounter", resolution = { kind = "nemesisRandomEvent", outcome = outcome } }
+        local state = traceState(interaction)
+        local args = { Consumables = { { Name = "HealDrop" } } }
+        session.prepareNemesisRewardDrop(state, args)
+        lu.assertEquals(args.Consumables[1].Name, "HealDrop")
+        lu.assertEquals(state.traceCursor, 1)
+    end
+end
+
+function TestSession.testSuppressedIncomingRewardBlocksOnlyTheOrdinaryEncounterSpawn()
+    local state = session.newState()
+    state.state, state.currentRoomId = "synchronized", "room"
+    state.roomsById = {
+        room = {
+            id = "room", gameName = "F_Combat01",
+            contents = { incomingReward = { rewardType = "Boon", acquisitionEnabled = false } },
+        },
+    }
+    local encounter = { Name = "NemesisRandomEvent" }
+    local run = { CurrentRoom = { Name = "F_Combat01", __runPlannerExecutionRoomId = "room", Encounter = encounter } }
+    lu.assertEquals(session.prepareIncomingRewardSpawn(state, run, encounter).kind, "suppress")
+    lu.assertEquals(session.prepareIncomingRewardSpawn(state, run, { Name = "ProducedPickup" }).kind, "passThrough")
+end
+
+function TestSession.testSuccessfulAnomalyAllowsItsEncounterOwnedReward()
+    local state = session.newState()
+    state.state, state.currentRoomId = "synchronized", "room"
+    state.roomsById = {
+        room = {
+            id = "room", gameName = "G_Anomaly01", anomaly = { success = true },
+            contents = { incomingReward = { rewardType = "Boon", acquisitionEnabled = false } },
+        },
+    }
+    local encounter = { Name = "AnomalyChallenge" }
+    local run = { CurrentRoom = { Name = "G_Anomaly01", __runPlannerExecutionRoomId = "room", Encounter = encounter } }
+    lu.assertEquals(session.prepareIncomingRewardSpawn(state, run, encounter).kind, "passThrough")
 end
 
 function TestSession.testOrdinaryLootRejectsWrongTrait()

@@ -326,10 +326,19 @@ function logic.attach(moduleRef, data)
         return result
     end)
     moduleRef.hooks.wrap("SpawnRoomReward", "execution-produced-pickup-capture", function(_, runtime, base, source, args)
-        local result = base(source, args)
         local state = data.session.get(runtime)
+        local currentRun = _G.CurrentRun
+        local prepared = data.session.prepareIncomingRewardSpawn
+            and data.session.prepareIncomingRewardSpawn(state, currentRun, source)
+            or { kind = "passThrough" }
+        if prepared.kind == "suppress" then
+            writeStatus(runtime, state)
+            return nil
+        end
+        local result = base(source, args)
         data.session.captureArtificerReplacement(state, args, result)
         data.session.captureProducedChild(state, result)
+        writeStatus(runtime, state)
         return result
     end)
     moduleRef.hooks.wrap("EchoLastReward", "execution-echo-last-reward", function(_, runtime, base, args)
@@ -375,6 +384,58 @@ function logic.attach(moduleRef, data)
         local currentRun = _G.CurrentRun
         data.session.observeEncounterInteraction(data.session.get(runtime), currentRun, currentRun and currentRun.CurrentRoom)
         writeStatus(runtime, data.session.get(runtime))
+        return result
+    end)
+    moduleRef.hooks.wrap("ProcessTextLines", "execution-nemesis-event-family", function(_, runtime, base, source, textLineSets, prioritiesName, args)
+        local state = data.session.get(runtime)
+        local filtered = data.session.nemesisTextLines(state, source, textLineSets)
+        local result = base(source, filtered, prioritiesName, args)
+        writeStatus(runtime, state)
+        return result
+    end)
+    moduleRef.hooks.wrap("NarcissusBenefitChoice", "execution-narcissus-benefit", function(_, runtime, base, source, args, screen)
+        local state = data.session.get(runtime)
+        -- Restrict the game's native BenefitChoice candidate list before it
+        -- shuffles/presents its normal screen. Follow-up drops remain their
+        -- independent canonical acquisition rows.
+        data.session.prepareNarcissusBenefit(state, args)
+        local result = base(source, args, screen)
+        writeStatus(runtime, state)
+        return result
+    end)
+    moduleRef.hooks.wrap("NemesisTradeChoice", "execution-nemesis-trade", function(_, runtime, base, source, args, screen)
+        local state = data.session.get(runtime)
+        data.session.prepareNemesisTrade(state, source, args)
+        local result = base(source, args, screen)
+        data.session.verifyNemesisTradeResponse(state, source)
+        writeStatus(runtime, state)
+        return result
+    end)
+    moduleRef.hooks.wrap("RemoveTrait", "execution-nemesis-trait-removal", function(_, runtime, base, unit, traitName, args)
+        local result = base(unit, traitName, args)
+        data.session.observeNemesisTraitRemoval(data.session.get(runtime), traitName)
+        writeStatus(runtime, data.session.get(runtime))
+        return result
+    end)
+    moduleRef.hooks.wrap("EndCapturePointChallengeEncounter", "execution-anomaly-outcome", function(_, runtime, base, encounter)
+        local state = data.session.get(runtime)
+        local result = base(encounter)
+        data.session.verifyAnomalyOutcome(state, encounter)
+        writeStatus(runtime, state)
+        return result
+    end)
+    moduleRef.hooks.wrap("NemesisDamageContestTimer", "execution-nemesis-damage-contest", function(_, runtime, base, source, args)
+        local result = base(source, args)
+        local state = data.session.get(runtime)
+        data.session.verifyNemesisDamageContest(state, source)
+        writeStatus(runtime, state)
+        return result
+    end)
+    moduleRef.hooks.wrap("NPCRewardDropPreProcessArgs", "execution-nemesis-reward", function(_, runtime, base, args, choice, postChoiceLine)
+        local state = data.session.get(runtime)
+        data.session.prepareNemesisRewardDrop(state, args)
+        local result = base(args, choice, postChoiceLine)
+        writeStatus(runtime, state)
         return result
     end)
     moduleRef.hooks.wrap("HandleStorePurchase", "execution-observe-well-purchase", function(_, runtime, base, screen, button, args)

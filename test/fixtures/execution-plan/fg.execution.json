@@ -1,6 +1,6 @@
 {
   "format": "run-planner-execution",
-  "protocolVersion": 5,
+  "protocolVersion": 6,
   "catalogVersion": "0.52.0-boss-preboss-variants",
   "projectId": "golden-fg",
   "routeKey": "Underworld",
@@ -9085,7 +9085,20 @@
           "id": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b3-e1\"]:[\"interactEncounter\",\"Encounter\"]",
           "kind": "encounterInteraction",
           "owner": "[\"encounterPhase\",\"Underworld\",\"G\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-g-b3-e1\"},\"Encounter\"]",
-          "phaseKey": "Encounter"
+          "phaseKey": "Encounter",
+          "resolution": {
+            "kind": "traitOffer",
+            "offer": {
+              "kind": "traits",
+              "giver": "Narcissus",
+              "options": [
+                { "key": "NarcissusA" },
+                { "key": "NarcissusB" },
+                { "key": "NarcissusC" }
+              ],
+              "selected": "option1"
+            }
+          }
         },
         {
           "id": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b3-e1\"]:cleanup",
@@ -13226,5 +13239,5 @@
       }
     }
   ],
-  "planFingerprint": "7c47e0b8"
+  "planFingerprint": "7d29d77b"
 }

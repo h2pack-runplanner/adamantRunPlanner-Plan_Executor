@@ -544,6 +544,11 @@ local function markedRoomData(game, state, expected, metadata)
         end
         if #encounters > 0 then copy.LegalEncounters = encounters end
     end
+    -- Gate F's documented G baseline is one open picked exit.  This is a
+    -- closed Oceanus traversal disposition, not a lock-policy evaluator.
+    if expected.biomeKey == "G" then
+        copy.LockExtraExitsChance, copy.LockExtraExits = 0, false
+    end
     return copy
 end
 
@@ -790,6 +795,37 @@ function session.chooseNextRoomData(state, currentRun, args, otherDoors, game)
         state.generation.additional[chaos.key] = true
         return { kind = "handled", roomData = data }
     end
+    -- RunLogic makes the Anomaly replacement through this nested room-set
+    -- request after it has selected a replaceable normal target.  Translate
+    -- only the compiler-marked replacement; the fresh G return remains that
+    -- Anomaly room's ordinary compiled outgoing batch.
+    if type(args) == "table" and args.ForceNextRoomSet == "Anomaly" then
+        if outgoing.kind ~= "batch" then return { kind = "passThrough" } end
+        state.generation = state.generation or { owner = outgoing.owner, generated = {}, additional = {} }
+        if state.generation.owner ~= outgoing.owner then
+            mismatch(state, "anomaly-generation", { kind = "batch", key = outgoing.owner }, { kind = "batch", key = state.generation.owner })
+            return { kind = "failed" }
+        end
+        for _, target in ipairs(outgoing.targets) do
+            local candidate = state.roomsById[target.room.id]
+            if candidate ~= nil and candidate.anomaly ~= nil and not state.generation.generated[target.index] then
+                local data = markedRoomData(game, state, candidate, {
+                    __runPlannerExecutionBatchOwner = outgoing.owner,
+                    __runPlannerExecutionExitKey = target.exitKey,
+                    __runPlannerExecutionExitIndex = target.index,
+                    __runPlannerExecutionAnomaly = true,
+                })
+                if data == nil then
+                    mismatch(state, "anomaly-generation", { kind = "room", key = target.room.id }, { kind = "room", key = nil })
+                    return { kind = "failed" }
+                end
+                state.generation.generated[target.index] = true
+                return { kind = "handled", roomData = data }
+            end
+        end
+        mismatch(state, "anomaly-generation", { kind = "compiledReplacement", key = true }, { kind = "compiledReplacement", key = false })
+        return { kind = "failed" }
+    end
     if outgoing.kind ~= "batch" then
         if outgoing.kind ~= "fixed" then return { kind = "passThrough" } end
         local target = state.roomsById[outgoing.target.id]
@@ -868,6 +904,214 @@ nextTrace = function(state)
     return room and room.trace and room.trace[state.traceCursor or 1] or nil
 end
 
+-- An Artemis field reward is opened through UseLoot, but its authored screen
+-- is owned by the preceding encounter interaction.  Keep that relationship
+-- explicit: consuming the interaction makes the following ordinary
+-- acquisition row current; no NPC-specific pickup row is manufactured.
+local function encounterTraitOffer(state)
+    local interaction = nextTrace(state)
+    if interaction == nil or interaction.kind ~= "encounterInteraction"
+        or interaction.resolution == nil or interaction.resolution.kind ~= "traitOffer" then
+        return nil
+    end
+    local room = expectedRoom(state)
+    local acquisition = room and room.trace and room.trace[(state.traceCursor or 1) + 1] or nil
+    if acquisition == nil or acquisition.kind ~= "acquireReward" then
+        mismatch(state, "encounter-trait-offer", { kind = "acquisition", key = "following" }, { kind = "acquisition", key = acquisition and acquisition.kind or nil })
+        return nil
+    end
+    return interaction, acquisition, { traitOffer = interaction.resolution.offer }
+end
+
+function session.beginEncounterTraitOffer(state)
+    if state.state ~= "synchronized" then return nil end
+    local interaction = nextTrace(state)
+    if interaction == nil or interaction.kind ~= "encounterInteraction" or interaction.resolution == nil
+        or interaction.resolution.kind ~= "traitOffer" then return nil end
+    local offer = interaction.resolution.offer
+    -- Narcissus equips the chosen descriptor at the interaction itself. Its
+    -- later generated drops are independently compiled acquireReward rows;
+    -- unlike Artemis there is intentionally no descriptor acquisition row.
+    if offer.giver == "Narcissus" then
+        confirmAction(state, "encounterInteraction", interaction.phaseKey)
+        if not consumeTraceStep(state, "encounterInteraction") then return nil end
+        state.encounterInteractionConsumed = { id = interaction.id, roomId = state.currentRoomId }
+        state.pendingNarcissusOffer = offer
+        return { kind = "narcissus", offer = offer }
+    end
+    local _, acquisition, role = encounterTraitOffer(state)
+    if acquisition == nil then return nil end
+    confirmAction(state, "encounterInteraction", interaction.phaseKey)
+    if not consumeTraceStep(state, "encounterInteraction") then return nil end
+    state.encounterInteractionConsumed = { id = interaction.id, roomId = state.currentRoomId }
+    return { kind = "followingAcquisition", action = acquisition, role = role }
+end
+
+function session.prepareNarcissusBenefit(state, args)
+    if state.state ~= "synchronized" or type(args) ~= "table" then return end
+    local interaction = nextTrace(state)
+    local resolution = interaction and interaction.kind == "encounterInteraction" and interaction.resolution or nil
+    if resolution == nil or resolution.kind ~= "traitOffer" or resolution.offer.giver ~= "Narcissus" then return end
+    if type(args.UpgradeOptions) ~= "table" then return end
+    local wanted, options = {}, {}
+    for _, option in ipairs(resolution.offer.options or {}) do wanted[option.key] = option end
+    for _, candidate in ipairs(args.UpgradeOptions) do
+        local key = type(candidate) == "table" and candidate.ItemName or nil
+        if wanted[key] ~= nil then
+            local copy = deepCopy(candidate)
+            copy.Rarity = wanted[key].rarity or copy.Rarity
+            options[#options + 1] = copy
+        end
+    end
+    if #options ~= #(resolution.offer.options or {}) then
+        mismatch(state, "narcissus-benefit", { kind = "options", key = #(resolution.offer.options or {}) }, { kind = "options", key = #options })
+        return
+    end
+    args.UpgradeOptions = options
+    session.beginEncounterTraitOffer(state)
+end
+
+function session.verifyAnomalyOutcome(state, encounter)
+    if state.state ~= "synchronized" then return end
+    local room = expectedRoom(state)
+    if room == nil or room.anomaly == nil or type(encounter) ~= "table" then return end
+    local success = (encounter.CapturePointProgress or 0) >= 100
+    if success ~= room.anomaly.success then
+        mismatch(state, "anomaly-outcome", { kind = "success", key = room.anomaly.success }, { kind = "success", key = success })
+    end
+end
+
+local function nemesisResolution(state)
+    local step = nextTrace(state)
+    if step == nil or step.kind ~= "encounterInteraction" or step.resolution == nil
+        or step.resolution.kind ~= "nemesisRandomEvent" then return nil end
+    return step, step.resolution.outcome
+end
+
+function session.nemesisTextLines(state, source, textLineSets)
+    if state.state ~= "synchronized" or type(source) ~= "table" or type(textLineSets) ~= "table" then return textLineSets end
+    local _, outcome = nemesisResolution(state)
+    if outcome == nil then return textLineSets end
+    local name = source.Name or source.NPCVariantData
+    if name ~= "NPC_Nemesis_01" and name ~= "NemesisRandomEvent" then return textLineSets end
+    local prefixes = {
+        freeItem = "NemesisGetFreeItem", goldTrade = "NemesisBuyItem",
+        damageTrade = "NemesisTakeDamageForItem", traitTrade = "NemesisGiveTraitForItem",
+        damageContest = "NemesisDamageContest",
+    }
+    local prefix, filtered = prefixes[outcome.kind], {}
+    if prefix == nil then return textLineSets end
+    for key, value in pairs(textLineSets) do
+        if type(key) == "string" and key:sub(1, #prefix) == prefix then filtered[key] = value end
+    end
+    if next(filtered) == nil then
+        mismatch(state, "nemesis-event-family", { kind = "family", key = outcome.kind }, { kind = "family", key = nil })
+        return textLineSets
+    end
+    return filtered
+end
+
+function session.prepareNemesisTrade(state, source, args)
+    if state.state ~= "synchronized" then return end
+    local _, outcome = nemesisResolution(state)
+    if outcome == nil or (outcome.kind ~= "goldTrade" and outcome.kind ~= "damageTrade" and outcome.kind ~= "traitTrade") then return end
+    -- The dialogue owns accept/reject input. Constrain only the published
+    -- give option before OpenTradeScreen; the player's resulting Accepted
+    -- state is checked after the native menu returns.
+    if outcome.kind == "traitTrade" and type(args) == "table" and type(args.GiveOptions) == "table" then
+        local retained = {}
+        for _, option in ipairs(args.GiveOptions) do
+            local key = type(option) == "table" and (option.TraitName or option.Name) or nil
+            if key == outcome.traitKey then retained[#retained + 1] = option end
+        end
+        if #retained == 0 then
+            mismatch(state, "nemesis-trait-trade", { kind = "trait", key = outcome.traitKey }, { kind = "trait", key = nil })
+            return
+        end
+        args.GiveOptions = retained
+    end
+    if type(args) == "table" and type(args.GetOptions) == "table" and outcome.response == "accept" then
+        local room = expectedRoom(state)
+        local child = room and room.trace and room.trace[(state.traceCursor or 1) + 1] or nil
+        local role = child and child.kind == "acquireReward" and child.roles and child.roles[1] or nil
+        if role == nil then
+            mismatch(state, "nemesis-reward", { kind = "acquisition", key = "following" }, { kind = "acquisition", key = nil })
+            return
+        end
+        local retained = {}
+        for _, option in ipairs(args.GetOptions) do
+            if type(option) == "table" and option.Name == role.gameName then retained[#retained + 1] = option end
+        end
+        if #retained ~= 1 then
+            mismatch(state, "nemesis-reward", { kind = "reward", key = role.gameName }, { kind = "reward", key = nil })
+            return
+        end
+        args.GetOptions = retained
+    end
+end
+
+function session.prepareNemesisRewardDrop(state, args)
+    if state.state ~= "synchronized" or type(args) ~= "table" then return end
+    local _, outcome = nemesisResolution(state)
+    if outcome == nil then return end
+    local grants = outcome.kind == "freeItem" or outcome.kind == "damageContest"
+        or ((outcome.kind == "goldTrade" or outcome.kind == "damageTrade" or outcome.kind == "traitTrade") and outcome.response == "accept")
+    if not grants then return end
+    local room = expectedRoom(state)
+    local child = room and room.trace and room.trace[(state.traceCursor or 1) + 1] or nil
+    local role = child and child.kind == "acquireReward" and child.roles and child.roles[1] or nil
+    if role == nil or type(args.Consumables) ~= "table" then
+        mismatch(state, "nemesis-reward", { kind = "acquisition", key = "following" }, { kind = "acquisition", key = nil })
+        return
+    end
+    local selected = nil
+    for _, candidate in ipairs(args.Consumables) do
+        if type(candidate) == "table" and candidate.Name == role.gameName then selected = candidate; break end
+    end
+    if selected == nil then
+        mismatch(state, "nemesis-reward", { kind = "reward", key = role.gameName }, { kind = "reward", key = nil })
+        return
+    end
+    args.Consumables = { selected }
+end
+
+function session.verifyNemesisTradeResponse(state, source)
+    if state.state ~= "synchronized" then return end
+    local _, outcome = nemesisResolution(state)
+    if outcome == nil or (outcome.kind ~= "goldTrade" and outcome.kind ~= "damageTrade" and outcome.kind ~= "traitTrade") then return end
+    local accepted = type(source) == "table" and source.Accepted == true
+    local expected = outcome.response == "accept"
+    if accepted ~= expected then
+        mismatch(state, "nemesis-trade-response", { kind = "accepted", key = expected }, { kind = "accepted", key = accepted }, true, "playerDivergence", "player")
+    end
+end
+
+function session.verifyNemesisDamageContest(state, source)
+    if state.state ~= "synchronized" then return end
+    local _, outcome = nemesisResolution(state)
+    if outcome == nil or outcome.kind ~= "damageContest" then return end
+    -- The native drop branch is selected at DamageGoal. GreatSuccess only
+    -- changes presentation after the same success consumables are chosen.
+    local success = type(source) == "table" and type(source.DamageContestArgs) == "table"
+        and type(source.DamageContestAmount) == "number" and type(source.DamageContestArgs.DamageGoal) == "number"
+        and source.DamageContestAmount >= source.DamageContestArgs.DamageGoal
+    local expected = outcome.result == "success"
+    if success ~= expected then
+        mismatch(state, "nemesis-damage-contest", { kind = "success", key = expected }, { kind = "success", key = success }, true, "playerDivergence", "player")
+    end
+end
+
+function session.observeNemesisTraitRemoval(state, traitKey)
+    if state.state ~= "synchronized" then return end
+    local pending = state.pendingNemesisOutcome
+    if pending == nil or pending.kind ~= "traitTrade" or pending.response ~= "accept" then return end
+    if traitKey ~= pending.traitKey then
+        mismatch(state, "nemesis-trait-trade", { kind = "trait", key = pending.traitKey }, { kind = "trait", key = traitKey })
+        return
+    end
+    state.pendingNemesisOutcome = nil
+end
+
 function session.prepareTraitOfferOption(state, itemIndex, itemData)
     if state.state ~= "synchronized" then return { kind = "passThrough" } end
     local action = nextTrace(state)
@@ -936,6 +1180,16 @@ end
 
 function session.observeTraitSelection(state, selectedTrait)
     if state.state ~= "synchronized" then return end
+    local narcissus = state.pendingNarcissusOffer
+    if narcissus ~= nil then
+        local expected = narcissus.options[tonumber(narcissus.selected:sub(7))]
+        if expected == nil or selectedTrait ~= expected.key then
+            mismatch(state, "narcissus-selection", { kind = "trait", key = expected and expected.key }, { kind = "trait", key = selectedTrait }, true, "playerDivergence", "player")
+            return
+        end
+        state.pendingNarcissusSelected = selectedTrait
+        return
+    end
     local pending = state.pendingAcquisition
     if pending == nil then
         mismatch(state, "trait-selection", { kind = "planned", key = nil }, { kind = "trait", key = selectedTrait }, true, "playerDivergence", "player")
@@ -971,7 +1225,21 @@ function session.observeTraitSelection(state, selectedTrait)
 end
 
 function session.verifyTraitAcquisition(state, heroTraits)
-    if state.state ~= "synchronized" or state.pendingAcquisition == nil then return end
+    if state.state ~= "synchronized" then return end
+    if state.pendingNarcissusOffer ~= nil then
+        local selected = state.pendingNarcissusSelected
+        local found = nil
+        for _, trait in pairs(heroTraits or {}) do
+            if type(trait) == "table" and (trait.Name == selected or trait.TraitName == selected) then found = trait; break end
+        end
+        if selected == nil or found == nil then
+            mismatch(state, "narcissus-acquisition", { kind = "trait", key = selected }, { kind = "trait", key = found and found.Name or nil })
+            return
+        end
+        state.pendingNarcissusOffer, state.pendingNarcissusSelected = nil, nil
+        return
+    end
+    if state.pendingAcquisition == nil then return end
     local pending = state.pendingAcquisition
     if pending.role.traitOffer.kind == "chaos" then
         local offer = pending.role.traitOffer
@@ -1053,6 +1321,13 @@ function session.prepareLootUse(state, usee)
     if type(usee) ~= "table" then return { kind = "passThrough" } end
     if usee.ResourceCosts ~= nil and usee.IgnorePurchase ~= true then return { kind = "passThrough" } end
     local action, role = plannedRoleFor(state, usee.Name)
+    -- Field Artemis opens the normal upgrade screen immediately after the
+    -- encounter interaction.  Its selected offer is not a synthetic reward:
+    -- it simply supplies the role for the already-published next acquisition.
+    if action == nil and nextTrace(state) ~= nil and nextTrace(state).kind == "encounterInteraction" then
+        local encounter = session.beginEncounterTraitOffer(state)
+        if encounter ~= nil then action, role = encounter.action, encounter.role end
+    end
     if action == nil then
         mismatch(state, "acquisition", { kind = "planned", key = nil }, { kind = "loot", key = usee.Name }, true, "playerDivergence", "player")
         return { kind = "failed" }
@@ -1277,6 +1552,30 @@ function session.prepareRewardSource(state, currentRun, room)
         end
     end
     return { kind = "handled" }
+end
+
+-- A closed Nemesis/failed-Anomaly encounter consumes the ordinary incoming
+-- draw but does not materialize its normal room pickup.  The native room
+-- reward is spawned from the active encounter; generated NPC rewards use
+-- NPCRewardDrop instead and are constrained at that separate seam.
+function session.prepareIncomingRewardSpawn(state, currentRun, eventSource)
+    if state.state ~= "synchronized" then return { kind = "passThrough" } end
+    local matched, expected, observed = currentRoomContact(state, currentRun)
+    if not matched then
+        mismatch(state, "incoming-reward-spawn", { kind = "room", key = expected and expected.id },
+            { kind = "room", key = roomName(observed) })
+        return { kind = "failed" }
+    end
+    local reward = expectedReward(expected)
+    if reward == nil or reward.acquisitionEnabled ~= false then return { kind = "passThrough" } end
+    local currentEncounter = type(currentRun) == "table" and type(currentRun.CurrentRoom) == "table"
+        and currentRun.CurrentRoom.Encounter or nil
+    if eventSource ~= currentEncounter then return { kind = "passThrough" } end
+    -- A successful Anomaly is the native encounter-owned realization of its
+    -- retained reward.  Its producer is still disabled, but suppressing this
+    -- particular spawn would erase the selected success outcome.
+    if expected.anomaly ~= nil and expected.anomaly.success then return { kind = "passThrough" } end
+    return { kind = "suppress" }
 end
 
 local function countInRange(value, count)
@@ -1717,11 +2016,22 @@ function session.observeEncounterInteraction(state, currentRun, room)
         return
     end
     local step = nextTrace(state)
+    -- UseLoot may have consumed an encounter-owned trait interaction before
+    -- the native post-text callback returns.  That callback is a duplicate
+    -- observation seam, not a second player action.
+    local consumed = state.encounterInteractionConsumed
+    if type(consumed) == "table" and consumed.roomId == expected.id then
+        state.encounterInteractionConsumed = nil
+        return
+    end
     local found = false
     for _, phase in ipairs(expected.contents.encounterPhases or {}) do if phase.slotKey == (step and step.phaseKey) then found = true end end
     if step == nil or step.kind ~= "encounterInteraction" or not found then
         mismatch(state, "encounter-interaction", { kind = "phase", key = step and step.phaseKey }, { kind = "phase", key = nil }, false, "playerDivergence", "player")
         return
+    end
+    if step.resolution ~= nil and step.resolution.kind == "nemesisRandomEvent" then
+        state.pendingNemesisOutcome = step.resolution.outcome
     end
     confirmAction(state, "encounterInteraction", step.phaseKey)
     consumeTraceStep(state, "encounterInteraction")
