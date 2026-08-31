@@ -44,12 +44,24 @@ local function applyRunState(run, snapshot)
     run.EncounterDepth = snapshot.counters.routeEncounterDepth
     run.RoomHistory = {}
     for index = 1, snapshot.counters.roomHistoryOrdinal do run.RoomHistory[index] = {} end
+    run.RewardPriorities = snapshot.rewardPriorities
+    run.NumTalentPoints = snapshot.hexProgress.bankedPathPoints
+    run.InvestedTalentPoints = snapshot.hexProgress.investedPathPoints
+    run.AllSpellInvestedCache = snapshot.hexProgress.closed
+    run.KeepsakeCache = snapshot.keepsakes.usedKeys
+    run.BlockedKeepsakes = snapshot.keepsakes.blockedKeys
     run.RewardStores = {}
     for _, bag in ipairs(snapshot.bags) do
         run.RewardStores[bag.storeKey] = {}
         for index = 1, bag.remaining.count do run.RewardStores[bag.storeKey][index] = {} end
     end
     run.Hero = { Traits = {}, SlottedTraits = {} }
+    if snapshot.hexProgress.spellTraitKey then
+        run.Hero.SlottedSpell = { Name = snapshot.hexProgress.spellTraitKey, Talents = { Name = snapshot.hexProgress.layoutKey } }
+        for index, key in ipairs(snapshot.hexProgress.talentKeys) do
+            run.Hero.SlottedSpell.Talents[index] = { Name = key }
+        end
+    end
     for _, trait in ipairs(snapshot.traits.equipped) do
         run.Hero.Traits[#run.Hero.Traits + 1] = {
             Name = trait.traitKey, Rarity = trait.rarity, StackNum = trait.level,
@@ -65,7 +77,12 @@ local function applyRunState(run, snapshot)
     run.ShrineUpgradesDisabled = {}; for _, key in ipairs(snapshot.vows.disabledKeys) do run.ShrineUpgradesDisabled[key] = true end
     run.TemporaryMetaUpgrades = {}
     run.BiomeBoonSkipCount = snapshot.forfeit == "consumed" and (snapshot.vows.effectiveRanks.BoonSkipShrineUpgrade or 0) or 0
-    _G.GameState = { ShrineUpgrades = snapshot.vows.configuredRanks, MetaUpgradeState = {} }
+    _G.GameState = {
+        ShrineUpgrades = snapshot.vows.configuredRanks,
+        MetaUpgradeState = {},
+        LastAwardTrait = snapshot.keepsakes.currentKey,
+        FatedStatus = snapshot.keepsakes.fatedStatus,
+    }
     _G.MetaUpgradeCardData, _G.TraitRarityData = {}, { RarityUpgradeOrder = { "Common", "Rare", "Epic", "Heroic" } }
     for _, card in ipairs(snapshot.arcana.active) do
         _G.GameState.MetaUpgradeState[card.key] = { Equipped = true, Level = 1 }
@@ -76,6 +93,13 @@ local function applyRunState(run, snapshot)
     _G.GetEligibleLootNames = function() return snapshot.godPool.effectiveSourceKeys end
     _G.ReachedMaxGods = function() return snapshot.godPool.capNarrowed end
     _G.GetNumShrineUpgrades = function(key) return snapshot.vows.effectiveRanks[key] or 0 end
+    _G.GetHeroTrait = function(key)
+        if key == "MetaToRunMetaUpgrade" and snapshot.artificer then
+            return { MetaConversionUses = snapshot.artificer.remainingCount }
+        end
+        return nil
+    end
+    run.MetaConversionUses = snapshot.artificer and snapshot.artificer.usedCount or nil
 end
 
 function TestLogic.testGateBHooksRealizeBatchAndObserveSelectedRoom()
@@ -358,6 +382,127 @@ function TestLogic.testSteadyEmbryoAndCleanupHooksUseTheirScopedContacts()
         wrapped.CleanupEnemies(nil, runtime, function() return true end, {})
     end, {}, {})
     lu.assertEquals(state.traceCursor, 2)
+end
+
+local function producedRole(kind, sourceOwner, sourceRole, gameName)
+    return { role = "self", gameName = gameName, producer = { kind = kind, sourceOwner = sourceOwner, sourceRole = sourceRole } }
+end
+
+local function producedState(kind, childName)
+    local source = { role = "source", gameName = "SourceLoot", disposition = kind == "artificerReplacement" and "artificer" or "normal" }
+    local sourceAction = { kind = "acquireReward", sourceOwner = "source-owner", reward = { rewardType = "RoomMoneyDrop" }, roles = { source } }
+    local childAction = {
+        kind = "acquireReward", sourceOwner = "child-owner",
+        reward = { rewardType = "Boon", source = "ApolloUpgrade", resolvedStoreKey = "RunProgress" },
+        roles = { producedRole(kind, "source-owner", "source", childName) },
+    }
+    local state = session.newState()
+    state.state, state.currentRoomId, state.traceCursor = "synchronized", "room", 1
+    state.roomsById = { room = { id = "room", gameName = "F_Test", outgoing = { kind = "terminal" }, trace = { sourceAction, childAction } } }
+    state.producedChildren = { ["source-owner\0source"] = { { action = childAction, role = childAction.roles[1] } } }
+    return state
+end
+
+function TestLogic.testArtificerUsesNativeRewardAndVerifiesTheProducedChild()
+    local state, wrapped = producedState("artificerReplacement", "RoomRewardConsolationPrize"), {}
+    local api = setmetatable({ defineCache = function() end, get = function() return state end }, { __index = session })
+    logic.attach({ hooks = { wrap = function(name, _, callback) wrapped[name] = callback end } }, { inbox = {}, session = api })
+    local runtime = { status = { write = function() end } }
+    local run = { CurrentRoom = { Name = "F_Test", __runPlannerExecutionRoomId = "room" }, RewardPriorities = {} }
+    _G.game, _G.CurrentRun = { LootData = { ApolloUpgrade = {} } }, run
+    local source = { Name = "SourceLoot", ObjectId = 17, MetaConversionEligible = true }
+    -- Eligibility polling is not the player conversion seam.
+    lu.assertNil(wrapped.CanReceiveGift)
+    wrapped.ConvertMetaRewardPresentation(nil, runtime, function() return true end, source)
+    local reward = wrapped.ChooseRoomReward(nil, runtime, function() return { Name = "Boon" } end, run, run.CurrentRoom, "RunProgress", {}, {})
+    lu.assertEquals(reward.Name, "Boon")
+    local child = wrapped.SpawnRoomReward(nil, runtime, function(_, args)
+        lu.assertEquals(args.SpawnRewardOnId, 17)
+        return { Name = "RoomRewardConsolationPrize" }
+    end, {}, { SpawnRewardOnId = 17 })
+    lu.assertEquals(child.Name, "RoomRewardConsolationPrize")
+    lu.assertEquals(state.state, "synchronized")
+end
+
+function TestLogic.testProducedChildWrongResultIsTheFirstMismatch()
+    local state, wrapped = producedState("artificerReplacement", "RoomRewardConsolationPrize"), {}
+    local api = setmetatable({ defineCache = function() end, get = function() return state end }, { __index = session })
+    logic.attach({ hooks = { wrap = function(name, _, callback) wrapped[name] = callback end } }, { inbox = {}, session = api })
+    local runtime = { status = { write = function() end } }
+    local run = { CurrentRoom = { Name = "F_Test", __runPlannerExecutionRoomId = "room" }, RewardPriorities = {} }
+    _G.game, _G.CurrentRun = { LootData = { ApolloUpgrade = {} } }, run
+    wrapped.ConvertMetaRewardPresentation(nil, runtime, function() return true end, { Name = "SourceLoot", ObjectId = 17, MetaConversionEligible = false })
+    wrapped.SpawnRoomReward(nil, runtime, function() return { Name = "WrongReward" } end, {}, { SpawnRewardOnId = 17 })
+    lu.assertEquals(state.state, "desynchronized")
+    lu.assertEquals(state.firstMismatch.checkpoint, "produced-pickup")
+end
+
+function TestLogic.testSeaStarForcesOnlyItsNativeDuplicateAndRequiresNonrecursiveResult()
+    local state, wrapped = producedState("seaStarDuplicate", "SourceLoot"), {}
+    local api = setmetatable({ defineCache = function() end, get = function() return state end }, { __index = session })
+    logic.attach({ hooks = { wrap = function(name, _, callback) wrapped[name] = callback end } }, { inbox = {}, session = api })
+    local runtime = { status = { write = function() end } }
+    local source = { Name = "SourceLoot", ObjectId = 23, CanDuplicate = false }
+    local prepared = session.beginSeaStarDuplicate(state, source)
+    lu.assertNotNil(prepared)
+    -- Unrelated randomness cannot consume Sea Star's pending duplicate.
+    lu.assertNil(session.consumeSeaStarDuplicateRng(state))
+    session.armSeaStarDuplicateRng(state)
+    lu.assertTrue(session.consumeSeaStarDuplicateRng(state))
+    local child = wrapped.CreateLoot(nil, runtime, function() return { Name = "SourceLoot", CanDuplicate = false } end, {})
+    session.finishSeaStarDuplicate(state, source)
+    lu.assertEquals(child.Name, "SourceLoot")
+    lu.assertEquals(state.state, "synchronized")
+
+    state = producedState("seaStarDuplicate", "SourceLoot")
+    source = { Name = "SourceLoot", ObjectId = 24, CanDuplicate = true }
+    session.beginSeaStarDuplicate(state, source)
+    session.captureSeaStarDuplicate(state, { Name = "WrongLoot", CanDuplicate = false })
+    lu.assertEquals(state.state, "desynchronized")
+    lu.assertEquals(state.firstMismatch.checkpoint, "produced-pickup")
+    lu.assertNil(session.armSeaStarDuplicateRng(state))
+    lu.assertNil(session.consumeSeaStarDuplicateRng(state))
+end
+
+function TestLogic.testEchoLastRewardCapturesOnlyItsImmediateProducedChild()
+    local sourceRole = {
+        role = "source", gameName = "EchoSource",
+        traitOffer = { kind = "traits", selected = "option1", options = { { key = "EchoSource" } } },
+    }
+    local sourceAction = { kind = "acquireReward", sourceOwner = "source-owner", reward = {}, roles = { sourceRole } }
+    local childRole = producedRole("echoLastReward", "source-owner", "source", "ApolloUpgrade")
+    local childAction = { kind = "acquireReward", sourceOwner = "child-owner", reward = {}, roles = { childRole } }
+    local state, wrapped = session.newState(), {}
+    state.state, state.currentRoomId, state.traceCursor = "synchronized", "room", 1
+    state.roomsById = { room = { id = "room", trace = { sourceAction, childAction } } }
+    state.producedChildren = { ["source-owner\0source"] = { { action = childAction, role = childRole } } }
+    state.pendingAcquisition = { action = sourceAction, role = sourceRole, selected = "EchoSource" }
+    local api = setmetatable({ defineCache = function() end, get = function() return state end }, { __index = session })
+    logic.attach({ hooks = { wrap = function(name, _, callback) wrapped[name] = callback end } }, { inbox = {}, session = api })
+    local runtime = { status = { write = function() end } }
+    wrapped.EchoLastReward(nil, runtime, function()
+        wrapped.CreateLoot(nil, runtime, function() return { Name = "ApolloUpgrade", CanDuplicate = false } end, {})
+    end, {})
+    lu.assertEquals(state.state, "synchronized")
+    -- Echo made the child while the source remains current; ordinary source
+    -- acquisition then advances the cursor to that still-pending child.
+    lu.assertEquals(state.traceCursor, 1)
+    session.verifyTraitAcquisition(state, { { Name = "EchoSource" } })
+    lu.assertEquals(state.traceCursor, 2)
+end
+
+function TestLogic.testSeaStarLeavesEarlierRandomnessVanillaUntilItsNativeGate()
+    local state, wrapped = producedState("seaStarDuplicate", "SourceLoot"), {}
+    local api = setmetatable({ defineCache = function() end, get = function() return state end }, { __index = session })
+    logic.attach({ hooks = { wrap = function(name, _, callback) wrapped[name] = callback end } }, { inbox = {}, session = api })
+    local runtime = { status = { write = function() end } }
+    local source = { Name = "SourceLoot", ObjectId = 24, CanDuplicate = false }
+    session.beginSeaStarDuplicate(state, source)
+    -- The session gate is armed exclusively by the DoubleReward lookup.
+    lu.assertNil(session.consumeSeaStarDuplicateRng(state))
+    lu.assertNil(session.consumeSeaStarDuplicateRng(state)) -- Double Boon is unrelated.
+    session.armSeaStarDuplicateRng(state)
+    lu.assertTrue(session.consumeSeaStarDuplicateRng(state))
 end
 
 return TestLogic

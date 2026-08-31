@@ -23,7 +23,13 @@ function logic.attach(moduleRef, data)
     local startLifecycleDepth = 0
     local startLifecycleEnabled = true
     local embryoSelection = nil
+    local resourceElementGrant = nil
     local leaveRoomDepth = 0
+    local travelDealRefillDepth = 0
+    local inventoryGeneration = nil
+    local wellTwistSelection = nil
+    local rackSelection = nil
+    local echoLastRewardDepth = 0
     local lootUseDepth, consumableUseDepth = 0, 0
     local function writeStatus(runtime, state)
         if runtime.status and type(runtime.status.write) == "function" then
@@ -84,6 +90,11 @@ function logic.attach(moduleRef, data)
         data.session.observeRoom(state, currentRun, currentRoom)
         writeStatus(runtime, state)
         return base(args)
+    end)
+    moduleRef.hooks.wrap("CreateRoom", "execution-resource-success", function(_, runtime, base, roomData, args)
+        local room = base(roomData, args)
+        data.session.applyResourceSuccesses(data.session.get(runtime), room)
+        return room
     end)
     moduleRef.hooks.wrap("SetupRoomMultipleEncountersData", "execution-resolve-encounter-assembly", function(_, runtime, base, room, args)
         local currentRun = _G.CurrentRun
@@ -167,9 +178,15 @@ function logic.attach(moduleRef, data)
     moduleRef.hooks.wrap(
         "ChooseRoomReward", "execution-opening-reward",
         function(_, runtime, base, currentRun, room, rewardStoreName, previouslyChosenRewards, args)
-        local result = data.session.chooseRoomReward(
-            data.session.get(runtime), currentRun, room, _G.game or game, base,
-            rewardStoreName, previouslyChosenRewards, args)
+        local state = data.session.get(runtime)
+        local result = data.session.chooseArtificerReward
+            and data.session.chooseArtificerReward(state, currentRun, room, _G.game or game, base,
+                rewardStoreName, previouslyChosenRewards, args)
+            or { kind = "passThrough" }
+        if result.kind == "passThrough" then
+            result = data.session.chooseRoomReward(state, currentRun, room, _G.game or game, base,
+                rewardStoreName, previouslyChosenRewards, args)
+        end
         if result.kind == "passThrough" then
             return base(currentRun, room, rewardStoreName, previouslyChosenRewards, args)
         end
@@ -189,9 +206,71 @@ function logic.attach(moduleRef, data)
         end
         return base(currentRun, room, previouslyChosenRewards, args)
     end)
+    -- Constrain the native candidate inputs before FillInShopOptions builds
+    -- records.  We never post-filter a completed random inventory.
+    moduleRef.hooks.wrap("FillInShopOptions", "execution-world-shop-options", function(_, runtime, base, args)
+        local state = data.session.get(runtime)
+        local prepared = data.session.prepareInventoryGeneration(state, args, travelDealRefillDepth > 0)
+        local priorGeneration = inventoryGeneration
+        inventoryGeneration = prepared.kind == "handled" and prepared or nil
+        local ok, result = pcall(base, prepared.args or args)
+        inventoryGeneration = priorGeneration
+        if not ok then error(result, 0) end
+        result = data.session.orderWellInventoryGeneration(prepared, result)
+        local verified = data.session.verifyInventoryGeneration(state, prepared, result)
+        if verified and verified.kind == "failed" then writeStatus(runtime, state) end
+        return result
+    end)
+    moduleRef.hooks.wrap("GetEligibleInteractedGod", "execution-inventory-source", function(_, runtime, base, ignoredGod)
+        local source = data.session.chooseInventoryGod(data.session.get(runtime), inventoryGeneration)
+        if source ~= nil then return source end
+        return base(ignoredGod)
+    end)
+    moduleRef.hooks.wrap("CreateSellButtons", "execution-purging-pool-options", function(_, runtime, base, screen)
+        -- OpenSellTraitMenu blocks in HandleScreenInput.  This seam runs after
+        -- its native stale-list regeneration and immediately before the UI
+        -- reads CurrentRoom.SellOptions to construct buttons.
+        local prepared = data.session.applyPurgingPoolInventory(data.session.get(runtime), _G.CurrentRun and _G.CurrentRun.CurrentRoom)
+        if prepared.kind == "failed" then writeStatus(runtime, data.session.get(runtime)) end
+        return base(screen)
+    end)
+    moduleRef.hooks.wrap("SpawnStoreItemInWorld", "execution-world-shop-spawn", function(_, runtime, base, itemData, kitId)
+        local result = base(itemData, kitId)
+        data.session.noteWorldShopSpawn(data.session.get(runtime), itemData, kitId, _G.CurrentRun)
+        return result
+    end)
+    moduleRef.hooks.wrap("RemoveStoreItem", "execution-world-shop-removal", function(_, runtime, base, args)
+        local state = data.session.get(runtime)
+        local pending = data.session.beginWorldShopRemoval(state, args)
+        state.pendingTravelDealRefill = pending
+        local result = base(args)
+        data.session.observeWorldShopRemoval(state, args, pending)
+        writeStatus(runtime, state)
+        return result
+    end)
+    moduleRef.hooks.wrap("RestockWorldItem", "execution-travel-deal-refill", function(_, runtime, base, replacedIndex, kitId, args)
+        local state = data.session.get(runtime)
+        -- This request was captured from the successful physical purchase;
+        -- no future trace search is involved.
+        if not data.session.verifyTravelDealRefillSlot(state, replacedIndex) then
+            writeStatus(runtime, state)
+            return base(replacedIndex, kitId, args)
+        end
+        travelDealRefillDepth = travelDealRefillDepth + 1
+        local ok, result = pcall(base, replacedIndex, kitId, args)
+        travelDealRefillDepth = travelDealRefillDepth - 1
+        state.pendingTravelDealRefill = nil
+        if not ok then error(result, 0) end
+        return result
+    end)
     moduleRef.hooks.wrap("UseLoot", "execution-acquire-loot", function(_, runtime, base, usee, args, user)
         local state = data.session.get(runtime)
+        local timePiece = data.session.beginTimePiece(state, usee)
         local prepared = data.session.prepareLootUse(state, usee)
+        -- Trait offers settle from HandleUpgradeChoiceSelection; only direct
+        -- loot uses reach their native duplication roll in this call.
+        local seaStar = state.pendingAcquisition == nil and state.pendingPom == nil
+            and data.session.beginSeaStarDuplicate(state, usee) or nil
         if prepared.kind == "failed" then writeStatus(runtime, state); return base(usee, args, user) end
         lootUseDepth = lootUseDepth + 1
         local ok, result = pcall(base, usee, args, user)
@@ -200,6 +279,34 @@ function logic.attach(moduleRef, data)
         if prepared.kind == "handled" and data.session.completeSimpleAcquisition then
             data.session.completeSimpleAcquisition(state, usee.Name)
         end
+        if seaStar then data.session.finishSeaStarDuplicate(state, usee) end
+        if timePiece then data.session.finishTimePiece(state, usee) end
+        writeStatus(runtime, state)
+        return result
+    end)
+    moduleRef.hooks.wrap("SpecialInteract", "execution-time-piece", function(_, runtime, base, usee, args)
+        local state = data.session.get(runtime)
+        local prepared = data.session.beginTimePiece(state, usee)
+        local result = base(usee, args)
+        if prepared then data.session.finishTimePiece(state, usee) end
+        writeStatus(runtime, state)
+        return result
+    end)
+    moduleRef.hooks.wrap("SpawnRoomReward", "execution-produced-pickup-capture", function(_, runtime, base, source, args)
+        local result = base(source, args)
+        local state = data.session.get(runtime)
+        data.session.captureArtificerReplacement(state, args, result)
+        data.session.captureProducedChild(state, result)
+        return result
+    end)
+    moduleRef.hooks.wrap("EchoLastReward", "execution-echo-last-reward", function(_, runtime, base, args)
+        local state = data.session.get(runtime)
+        data.session.beginEchoLastReward(state)
+        echoLastRewardDepth = echoLastRewardDepth + 1
+        local ok, result = pcall(base, args)
+        echoLastRewardDepth = echoLastRewardDepth - 1
+        if not ok then error(result, 0) end
+        data.session.finishEchoLastReward(state)
         writeStatus(runtime, state)
         return result
     end)
@@ -209,12 +316,14 @@ function logic.attach(moduleRef, data)
         if type(consumableItem) == "table" and consumableItem.ResourceCosts ~= nil and consumableItem.IgnorePurchase ~= true then return base(consumableItem, args, user) end
         local state = data.session.get(runtime)
         local prepared = data.session.prepareLootUse(state, consumableItem)
+        local seaStar = data.session.beginSeaStarDuplicate(state, consumableItem)
         if prepared.kind == "failed" then writeStatus(runtime, state); return base(consumableItem, args, user) end
         consumableUseDepth = consumableUseDepth + 1
         local ok, result = pcall(base, consumableItem, args, user)
         consumableUseDepth = consumableUseDepth - 1
         if not ok then error(result, 0) end
         if prepared.kind == "handled" then data.session.completeSimpleAcquisition(state, consumableItem.Name) end
+        if seaStar then data.session.captureSeaStarDuplicate(state, consumableItem); data.session.finishSeaStarDuplicate(state, consumableItem) end
         writeStatus(runtime, state)
         return result
     end)
@@ -235,6 +344,84 @@ function logic.attach(moduleRef, data)
         writeStatus(runtime, data.session.get(runtime))
         return result
     end)
+    moduleRef.hooks.wrap("HandleStorePurchase", "execution-observe-well-purchase", function(_, runtime, base, screen, button, args)
+        -- HandleStorePurchase returns early for unaffordable or requirement-
+        -- blocked clicks.  WellPurchases is incremented only after those
+        -- guards, before the native award is applied.
+        local currentRoom = _G.CurrentRun and _G.CurrentRun.CurrentRoom
+        local purchasesBefore = _G.CurrentRun and _G.CurrentRun.WellPurchases or nil
+        local item = type(button) == "table" and (button.Data or button) or nil
+        local priorTwistSelection = wellTwistSelection
+        wellTwistSelection = type(item) == "table" and item.__runPlannerTwistResultKey or nil
+        local ok, result = pcall(base, screen, button, args)
+        wellTwistSelection = priorTwistSelection
+        if not ok then error(result, 0) end
+        local purchasesAfter = _G.CurrentRun and _G.CurrentRun.WellPurchases or nil
+        if currentRoom ~= nil and type(purchasesBefore) == "number" and purchasesAfter == purchasesBefore + 1 then
+            data.session.observeStygianWellPurchase(data.session.get(runtime), type(item) == "table" and (item.Name or item.ItemName) or nil)
+        end
+        writeStatus(runtime, data.session.get(runtime))
+        return result
+    end)
+    moduleRef.hooks.wrap("GetRandomValue", "execution-well-twist-result", function(_, runtime, base, values, args)
+        local target = wellTwistSelection
+        if type(target) ~= "string" then return base(values, args) end
+        if type(values) ~= "table" then return base(values, args) end
+        for _, candidate in pairs(values) do
+            if type(candidate) == "table" and candidate.Name == target then return candidate end
+        end
+        local state = data.session.get(runtime)
+        data.session.recordWellTwistMismatch(state, target)
+        -- A failed exact result freezes the suffix immediately. Do not let a
+        -- later random-array contact in the same native purchase force it.
+        wellTwistSelection = nil
+        writeStatus(runtime, state)
+        return base(values, args)
+    end)
+    moduleRef.hooks.wrap("HandleSellChoiceSelection", "execution-observe-pool-sale", function(_, runtime, base, screen, button, args)
+        local result = base(screen, button, args)
+        local traitKey = type(button) == "table" and button.UpgradeName or nil
+        data.session.observePurgingPoolSale(data.session.get(runtime), traitKey)
+        writeStatus(runtime, data.session.get(runtime))
+        return result
+    end)
+    moduleRef.hooks.wrap("KeepsakeScreenClose", "execution-observe-keepsake-rack", function(_, runtime, base, screen, button)
+        -- The rack interaction only opens its UI.  The selected key becomes
+        -- authoritative at close, immediately before native EquipKeepsake.
+        local key = _G.GameState and _G.GameState.LastAwardTrait or nil
+        if type(screen) == "table" and screen.LastTrait ~= key then
+            local state = data.session.get(runtime)
+            data.session.beginKeepsakeRackChange(state, key)
+            rackSelection = data.session.beginRackEquipResult(state)
+        end
+        local ok, result = pcall(base, screen, button)
+        rackSelection = nil
+        if not ok then error(result, 0) end
+        data.session.verifyKeepsakeRackChange(
+            data.session.get(runtime),
+            _G.GameState and _G.GameState.LastAwardTrait or nil,
+            _G.CurrentRun and _G.CurrentRun.Hero or nil
+        )
+        writeStatus(runtime, data.session.get(runtime))
+        return result
+    end)
+    moduleRef.hooks.wrap("AddTraitToHero", "execution-keepsake-equip-result", function(_, runtime, base, args)
+        local state = data.session.get(runtime)
+        local result = base(args)
+        data.session.verifyRackEquipResult(state, result)
+        writeStatus(runtime, state)
+        return result
+    end)
+    moduleRef.hooks.wrap("UseHealthFountain", "execution-observe-fountain", function(_, runtime, base, source, args)
+        local state = data.session.get(runtime)
+        -- Native use starts AddRarityToTraits on a thread, so arm the target
+        -- before use and leave the trace pending until that thread verifies.
+        data.session.observeFountainUse(state, nil)
+        local result = base(source, args)
+        if state.pendingPhialTarget == nil then data.session.completeFountainUse(state) end
+        writeStatus(runtime, state)
+        return result
+    end)
     -- Each generated choice reaches this final pre-presentation seam.  Some
     -- screens bypass SetTraitsOnLoot, so this is the complete contact.
     moduleRef.hooks.wrap("CreateUpgradeChoiceButton", "execution-trait-offer", function(_, runtime, base, screen, lootData, itemIndex, itemData, args)
@@ -245,6 +432,7 @@ function logic.attach(moduleRef, data)
     end)
     moduleRef.hooks.wrap("HandleUpgradeChoiceSelection", "execution-observe-trait-selection", function(_, runtime, base, screen, button, args)
         local state = data.session.get(runtime)
+        local seaStar = data.session.beginSeaStarDuplicate(state, type(screen) == "table" and screen.Source or nil)
         if data.session.observeTraitSelection ~= nil then
             local trait = type(button) == "table" and button.Data and button.Data.Name or nil
             if state.pendingPom ~= nil then
@@ -260,7 +448,37 @@ function logic.attach(moduleRef, data)
             if state.pendingPom ~= nil then data.session.verifyPomResolution(state, type(hero) == "table" and hero.Traits or nil)
             else data.session.verifyTraitAcquisition(state, type(hero) == "table" and hero.Traits or nil) end
         end
+        if seaStar then data.session.finishSeaStarDuplicate(state, screen.Source) end
         writeStatus(runtime, state)
+        return result
+    end)
+    moduleRef.hooks.wrap("ConvertMetaRewardPresentation", "execution-artificer-source", function(_, runtime, base, target)
+        local state = data.session.get(runtime)
+        data.session.beginArtificerReplacement(state, target)
+        local result = base(target)
+        writeStatus(runtime, state)
+        return result
+    end)
+    moduleRef.hooks.wrap("GetTotalHeroTraitValue", "execution-sea-star-gate", function(_, runtime, base, propertyName, args)
+        local state = data.session.get(runtime)
+        if propertyName == "DoubleRewardChance" then data.session.armSeaStarDuplicateRng(state) end
+        return base(propertyName, args)
+    end)
+    moduleRef.hooks.wrap("RandomChance", "execution-sea-star-duplicate", function(_, runtime, base, chance, args)
+        local state = data.session.get(runtime)
+        if data.session.consumeSeaStarDuplicateRng(state) then return true end
+        return base(chance, args)
+    end)
+    moduleRef.hooks.wrap("CreateLoot", "execution-sea-star-created-child", function(_, runtime, base, args)
+        local result = base(args)
+        local state = data.session.get(runtime)
+        if echoLastRewardDepth > 0 then data.session.captureEchoLastReward(state, result) end
+        data.session.captureSeaStarDuplicate(state, result)
+        return result
+    end)
+    moduleRef.hooks.wrap("CreateConsumableItem", "execution-echo-created-consumable", function(_, runtime, base, ...)
+        local result = base(...)
+        if echoLastRewardDepth > 0 then data.session.captureEchoLastReward(data.session.get(runtime), result) end
         return result
     end)
     moduleRef.hooks.wrap("AddRarityToTraits", "execution-steady-growth", function(_, runtime, base, source, args)
@@ -268,9 +486,15 @@ function logic.attach(moduleRef, data)
         local currentRun = _G.CurrentRun
         local hero = currentRun and currentRun.Hero
         local prepared = data.session.prepareSteadyGrowth(state, source, args, hero and hero.Traits)
+        if prepared.kind == "passThrough" then
+            prepared = data.session.preparePhialRarity(state, args, hero and hero.Traits)
+        end
         if prepared.kind == "failed" then writeStatus(runtime, state) end
         local result = base(source, args)
-        if prepared.kind == "handled" then data.session.verifySteadyGrowth(state, hero and hero.Traits, result) end
+        if prepared.kind == "handled" then
+            if state.pendingPhialRarity ~= nil then data.session.verifyPhialRarity(state, hero and hero.Traits, result)
+            else data.session.verifySteadyGrowth(state, hero and hero.Traits, result) end
+        end
         writeStatus(runtime, state)
         return result
     end)
@@ -286,9 +510,30 @@ function logic.attach(moduleRef, data)
         writeStatus(runtime, state)
         return result
     end)
+    moduleRef.hooks.wrap("GrantElementFromTool", "execution-resource-element", function(_, runtime, base, toolName, args)
+        local state = data.session.get(runtime)
+        local resource = data.session.beginResourceElementGrant(state, toolName)
+        resourceElementGrant = resource
+        local ok, result = pcall(base, toolName, args)
+        resourceElementGrant = nil
+        if not ok then error(result, 0) end
+        data.session.verifyResourceElementGrant(state, resource, result)
+        writeStatus(runtime, state)
+        return result
+    end)
+    moduleRef.hooks.wrap("RandomChance", "execution-resource-element-chance", function(_, _, base, chance, rng)
+        -- This flag is set only for GrantElementFromTool's synchronous native
+        -- chance roll. Other game randomness remains untouched.
+        if resourceElementGrant ~= nil then return true end
+        return base(chance, rng)
+    end)
     moduleRef.hooks.wrap("GetRandomArrayValue", "execution-embryo-choice", function(_, runtime, base, values, rng)
         -- This is deliberately scoped by AddRandomChaosBlessing's synchronous
         -- call. Other random arrays remain entirely vanilla-owned.
+        if rackSelection ~= nil then
+            local selected = data.session.selectRackEquipResult(data.session.get(runtime), values)
+            if selected ~= nil then return selected end
+        end
         if embryoSelection ~= nil and type(values) == "table" then
             for _, value in ipairs(values) do
                 if value == embryoSelection then return value end

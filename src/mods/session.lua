@@ -8,6 +8,11 @@
 local session = {}
 session.CACHE_NAME = "ExecutionSession"
 session.BIOME_ROUTE = { F = "Underworld", G = "Underworld" }
+local expectedRoom
+local nextTrace
+local plannedRoleFor
+local consumeTraceStep
+local mismatch
 
 local function newState()
     return {
@@ -20,7 +25,251 @@ local function newState()
         -- rediscovering the next lifecycle action from the live room.
         traceCursor = nil,
         lastConfirmedAction = nil,
+        -- Runtime identities are intentionally ephemeral.  The published plan
+        -- contains only semantic offer keys; object and kit ids never escape
+        -- this active session.
+        shopItemsByObjectId = {}, shopItemsByKitId = {},
     }
+end
+
+local function shopContents(state)
+    local room = expectedRoom(state)
+    return room and room.contents and room.contents.shop or nil
+end
+
+local function deepCopy(value)
+    if type(value) ~= "table" then return value end
+    local copy = {}
+    for key, entry in pairs(value) do copy[key] = deepCopy(entry) end
+    return copy
+end
+
+local function retained(values, expected)
+    local result = {}
+    for _, value in pairs(values or {}) do
+        local key = type(value) == "table" and value.Name or value
+        if key == expected then result[#result + 1] = value end
+    end
+    return result
+end
+
+local function retainedAny(values, expected)
+    local result = {}
+    for _, value in pairs(values or {}) do
+        local key = type(value) == "table" and value.Name or value
+        if expected[key] then result[#result + 1] = value end
+    end
+    return result
+end
+
+local function inventoryArgs(args, storeData)
+    local copy = deepCopy(args or {})
+    copy.StoreData = storeData
+    return copy
+end
+
+-- Selection is constrained before FillInShopOptions constructs records.  This
+-- preserves vanilla's costs, types, and payload assembly; it never filters a
+-- finished inventory after a different legal roll was already committed.
+function session.prepareInventoryGeneration(state, args, refillOnly)
+    if state.state ~= "synchronized" then return { kind = "passThrough", args = args } end
+    local room = expectedRoom(state)
+    local shop = room and room.contents and room.contents.shop or nil
+    local well = room and room.contents and room.contents.stygianWell or nil
+    if refillOnly and shop and shop.travelDealRefill then
+        local refill = state.pendingTravelDealRefill
+        if refill == nil then return { kind = "passThrough", args = args } end
+        local storeData = deepCopy((args or {}).StoreData)
+        local group = storeData and storeData.GroupsOf and storeData.GroupsOf[refill.slotIndex + 1]
+        if group == nil then
+            mismatch(state, "travel-deal-refill", { kind = "slot", index = refill.slotIndex }, { kind = "slot", index = nil })
+            return { kind = "failed", args = args }
+        end
+        if group.OptionsData then group.OptionsData = retained(group.OptionsData, refill.optionKey) end
+        if group.Options then group.Options = retained(group.Options, refill.optionKey) end
+        return { kind = "handled", family = "worldShopRefill", refill = refill, args = inventoryArgs(args, storeData), sources = { refill.reward.source } }
+    end
+    if shop ~= nil then
+        local storeData = deepCopy((args or {}).StoreData)
+        if type(storeData) ~= "table" or type(storeData.GroupsOf) ~= "table" then return { kind = "passThrough", args = args } end
+        for index, offer in ipairs(shop.offers or {}) do
+            local group = storeData.GroupsOf[index]
+            if group == nil then
+                mismatch(state, "world-shop-options", { kind = "slot", index = index - 1 }, { kind = "slot", index = nil })
+                return { kind = "failed", args = args }
+            end
+            if group.OptionsData then group.OptionsData = retained(group.OptionsData, offer.optionKey) end
+            if group.Options then group.Options = retained(group.Options, offer.optionKey) end
+        end
+        local sources = {}
+        for _, offer in ipairs(shop.offers or {}) do if offer.source ~= nil then sources[#sources + 1] = offer.source end end
+        return { kind = "handled", family = "worldShop", shop = shop, args = inventoryArgs(args, storeData), sources = sources }
+    end
+    if well ~= nil then
+        local initial = {}
+        for _, offer in ipairs(well.offers or {}) do
+            if offer.generationKey ~= "travelDealRefill" then initial[offer.generationKey] = offer end
+        end
+        local healing, left, right = initial["initial:healing"], initial["initial:secondLeft"], initial["initial:secondRight"]
+        if healing == nil or left == nil or right == nil then
+            mismatch(state, "stygian-well-options", { kind = "initialInventory" }, { kind = "missing" })
+            return { kind = "failed", args = args }
+        end
+        local storeData = deepCopy((args or {}).StoreData)
+        if type(storeData) ~= "table" then return { kind = "passThrough", args = args } end
+        if storeData.HealingOffers and storeData.HealingOffers.WeightedList then
+            storeData.HealingOffers.WeightedList = retained(storeData.HealingOffers.WeightedList, healing.offerKey)
+        end
+        local otherKeys = { [left.offerKey] = true, [right.offerKey] = true }
+        storeData.Traits = retainedAny(storeData.Traits, otherKeys)
+        storeData.Consumables = retainedAny(storeData.Consumables, otherKeys)
+        return { kind = "handled", family = "stygianWell", well = well, args = inventoryArgs(args, storeData), sources = {} }
+    end
+    return { kind = "passThrough", args = args }
+end
+
+function session.chooseInventoryGod(_, generation)
+    if generation == nil or type(generation.sources) ~= "table" then return nil end
+    local source = generation.sources[1]
+    if type(source) ~= "string" then return nil end
+    table.remove(generation.sources, 1)
+    return source
+end
+
+-- The native builder owns eligibility and option records.  Its fixed Traits
+-- then Consumables emission does not represent the Well's two physical slots,
+-- so sequence the already-native selected records before its caller consumes
+-- the generated inventory.
+function session.orderWellInventoryGeneration(generation, store)
+    if generation == nil or generation.kind ~= "handled" or generation.family ~= "stygianWell" then return store end
+    if type(store) ~= "table" or type(store.StoreOptions) ~= "table" then return store end
+    local byName = {}
+    for _, option in ipairs(store.StoreOptions) do
+        local key = type(option) == "table" and (option.Name or option.ItemName) or nil
+        if type(key) == "string" then
+            if byName[key] ~= nil then return store end
+            byName[key] = option
+        end
+    end
+    local offers = {}
+    for _, offer in ipairs(generation.well.offers or {}) do offers[offer.generationKey] = offer end
+    local ordered = {}
+    for _, generationKey in ipairs({ "initial:healing", "initial:secondLeft", "initial:secondRight" }) do
+        local option = offers[generationKey] and byName[offers[generationKey].offerKey]
+        if option == nil then return store end
+        ordered[#ordered + 1] = option
+    end
+    store.StoreOptions = ordered
+    return store
+end
+
+function session.verifyInventoryGeneration(state, generation, store)
+    if generation == nil or generation.kind ~= "handled" then return generation end
+    if type(store) ~= "table" or type(store.StoreOptions) ~= "table" then
+        mismatch(state, "inventory-generation", { kind = generation.family }, { kind = "missing" })
+        return { kind = "failed" }
+    end
+    local expected = generation.family == "stygianWell" and (function()
+        local initial = {}
+        for _, offer in ipairs(generation.well.offers or {}) do
+            if offer.generationKey ~= "travelDealRefill" then initial[#initial + 1] = offer end
+        end
+        return initial
+    end)()
+        or generation.family == "worldShopRefill" and { generation.refill }
+        or generation.shop.offers
+    local offset = generation.family == "worldShopRefill" and generation.refill.slotIndex or 0
+    for index, offer in ipairs(expected or {}) do
+        local option = store.StoreOptions[index + offset]
+        local key = type(option) == "table" and (option.Name or option.ItemName) or nil
+        local optionKey = generation.family == "stygianWell" and offer.offerKey or offer.optionKey
+        if key ~= optionKey then
+            mismatch(state, "inventory-generation", { kind = "option", key = optionKey }, { kind = "option", key = key })
+            return { kind = "failed" }
+        end
+        if offer.source ~= nil or (offer.reward and offer.reward.source ~= nil) then
+            local source = offer.source or offer.reward.source
+            local observed = option.Args and option.Args.ForceLootName or nil
+            if observed ~= source then
+                mismatch(state, "inventory-generation", { kind = "source", key = source }, { kind = "source", key = observed })
+                return { kind = "failed" }
+            end
+        end
+        option.__runPlannerShopOfferKey = offer.offerKey or generation.refill.sourceOfferKey
+        option.__runPlannerShopOptionKey = offer.optionKey or offer.offerKey
+        if generation.family == "stygianWell" then
+            option.__runPlannerWellGenerationKey, option.__runPlannerTwistResultKey = offer.generationKey, offer.twistResultKey
+        end
+    end
+    return { kind = "handled" }
+end
+
+function session.applyPurgingPoolInventory(state, currentRoom)
+    if state.state ~= "synchronized" then return { kind = "passThrough" } end
+    local room = expectedRoom(state)
+    local pool = room and room.contents and room.contents.purgingPool or nil
+    -- OpenSellTraitMenu returns nil.  Its native contract is to populate the
+    -- current room's SellOptions before it constructs the screen.
+    if pool == nil or type(currentRoom) ~= "table" or type(currentRoom.SellOptions) ~= "table" then return { kind = "passThrough" } end
+    local available, selected = {}, {}
+    for _, option in pairs(currentRoom.SellOptions) do if type(option) == "table" then available[option.Name] = option end end
+    for _, slot in ipairs(pool.traits or {}) do
+        if slot.traitKey ~= nil then
+            local option = available[slot.traitKey]
+            if option == nil then
+                mismatch(state, "purging-pool-options", { kind = "trait", key = slot.traitKey }, { kind = "trait", key = nil })
+                return { kind = "failed" }
+            end
+            option.__runPlannerPoolSlotKey = slot.slotKey
+            selected[#selected + 1] = option
+        end
+    end
+    currentRoom.SellOptions = selected
+    return { kind = "handled" }
+end
+
+function session.noteWorldShopSpawn(state, itemData, kitId, currentRun)
+    if state.state ~= "synchronized" or type(itemData) ~= "table" then return end
+    local offerKey = itemData.__runPlannerShopOfferKey
+    if type(offerKey) ~= "string" then return end
+    local spawned = currentRun and currentRun.CurrentRoom and currentRun.CurrentRoom.Store
+        and currentRun.CurrentRoom.Store.SpawnedStoreItems or nil
+    if type(spawned) ~= "table" then return end
+    for _, entry in pairs(spawned) do
+        if type(entry) == "table" and entry.KitId == kitId and entry.ObjectId ~= nil then
+            state.shopItemsByObjectId[entry.ObjectId] = offerKey
+            state.shopItemsByKitId[kitId] = offerKey
+            return
+        end
+    end
+end
+
+function session.beginWorldShopRemoval(state, args)
+    if state.state ~= "synchronized" or type(args) ~= "table" then return nil end
+    local offerKey = state.shopItemsByObjectId[args.Id]
+    local shop = shopContents(state)
+    local refill = shop and shop.travelDealRefill or nil
+    if offerKey ~= nil and refill ~= nil and refill.sourceOfferKey == offerKey then return refill end
+    return nil
+end
+
+function session.verifyTravelDealRefillSlot(state, replacedIndex)
+    local refill = state.pendingTravelDealRefill
+    if state.state ~= "synchronized" or refill == nil then return true end
+    local expected = refill.slotIndex + 1 -- native StoreOptions is one-based.
+    if replacedIndex ~= expected then
+        mismatch(state, "travel-deal-refill", { kind = "slot", index = expected }, { kind = "slot", index = replacedIndex })
+        return false
+    end
+    return true
+end
+
+function session.observeWorldShopRemoval(state, args, _)
+    if state.state ~= "synchronized" or type(args) ~= "table" then return end
+    local offerKey = state.shopItemsByObjectId[args.Id]
+    if offerKey == nil then return end
+    state.shopItemsByObjectId[args.Id] = nil
+    session.observeWorldShopPurchase(state, offerKey)
 end
 
 local function bounded(value)
@@ -32,7 +281,7 @@ local function roomName(room)
     return type(room) == "table" and (room.GenusName or room.Name) or nil
 end
 
-local function mismatch(state, checkpoint, expected, observed, beforeApply, disposition, triggeringAgency)
+mismatch = function(state, checkpoint, expected, observed, beforeApply, disposition, triggeringAgency)
     if state.firstMismatch ~= nil then return end
     state.firstMismatch = {
         checkpoint = checkpoint, expected = expected, observed = observed,
@@ -48,7 +297,7 @@ local function confirmAction(state, kind, key)
     state.lastConfirmedAction = { kind = kind, key = key }
 end
 
-local function expectedRoom(state)
+expectedRoom = function(state)
     return state.currentRoomId and state.roomsById[state.currentRoomId] or nil
 end
 
@@ -80,8 +329,192 @@ end
 
 local function indexPlan(state, plan)
     state.roomsById = {}
-    for _, room in ipairs(plan.rooms or {}) do state.roomsById[room.id] = room end
+    state.producedChildren = {}
+    for _, room in ipairs(plan.rooms or {}) do
+        state.roomsById[room.id] = room
+        for _, step in ipairs(room.trace or {}) do
+            if step.kind == "acquireReward" then for _, role in ipairs(step.roles or {}) do
+                if role.producer ~= nil then
+                    local key = role.producer.sourceOwner .. "\0" .. role.producer.sourceRole
+                    state.producedChildren[key] = state.producedChildren[key] or {}
+                    table.insert(state.producedChildren[key], { action = step, role = role })
+                end
+            end end
+        end
+    end
     state.currentRoomId = plan.rooms[1] and plan.rooms[1].id or nil
+end
+
+local function producedChild(state, owner, role, kind)
+    local rows = state.producedChildren and state.producedChildren[owner .. "\0" .. role] or nil
+    if type(rows) ~= "table" then return nil end
+    for _, child in ipairs(rows) do if child.role and child.role.producer and child.role.producer.kind == kind then return child end end
+    return nil
+end
+
+function session.beginTimePiece(state, usee)
+    local _, role = plannedRoleFor(state, type(usee) == "table" and usee.Name or nil)
+    if state.state ~= "synchronized" or role == nil or role.disposition ~= "timePiece" then return nil end
+    state.pendingTimePiece = { id = usee.ObjectId, role = role }
+    return true
+end
+
+-- Artificer is a player-triggered replacement.  Its source action is settled
+-- by the native gift branch, then the linked child becomes the next trace
+-- acquisition which ChooseRoomReward/SpawnRoomReward realize normally.
+function session.beginArtificerReplacement(state, target)
+    -- ConvertMetaRewardPresentation is reached only after the native Gift
+    -- handler accepted a MetaConversionEligible target and deliberately
+    -- clears that flag.  Do not use CanReceiveGift: it is also UI polling.
+    if state.state ~= "synchronized" or type(target) ~= "table" then return nil end
+    local action, role = plannedRoleFor(state, target.Name)
+    if action == nil or role == nil or role.disposition ~= "artificer" then return nil end
+    local child = producedChild(state, action.sourceOwner, role.role, "artificerReplacement")
+    if child == nil then
+        mismatch(state, "artificer-child", { kind = "producer", key = target.Name }, { kind = "producer", key = nil })
+        return nil
+    end
+    state.pendingArtificer = { sourceId = target.ObjectId, child = child }
+    confirmAction(state, "artificer", target.Name)
+    consumeTraceStep(state, "acquireReward")
+    return child
+end
+
+function session.chooseArtificerReward(state, currentRun, room, game, base, rewardStoreName, previouslyChosenRewards, args)
+    local pending = state.pendingArtificer
+    if state.state ~= "synchronized" or pending == nil then return { kind = "passThrough" } end
+    local child = pending.child
+    local action = child and child.action or nil
+    if action == nil then return { kind = "passThrough" } end
+    return session.chooseRoomRewardFor(state, action.reward, currentRun, room, game, base,
+        rewardStoreName, previouslyChosenRewards, args)
+end
+
+function session.captureArtificerReplacement(state, args, item)
+    local pending = state.pendingArtificer
+    if pending == nil then return end
+    if type(args) ~= "table" or args.SpawnRewardOnId ~= pending.sourceId then return end
+    session.captureProducedChild(state, item, pending.child)
+    state.pendingArtificer = nil
+end
+
+-- Sea Star leaves native construction in charge.  This only binds the one
+-- planned source object to its already-compiled child and verifies that the
+-- native nonrecursive guard was applied to that result.
+function session.beginSeaStarDuplicate(state, source)
+    if state.state ~= "synchronized" or type(source) ~= "table" then return nil end
+    local action, role = plannedRoleFor(state, source.Name)
+    if action == nil or role == nil then return nil end
+    local child = producedChild(state, action.sourceOwner, role.role, "seaStarDuplicate")
+    if child == nil then return nil end
+    state.pendingSeaStar = { sourceId = source.ObjectId, source = source, child = child }
+    -- This is the native gate immediately preceding its own RandomChance;
+    -- it does not manufacture a pickup or select any planner alternative.
+    source.CanDuplicate = true
+    return child
+end
+
+function session.consumeSeaStarDuplicateRng(state)
+    local pending = state.pendingSeaStar
+    if state.state ~= "synchronized" or pending == nil or pending.rngArmed ~= true then return nil end
+    pending.rngArmed = nil
+    return true
+end
+
+function session.armSeaStarDuplicateRng(state)
+    local pending = state.pendingSeaStar
+    if state.state ~= "synchronized" or pending == nil then return nil end
+    pending.rngArmed = true
+    return true
+end
+
+function session.captureSeaStarDuplicate(state, item)
+    local pending = state.pendingSeaStar
+    if pending == nil or pending.captured then return end
+    session.captureProducedChild(state, item, pending.child)
+    if state.state == "synchronized" then
+        pending.captured, pending.result = true, item
+    end
+end
+
+function session.finishSeaStarDuplicate(state, source)
+    local pending = state.pendingSeaStar
+    if pending == nil then return end
+    if source ~= pending.source or type(source) ~= "table" or source.ObjectId ~= pending.sourceId
+        or pending.captured ~= true or type(pending.result) ~= "table"
+        or pending.result.CanDuplicate ~= false then
+        mismatch(state, "sea-star-duplicate", { kind = "nonrecursive", key = pending.child.role.gameName },
+            { kind = "nonrecursive", key = pending.result and pending.result.Name or nil }, false)
+        return
+    end
+    state.pendingSeaStar = nil
+end
+function session.finishTimePiece(state, usee)
+    local pending = state.pendingTimePiece
+    if pending == nil then return end
+    if type(usee) ~= "table" or usee.ObjectId ~= pending.id then
+        mismatch(state, "time-piece", { kind = "object", key = pending.id }, { kind = "object", key = usee and usee.ObjectId }, false)
+        return
+    end
+    state.pendingTimePiece = nil
+    confirmAction(state, "timePiece", pending.role.gameName)
+    consumeTraceStep(state, "acquireReward")
+end
+
+function session.prepareProducedChild(state, owner, role, kind)
+    local child = producedChild(state, owner, role, kind)
+    if child ~= nil then state.pendingProducedChild = child end
+    return child
+end
+
+-- Echo runs while AddTraitToHero is still resolving the selected source
+-- acquisition. Bind that active source role to its explicit child and require
+-- the child to be the immediately following trace action; never search a room.
+function session.beginEchoLastReward(state)
+    if state.state ~= "synchronized" or state.pendingEchoLastReward ~= nil then return nil end
+    local source = state.pendingAcquisition
+    local sourceAction, sourceRole = source and source.action or nil, source and source.role or nil
+    if sourceAction == nil or sourceRole == nil then
+        mismatch(state, "echo-last-reward", { kind = "producer", key = "echoLastReward" }, { kind = "producer", key = nil }, false)
+        return nil
+    end
+    local child = producedChild(state, sourceAction.sourceOwner, sourceRole.role, "echoLastReward")
+    local room = expectedRoom(state)
+    local immediate = room and room.trace and room.trace[(state.traceCursor or 1) + 1] or nil
+    if child == nil or child.action ~= immediate then
+        mismatch(state, "echo-last-reward", { kind = "producer", key = "immediate-child" }, { kind = "producer", key = nil }, false)
+        return nil
+    end
+    state.pendingEchoLastReward = child
+    return state.pendingEchoLastReward
+end
+
+function session.captureEchoLastReward(state, item)
+    local pending = state.pendingEchoLastReward
+    if pending == nil then return end
+    session.captureProducedChild(state, item, pending)
+    if state.state == "synchronized" then pending.item = item end
+end
+
+function session.finishEchoLastReward(state)
+    local pending = state.pendingEchoLastReward
+    if pending == nil or state.state ~= "synchronized" then return end
+    if type(pending.item) ~= "table" then
+        mismatch(state, "echo-last-reward", { kind = "pickup", key = pending.role.gameName }, { kind = "pickup", key = nil }, false)
+        return
+    end
+    state.pendingEchoLastReward = nil
+end
+function session.captureProducedChild(state, item, expectedChild)
+    local child = expectedChild or state.pendingProducedChild
+    if child == nil then return end
+    local name = type(item) == "table" and (item.Name or item.ItemName) or nil
+    local role = child.role or child
+    if name ~= role.gameName then
+        mismatch(state, "produced-pickup", { kind = role.producer.kind, key = role.gameName }, { kind = role.producer.kind, key = name }, false)
+        return
+    end
+    if expectedChild == nil then state.pendingProducedChild = nil end
 end
 
 local function roomIsExpected(state, room)
@@ -111,6 +544,54 @@ local function markedRoomData(game, state, expected, metadata)
         if #encounters > 0 then copy.LegalEncounters = encounters end
     end
     return copy
+end
+
+local RESOURCE_TOOL_BY_TRAIT = {
+    FireEssence = "ToolPickaxe2",
+    AirEssence = "ToolExorcismBook2",
+    EarthEssence = "ToolShovel2",
+    WaterEssence = "ToolFishingRod2",
+}
+
+function session.applyResourceSuccesses(state, createdRoom)
+    if state.state ~= "synchronized" or type(createdRoom) ~= "table" then return end
+    local room = state.roomsById[createdRoom.__runPlannerExecutionRoomId]
+    if room == nil then return end
+    -- The planner owns only the one successful route-wide placement. Reset
+    -- every native roll for this marked occurrence, then re-enable exactly
+    -- the compiled success(es); meta-only gathering remains out of scope.
+    createdRoom.PickaxePointSuccess = false
+    createdRoom.ExorcismPointSuccess = false
+    createdRoom.ShovelPointSuccess = false
+    createdRoom.FishingPointSuccess = false
+    for _, resource in ipairs(room.contents and room.contents.resources or {}) do
+        if resource.grantedTraitKey == "FireEssence" then createdRoom.PickaxePointSuccess = true
+        elseif resource.grantedTraitKey == "AirEssence" then createdRoom.ExorcismPointSuccess = true
+        elseif resource.grantedTraitKey == "EarthEssence" then createdRoom.ShovelPointSuccess = true
+        elseif resource.grantedTraitKey == "WaterEssence" then createdRoom.FishingPointSuccess = true
+        end
+    end
+end
+
+function session.beginResourceElementGrant(state, toolName)
+    if state.state ~= "synchronized" then return nil end
+    local room = expectedRoom(state)
+    local resources = room and room.contents and room.contents.resources or nil
+    if type(resources) ~= "table" then return nil end
+    for _, resource in ipairs(resources) do
+        if RESOURCE_TOOL_BY_TRAIT[resource.grantedTraitKey] == toolName then
+            return resource
+        end
+    end
+    return nil
+end
+
+function session.verifyResourceElementGrant(state, resource, result)
+    if state.state ~= "synchronized" or resource == nil then return end
+    if result ~= resource.grantedTraitKey then
+        mismatch(state, "resource-element", { kind = "trait", key = resource.grantedTraitKey },
+            { kind = "trait", key = result }, false)
+    end
 end
 
 function session.newState() return newState() end
@@ -280,13 +761,11 @@ function session.prepareBatchRewardStore(state, currentRun)
     return { kind = "handled" }
 end
 
-local consumeTraceStep
-
 local function expectedReward(room)
     return room and room.contents and room.contents.incomingReward or nil
 end
 
-local function nextTrace(state)
+nextTrace = function(state)
     local room = expectedRoom(state)
     return room and room.trace and room.trace[state.traceCursor or 1] or nil
 end
@@ -371,7 +850,7 @@ function session.verifyTraitAcquisition(state, heroTraits)
     consumeTraceStep(state, "acquireReward")
 end
 
-local function plannedRoleFor(state, itemName)
+plannedRoleFor = function(state, itemName)
     local action = nextTrace(state)
     if action == nil or action.kind ~= "acquireReward" then return nil end
     for _, role in ipairs(action.roles or {}) do
@@ -543,14 +1022,14 @@ function session.verifyEmbryo(state, trait, traitDictionary)
     consumeTraceStep(state, "transcendentEmbryo")
 end
 
-function session.chooseRoomReward(state, currentRun, room, game, base, rewardStoreName, previouslyChosenRewards, args)
+function session.chooseRoomRewardFor(state, reward, currentRun, room, game, base, rewardStoreName, previouslyChosenRewards, args)
     if state.state ~= "synchronized" then return { kind = "passThrough" } end
     local matched, expected, observed = currentRoomContact(state, currentRun, room)
     if not matched then
         mismatch(state, "reward", { kind = "room", key = expected and expected.id }, { kind = "room", key = roomName(observed) })
         return { kind = "failed" }
     end
-    local reward = expectedReward(expected)
+    if reward == nil then reward = expectedReward(expected) end
     if reward == nil then return { kind = "passThrough" } end
     for _, source in ipairs({ reward.source, reward.spurnedSource }) do
         if source ~= nil and not sourceExists(game, source) then
@@ -578,6 +1057,11 @@ function session.chooseRoomReward(state, currentRun, room, game, base, rewardSto
     end
     state.rewardObserved = true
     return { kind = "handled", value = actual }
+end
+
+function session.chooseRoomReward(state, currentRun, room, game, base, rewardStoreName, previouslyChosenRewards, args)
+    return session.chooseRoomRewardFor(state, nil, currentRun, room, game, base,
+        rewardStoreName, previouslyChosenRewards, args)
 end
 
 -- Source selection is a property of the resolved incoming reward, not a
@@ -750,11 +1234,83 @@ local function liveDiagnostic(currentRun, diagnostic)
     }
 end
 
+-- Gate D deliberately publishes only the retained facts which have a direct
+-- game owner.  This adapter does not reconstruct chronology or infer a Hex
+-- layout from planner-only state.
+local function liveGateDDiagnostic(currentRun, diagnostic)
+    local gameState = _G.GameState
+    local hero = type(currentRun) == "table" and currentRun.Hero or nil
+    if type(gameState) ~= "table" or type(hero) ~= "table"
+        or type(currentRun.KeepsakeCache) ~= "table"
+        or type(currentRun.BlockedKeepsakes) ~= "table"
+        or type(gameState.LastAwardTrait) ~= "string"
+        or type(gameState.FatedStatus) ~= "string"
+        or type(currentRun.NumTalentPoints) ~= "number" then return nil end
+    local spell = hero.SlottedSpell
+    if spell ~= nil and type(spell) ~= "table" then return nil end
+    -- Native opening runs allocate only NumTalentPoints. The remaining Hex
+    -- fields first exist when the spell/talent system touches them, so absent
+    -- values have their documented zero/false meaning while no spell is held.
+    if spell ~= nil and (type(currentRun.InvestedTalentPoints) ~= "number"
+        or type(currentRun.AllSpellInvestedCache) ~= "boolean") then return nil end
+    local invested, closed = currentRun.InvestedTalentPoints, currentRun.AllSpellInvestedCache
+    if spell == nil and invested == nil then invested = 0 end
+    if spell == nil and closed == nil then closed = false end
+    local talents = spell and spell.Talents or {}
+    if type(talents) ~= "table" then return nil end
+    local talentKeys = {}
+    local function collectTalents(node)
+        if type(node) ~= "table" then return end
+        local trait = type(_G.TraitData) == "table" and _G.TraitData[node.Name] or nil
+        if type(node.Name) == "string" and (node.Rarity == "Rare" or node.Rarity == "Epic"
+            or node.Name == "OlympianSpellCountTalent" or (type(trait) == "table" and trait.IsDuoBoon == true)) then
+            talentKeys[#talentKeys + 1] = node.Name
+        end
+        for _, child in ipairs(node) do collectTalents(child) end
+    end
+    collectTalents(talents)
+    local live = {
+        keepsakes = {
+            currentKey = gameState.LastAwardTrait,
+            usedKeys = currentRun.KeepsakeCache,
+            blockedKeys = currentRun.BlockedKeepsakes,
+            fatedStatus = gameState.FatedStatus,
+        },
+        hexProgress = {
+            spellTraitKey = spell and spell.Name or nil,
+            layoutKey = talents.Name,
+            talentKeys = talentKeys,
+            closed = closed,
+            bankedPathPoints = currentRun.NumTalentPoints,
+            investedPathPoints = invested,
+        },
+        artificer = nil,
+    }
+    if diagnostic.artificer ~= nil then
+        local trait = callLive("GetHeroTrait", "MetaToRunMetaUpgrade")
+        if type(trait) ~= "table" or type(trait.MetaConversionUses) ~= "number"
+            or type(currentRun.MetaConversionUses) ~= "number" then return nil end
+        live.artificer = {
+            usedCount = currentRun.MetaConversionUses,
+            remainingCount = trait.MetaConversionUses,
+        }
+    end
+    return live
+end
+
 local function equalMap(expected, observed)
     if type(observed) ~= "table" then return false end
     for key, value in pairs(expected) do if observed[key] ~= value then return false end end
     for key in pairs(observed) do if expected[key] == nil then return false end end
     return true
+end
+
+local function sameStringSet(expected, observed)
+    if type(expected) ~= "table" or type(observed) ~= "table" then return false end
+    local expectedSet, observedSet = {}, {}
+    for _, value in ipairs(expected) do expectedSet[value] = (expectedSet[value] or 0) + 1 end
+    for _, value in ipairs(observed) do observedSet[value] = (observedSet[value] or 0) + 1 end
+    return equalMap(expectedSet, observedSet)
 end
 
 local function traitMatches(expected, observed)
@@ -786,9 +1342,33 @@ function session.observeRunState(state, currentRun, checkpoint)
                     return false
                 end
             end
+            if not sameArray(diagnostic.rewardPriorities, currentRun.RewardPriorities, tostring) then
+                mismatch(state, checkpoint, { kind = "rewardPriorities", key = diagnostic.rewardPriorities },
+                    { kind = "rewardPriorities", key = currentRun.RewardPriorities }, false)
+                return false
+            end
+            local gateD = liveGateDDiagnostic(currentRun, diagnostic)
+            if gateD == nil
+                or gateD.keepsakes.currentKey ~= diagnostic.keepsakes.currentKey
+                or not sameArray(diagnostic.keepsakes.usedKeys, gateD.keepsakes.usedKeys, tostring)
+                or not sameArray(diagnostic.keepsakes.blockedKeys, gateD.keepsakes.blockedKeys, tostring)
+                or gateD.keepsakes.fatedStatus ~= diagnostic.keepsakes.fatedStatus
+                or gateD.hexProgress.spellTraitKey ~= diagnostic.hexProgress.spellTraitKey
+                or gateD.hexProgress.layoutKey ~= diagnostic.hexProgress.layoutKey
+                or not sameStringSet(diagnostic.hexProgress.talentKeys, gateD.hexProgress.talentKeys)
+                or gateD.hexProgress.closed ~= diagnostic.hexProgress.closed
+                or gateD.hexProgress.bankedPathPoints ~= diagnostic.hexProgress.bankedPathPoints
+                or gateD.hexProgress.investedPathPoints ~= diagnostic.hexProgress.investedPathPoints
+                or ((diagnostic.artificer == nil) ~= (gateD and gateD.artificer == nil))
+                or (diagnostic.artificer ~= nil and (gateD.artificer.usedCount ~= diagnostic.artificer.usedCount
+                    or gateD.artificer.remainingCount ~= diagnostic.artificer.remainingCount)) then
+                mismatch(state, checkpoint, { kind = "gateD-run-state", key = diagnostic },
+                    { kind = "gateD-run-state", key = gateD }, false)
+                return false
+            end
             local live = liveDiagnostic(currentRun, diagnostic)
             if live == nil then
-                mismatch(state, checkpoint, { kind = "runStateObserver", key = "complete-v3" }, { kind = "runStateObserver", key = nil }, false)
+                mismatch(state, checkpoint, { kind = "runStateObserver", key = "complete-v4" }, { kind = "runStateObserver", key = nil }, false)
                 return false
             end
             if not sameArray(diagnostic.godPool.acquiredSourceKeys, live.godPool.acquiredSourceKeys, tostring)
@@ -915,6 +1495,176 @@ function session.observeEncounterInteraction(state, currentRun, room)
     end
     confirmAction(state, "encounterInteraction", step.phaseKey)
     consumeTraceStep(state, "encounterInteraction")
+end
+
+-- Gate D interaction rows are deliberately closed.  These observers record
+-- player participation at the native interaction seam; they never invoke an
+-- interaction or repair the resulting game state.
+function session.observeStygianWellPurchase(state, offerKey)
+    if state.state ~= "synchronized" then return end
+    local step = nextTrace(state)
+    if step == nil or step.kind ~= "stygianWellPurchase" or step.offerKey ~= offerKey then
+        mismatch(state, "stygian-well-purchase", { kind = "offer", key = step and step.offerKey }, { kind = "offer", key = offerKey }, true, "playerDivergence", "player")
+        return
+    end
+    confirmAction(state, "stygianWellPurchase", offerKey)
+    consumeTraceStep(state, "stygianWellPurchase")
+end
+
+function session.recordWellTwistMismatch(state, target)
+    if state.state ~= "synchronized" then return end
+    mismatch(state, "stygian-well-twist", { kind = "result", key = target }, { kind = "result", key = nil })
+end
+
+function session.observeWorldShopPurchase(state, offerKey)
+    if state.state ~= "synchronized" then return end
+    local step = nextTrace(state)
+    if step == nil or step.kind ~= "worldShopPurchase" or step.offerKey ~= offerKey then
+        mismatch(state, "world-shop-purchase", { kind = "offer", key = step and step.offerKey }, { kind = "offer", key = offerKey }, true, "playerDivergence", "player")
+        return
+    end
+    confirmAction(state, "worldShopPurchase", offerKey)
+    consumeTraceStep(state, "worldShopPurchase")
+end
+
+function session.observePurgingPoolSale(state, soldTraitKey)
+    if state.state ~= "synchronized" then return end
+    local step = nextTrace(state)
+    if step == nil or step.kind ~= "purgingPoolSale" or step.traitKey ~= soldTraitKey then
+        mismatch(state, "purging-pool-sale", { kind = "trait", key = step and step.traitKey }, { kind = "trait", key = soldTraitKey }, true, "playerDivergence", "player")
+        return
+    end
+    confirmAction(state, "purgingPoolSale", soldTraitKey)
+    consumeTraceStep(state, "purgingPoolSale")
+end
+
+function session.beginKeepsakeRackChange(state, keepsakeKey)
+    if state.state ~= "synchronized" then return end
+    local step = nextTrace(state)
+    if step == nil or step.kind ~= "keepsakeRackChange" or step.keepsakeKey ~= keepsakeKey then
+        mismatch(state, "keepsake-rack", { kind = "keepsake", key = step and step.keepsakeKey }, { kind = "keepsake", key = keepsakeKey }, true, "playerDivergence", "player")
+        return
+    end
+    state.pendingRackKeepsake = keepsakeKey
+    state.pendingRackResults = step.equipResults
+    return step
+end
+
+function session.verifyKeepsakeRackChange(state, keepsakeKey, hero)
+    local expected = state.pendingRackKeepsake
+    if state.state ~= "synchronized" or expected == nil then return end
+    if keepsakeKey ~= expected then
+        mismatch(state, "keepsake-rack", { kind = "keepsake", key = expected }, { kind = "keepsake", key = keepsakeKey }, false)
+        return
+    end
+    if state.pendingRackExpectedTrait ~= nil then
+        local found = nil
+        for _, trait in ipairs(type(hero) == "table" and hero.Traits or {}) do
+            if type(trait) == "table" and trait.Name == state.pendingRackExpectedTrait then found = trait; break end
+        end
+        if state.pendingRackSelectionApplied ~= true or found == nil then
+            mismatch(state, "keepsake-equip-result", { kind = "trait", key = state.pendingRackExpectedTrait }, { kind = "trait", key = nil }, false)
+            return
+        end
+    end
+    confirmAction(state, "keepsakeRackChange", expected)
+    consumeTraceStep(state, "keepsakeRackChange")
+    state.pendingRackKeepsake, state.pendingRackResults = nil, nil
+    state.pendingRackExpectedTrait, state.pendingRackSelectionApplied = nil, nil
+end
+
+function session.beginRackEquipResult(state)
+    local results = state.pendingRackResults
+    if state.state ~= "synchronized" or type(results) ~= "table" then return nil end
+    local target = results.jeweledPom and results.jeweledPom.traitKey
+        or (results.experimentalHammer and results.experimentalHammer.kind == "selected" and results.experimentalHammer.traitKey)
+        or (results.transcendentEmbryo and results.transcendentEmbryo.blessingKey)
+    if target == nil then return nil end
+    state.pendingRackExpectedTrait = target
+    return target
+end
+
+function session.selectRackEquipResult(state, values)
+    local expected = state.pendingRackExpectedTrait
+    if state.state ~= "synchronized" or expected == nil or type(values) ~= "table" then return nil end
+    for _, value in ipairs(values) do
+        if value == expected then
+            state.pendingRackSelectionApplied = true
+            return value
+        end
+    end
+    -- Other native helpers may select unrelated random arrays while the
+    -- rack closes. Only an array containing our target is the result seam.
+    return nil
+end
+
+function session.verifyRackEquipResult(state, trait)
+    local expected = state.pendingRackExpectedTrait
+    if state.state ~= "synchronized" or expected == nil or state.pendingRackSelectionApplied ~= true then return end
+    local actual = type(trait) == "table" and (trait.Name or trait.TraitName) or nil
+    if actual ~= expected then
+        mismatch(state, "keepsake-equip-result", { kind = "trait", key = expected }, { kind = "trait", key = actual }, false)
+        return
+    end
+    -- The close observer owns trace consumption. This contact proves the
+    -- native equip result, but must not make a failed close look committed.
+end
+
+function session.observeFountainUse(state, observedTarget)
+    if state.state ~= "synchronized" then return end
+    local step = nextTrace(state)
+    if step == nil or step.kind ~= "fountainUse" then
+        mismatch(state, "fountain-use", { kind = "fountain", key = nil }, { kind = "fountain", key = observedTarget }, true, "playerDivergence", "player")
+        return
+    end
+    if observedTarget ~= nil and step.aromaticPhialTarget ~= nil and step.aromaticPhialTarget ~= observedTarget then
+        mismatch(state, "aromatic-phial", { kind = "trait", key = step.aromaticPhialTarget }, { kind = "trait", key = observedTarget })
+        return
+    end
+    state.pendingFountainUse = step
+    state.pendingPhialTarget = step.aromaticPhialTarget
+end
+
+function session.completeFountainUse(state)
+    local step = state.pendingFountainUse
+    if state.state ~= "synchronized" or step == nil then return end
+    confirmAction(state, "fountainUse", step.aromaticPhialTarget)
+    consumeTraceStep(state, "fountainUse")
+    state.pendingFountainUse = nil
+end
+
+function session.preparePhialRarity(state, args, heroTraits)
+    local targetKey = state.pendingPhialTarget
+    if state.state ~= "synchronized" or targetKey == nil then return { kind = "passThrough" } end
+    local target
+    for _, trait in pairs(heroTraits or {}) do
+        if type(trait) == "table" and (trait.Name == targetKey or trait.TraitName == targetKey) then target = trait; break end
+    end
+    if target == nil or type(args) ~= "table" then
+        mismatch(state, "aromatic-phial", { kind = "trait", key = targetKey }, { kind = "trait", key = nil })
+        return { kind = "failed" }
+    end
+    args.ForceUpgrade = { target }
+    state.pendingPhialRarity = { target = targetKey, priorRarity = target.Rarity }
+    return { kind = "handled" }
+end
+
+function session.verifyPhialRarity(state, heroTraits, returnedTrait)
+    local pending = state.pendingPhialRarity
+    if state.state ~= "synchronized" or pending == nil then return end
+    for _, trait in pairs(heroTraits or {}) do
+        if type(trait) == "table" and (trait.Name == pending.target or trait.TraitName == pending.target) then
+            local expected = type(_G.GetUpgradedRarity) == "function" and _G.GetUpgradedRarity(pending.priorRarity) or nil
+            if expected == nil or trait.Rarity ~= expected or type(returnedTrait) ~= "table" or returnedTrait.Name ~= pending.target then
+                mismatch(state, "aromatic-phial", { kind = "rarity", key = expected }, { kind = "rarity", key = trait.Rarity }, false)
+                return
+            end
+            state.pendingPhialTarget, state.pendingPhialRarity = nil, nil
+            session.completeFountainUse(state)
+            return
+        end
+    end
+    mismatch(state, "aromatic-phial", { kind = "trait", key = pending.target }, { kind = "trait", key = nil }, false)
 end
 
 -- SetupRoomMultipleEncountersData remains responsible for cloning descriptor

@@ -109,4 +109,77 @@ function TestProtocol.testMalformedRunStateMapsReturnDecodeErrorsInsteadOfAssert
     lu.assertNotNil(errorMessage)
 end
 
+function TestProtocol.testRewardPrioritiesRetainDuplicateOrder()
+    local value = fixtures.decode()
+    value.rooms[1].trace[1].runState.rewardPriorities = setmetatable(
+        { "Boon", "Boon" },
+        { __json_array = true }
+    )
+    local plan, errorMessage = protocol.decode(value)
+    lu.assertNotNil(plan, errorMessage)
+    lu.assertEquals(plan.rooms[1].trace[1].runState.rewardPriorities, { "Boon", "Boon" })
+end
+
+function TestProtocol.testTraceBoundMatchesTheProducerDecoder()
+    local value = fixtures.decode()
+    local first = value.rooms[1].trace[1]
+    local trace = setmetatable({}, { __json_array = true })
+    for index = 1, 65 do trace[index] = first end
+    value.rooms[1].trace = trace
+    local plan, errorMessage = protocol.decode(value)
+    lu.assertNil(plan)
+    lu.assertStrContains(errorMessage, "trace exceeds bound")
+end
+
+function TestProtocol.testShopTravelDealAndObjectTraceClosureMatchTheTypeScriptDecoder()
+    local value = fixtures.decode()
+    local shop
+    for _, room in ipairs(value.rooms) do
+        if room.contents.shop ~= nil then shop = room.contents.shop; break end
+    end
+    lu.assertNotNil(shop)
+    shop.travelDealRefill = {
+        sourceOfferKey = "not-a-slot", slotIndex = 0, optionKey = "RoomRewardHealDrop",
+        reward = { rewardType = "MajorNonBoon", producerLifecycleKey = "Shop" },
+    }
+    lu.assertNil(protocol.decode(value))
+
+    value = fixtures.decode()
+    table.insert(value.rooms[1].trace, 2, {
+        id = "bad-well", kind = "stygianWellPurchase",
+        owner = '["roomAction","Underworld","F","golden-f-start","bad"]',
+        generationKey = "initial:healing", offerKey = "HealDropRange",
+    })
+    lu.assertNil(protocol.decode(value))
+end
+
+function TestProtocol.testObjectOwnersAndRackResultsUseCanonicalStrings()
+    local value = fixtures.decode()
+    local fountain
+    for _, room in ipairs(value.rooms) do
+        for _, step in ipairs(room.trace) do
+            if step.kind == "fountainUse" then fountain = step; break end
+        end
+        if fountain then break end
+    end
+    lu.assertNotNil(fountain)
+    fountain.owner = fountain.owner:gsub('%[\\"useFountain\\"%]', '[\\"interactKeepsakeRack\\"]')
+    lu.assertNil(protocol.decode(value))
+
+    local function malformedRack(results)
+        local candidate = fixtures.decode()
+        local room = candidate.rooms[1]
+        room.contents.keepsakeRack = { keepsakeKey = "TestKeepsake" }
+        table.insert(room.trace, #room.trace, {
+            id = "bad-rack", kind = "keepsakeRackChange",
+            owner = '["roomAction","Underworld","F","golden-f-start","[\\"interactKeepsakeRack\\"]"]',
+            keepsakeKey = "TestKeepsake", equipResults = results,
+        })
+        lu.assertNil(protocol.decode(candidate))
+    end
+    malformedRack({ jeweledPom = { traitKey = "PomTrait", rarity = 3 } })
+    malformedRack({ experimentalHammer = { kind = "selected", traitKey = 2 } })
+    malformedRack({ transcendentEmbryo = { blessingKey = false } })
+end
+
 return TestProtocol

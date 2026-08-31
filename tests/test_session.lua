@@ -60,6 +60,12 @@ local function applyRunState(run, snapshot)
     run.EncounterDepth = snapshot.counters.routeEncounterDepth
     run.RoomHistory = {}
     for index = 1, snapshot.counters.roomHistoryOrdinal do run.RoomHistory[index] = {} end
+    run.RewardPriorities = snapshot.rewardPriorities
+    run.NumTalentPoints = snapshot.hexProgress.bankedPathPoints
+    run.InvestedTalentPoints = snapshot.hexProgress.investedPathPoints
+    run.AllSpellInvestedCache = snapshot.hexProgress.closed
+    run.KeepsakeCache = snapshot.keepsakes.usedKeys
+    run.BlockedKeepsakes = snapshot.keepsakes.blockedKeys
     run.RewardStores = {}
     for _, bag in ipairs(snapshot.bags) do
         run.RewardStores[bag.storeKey] = {}
@@ -67,6 +73,12 @@ local function applyRunState(run, snapshot)
         for index = 1, count do run.RewardStores[bag.storeKey][index] = {} end
     end
     run.Hero = { Traits = {}, SlottedTraits = {} }
+    if snapshot.hexProgress.spellTraitKey then
+        run.Hero.SlottedSpell = { Name = snapshot.hexProgress.spellTraitKey, Talents = { Name = snapshot.hexProgress.layoutKey } }
+        for index, key in ipairs(snapshot.hexProgress.talentKeys) do
+            run.Hero.SlottedSpell.Talents[index] = { Name = key }
+        end
+    end
     for _, trait in ipairs(snapshot.traits.equipped) do
         run.Hero.Traits[#run.Hero.Traits + 1] = {
             Name = trait.traitKey, Rarity = trait.rarity, StackNum = trait.level,
@@ -82,7 +94,12 @@ local function applyRunState(run, snapshot)
     run.ShrineUpgradesDisabled = {}; for _, key in ipairs(snapshot.vows.disabledKeys) do run.ShrineUpgradesDisabled[key] = true end
     run.TemporaryMetaUpgrades = {}
     run.BiomeBoonSkipCount = snapshot.forfeit == "consumed" and (snapshot.vows.effectiveRanks.BoonSkipShrineUpgrade or 0) or 0
-    _G.GameState = { ShrineUpgrades = snapshot.vows.configuredRanks, MetaUpgradeState = {} }
+    _G.GameState = {
+        ShrineUpgrades = snapshot.vows.configuredRanks,
+        MetaUpgradeState = {},
+        LastAwardTrait = snapshot.keepsakes.currentKey,
+        FatedStatus = snapshot.keepsakes.fatedStatus,
+    }
     _G.MetaUpgradeCardData, _G.TraitRarityData = {}, { RarityUpgradeOrder = { "Common", "Rare", "Epic", "Heroic" } }
     for _, card in ipairs(snapshot.arcana.active) do
         _G.GameState.MetaUpgradeState[card.key] = { Equipped = true, Level = 1 }
@@ -93,6 +110,13 @@ local function applyRunState(run, snapshot)
     _G.GetEligibleLootNames = function() return snapshot.godPool.effectiveSourceKeys end
     _G.ReachedMaxGods = function() return snapshot.godPool.capNarrowed end
     _G.GetNumShrineUpgrades = function(key) return snapshot.vows.effectiveRanks[key] or 0 end
+    _G.GetHeroTrait = function(key)
+        if key == "MetaToRunMetaUpgrade" and snapshot.artificer then
+            return { MetaConversionUses = snapshot.artificer.remainingCount }
+        end
+        return nil
+    end
+    run.MetaConversionUses = snapshot.artificer and snapshot.artificer.usedCount or nil
 end
 
 function TestSession.testStartNewRunFreezesOnlyAtStartAndRealizesOpening()
@@ -105,6 +129,50 @@ function TestSession.testStartNewRunFreezesOnlyAtStartAndRealizesOpening()
     lu.assertEquals(room.__runPlannerExecutionRoomId, "golden-f-start")
     lu.assertEquals(room.__runPlannerExecutionEncounterPhases[1].encounterKey, "OpeningGeneratedF")
     lu.assertEquals(room.LegalEncounters[1], "OpeningGeneratedF")
+end
+
+function TestSession.testSuccessfulResourceUsesNativePointAndVerifiesItsSettledElement()
+    local plan = fixturePlan()
+    plan.rooms[1].contents.resources = {
+        { acquisitionRole = "resource:FireEssence", grantedTraitKey = "FireEssence", contributions = { Fire = 1 } },
+    }
+    local state, currentRun, game = start(plan)
+    local room = session.chooseStartingRoom(state, currentRun, { StartingBiome = "F" }, game)
+    -- Native CreateRoom recomputes this flag; the post-construction seam
+    -- restores only the planner's successful outcome.
+    room.PickaxePointSuccess = false
+    session.applyResourceSuccesses(state, room)
+    lu.assertTrue(room.PickaxePointSuccess)
+    local resource = session.beginResourceElementGrant(state, "ToolPickaxe2")
+    lu.assertEquals(resource.grantedTraitKey, "FireEssence")
+    session.verifyResourceElementGrant(state, resource, "FireEssence")
+    lu.assertEquals(state.state, "synchronized")
+    session.verifyResourceElementGrant(state, resource, nil)
+    lu.assertEquals(state.state, "desynchronized")
+    lu.assertEquals(state.firstMismatch.checkpoint, "resource-element")
+end
+
+function TestSession.testResourceSuccessUsesCreatedTargetOccurrenceNotCurrentSource()
+    local plan = fixturePlan()
+    local state, currentRun = start(plan)
+    local source, target = plan.rooms[1], plan.rooms[2]
+    source.contents.resources = {
+        { acquisitionRole = "resource:WaterEssence", grantedTraitKey = "WaterEssence", contributions = { Water = 1 } },
+    }
+    target.contents.resources = {
+        { acquisitionRole = "resource:FireEssence", grantedTraitKey = "FireEssence", contributions = { Fire = 1 } },
+    }
+    state.currentRoomId = source.id
+    local createdTarget = {
+        __runPlannerExecutionRoomId = target.id,
+        PickaxePointSuccess = false, ExorcismPointSuccess = true,
+        ShovelPointSuccess = true, FishingPointSuccess = true,
+    }
+    session.applyResourceSuccesses(state, createdTarget)
+    lu.assertTrue(createdTarget.PickaxePointSuccess)
+    lu.assertFalse(createdTarget.ExorcismPointSuccess)
+    lu.assertFalse(createdTarget.ShovelPointSuccess)
+    lu.assertFalse(createdTarget.FishingPointSuccess)
 end
 
 function TestSession.testMissingLiveIdentifierBecomesFirstDesynchronization()
@@ -335,6 +403,32 @@ function TestSession.testMissingRunStateValueIsAConformanceMismatch()
     lu.assertEquals(missingBagState.firstMismatch.disposition, "conformanceDiscrepancy")
 end
 
+function TestSession.testOpeningWithoutHexUsesNativeAbsentHexDefaults()
+    local plan = fixturePlan()
+    local snapshot = plan.rooms[1].trace[1].runState
+    local run = { CurrentRoom = { RoomSetName = "F" } }
+    applyRunState(run, snapshot)
+    run.Hero.SlottedSpell = nil
+    run.InvestedTalentPoints, run.AllSpellInvestedCache = nil, nil
+    local state = start(plan, run)
+    session.observeRoom(state, run, { Name = "F_Opening01", RoomSetName = "F", __runPlannerExecutionRoomId = "golden-f-start" })
+    lu.assertEquals(state.state, "synchronized")
+end
+
+function TestSession.testKeepsakeRackConsumesOnlyAfterNativeCloseVerification()
+    local state = session.newState()
+    local step = { kind = "keepsakeRackChange", keepsakeKey = "TestKeepsake", equipResults = {} }
+    state.state, state.currentRoomId, state.traceCursor = "synchronized", "room", 1
+    state.roomsById = { room = { id = "room", trace = { step } } }
+    -- Opening and closing without a changed selection makes no trace contact.
+    lu.assertEquals(state.traceCursor, 1)
+    session.beginKeepsakeRackChange(state, "TestKeepsake")
+    lu.assertEquals(state.traceCursor, 1)
+    session.verifyKeepsakeRackChange(state, "TestKeepsake", { Traits = {} })
+    lu.assertEquals(state.traceCursor, 2)
+    lu.assertEquals(state.state, "synchronized")
+end
+
 function TestSession.testEncounterPhasesAreObservedInDeclaredOrder()
     local plan = withoutOpeningAcquisition(fixturePlan())
     local state, run = start(plan)
@@ -523,6 +617,25 @@ function TestSession.testRunStateHammerRanksUseLiveHammerRarity()
     lu.assertEquals(mismatch.firstMismatch.checkpoint, "roomEntered")
 end
 
+function TestSession.testRunStateUsesDirectKeepsakeAndHexContacts()
+    local plan = openingCheckpointsOnly(fixturePlan())
+    local snapshot = plan.rooms[1].trace[1].runState
+    local run = { CurrentRoom = { RoomSetName = "F" } }
+    applyRunState(run, snapshot)
+    local state = session.newState()
+    state.state, state.currentRoomId, state.traceCursor = "synchronized", plan.rooms[1].id, 1
+    state.roomsById = { [plan.rooms[1].id] = plan.rooms[1] }
+    session.observeRunState(state, run, "roomEntered")
+    lu.assertEquals(state.state, "synchronized")
+
+    local mismatch = session.newState()
+    mismatch.state, mismatch.currentRoomId, mismatch.traceCursor = "synchronized", plan.rooms[1].id, 1
+    mismatch.roomsById = { [plan.rooms[1].id] = plan.rooms[1] }
+    _G.GameState.FatedStatus = "Fated"
+    session.observeRunState(mismatch, run, "roomEntered")
+    lu.assertEquals(mismatch.firstMismatch.checkpoint, "roomEntered")
+end
+
 function TestSession.testFirstMismatchBlocksFurtherObservation()
     local state = start(fixturePlan())
     session.observeRoom(state, {}, { Name = "WrongRoom", RoomSetName = "F" })
@@ -531,6 +644,87 @@ function TestSession.testFirstMismatchBlocksFurtherObservation()
     session.observeRoom(state, {}, { Name = "F_Opening01", RoomSetName = "F" })
     lu.assertEquals(state.firstMismatch, first)
     lu.assertEquals(state.state, "desynchronized")
+end
+
+function TestSession.testInventoryGenerationConstrainsNativeCandidatesBeforeRecordsAreBuilt()
+    local state = session.newState()
+    state.state, state.currentRoomId = "synchronized", "shop"
+    state.roomsById = { shop = { contents = { shop = { offers = {
+        { offerKey = "one", optionKey = "RandomLoot", source = "ApolloUpgrade" },
+        { offerKey = "two", optionKey = "RoomRewardHealDrop" },
+        { offerKey = "three", optionKey = "MaxManaDrop" },
+    } } } } }
+    local args = { StoreData = { GroupsOf = {
+        { OptionsData = { { Name = "RandomLoot" }, { Name = "BlindBoxLoot" } } },
+        { OptionsData = { { Name = "RoomRewardHealDrop" }, { Name = "MaxHealthDrop" } } },
+        { OptionsData = { { Name = "MaxManaDrop" }, { Name = "SpellDrop" } } },
+    } } }
+    local generation = session.prepareInventoryGeneration(state, args, false)
+    lu.assertEquals(generation.kind, "handled")
+    lu.assertEquals(generation.args.StoreData.GroupsOf[1].OptionsData[1].Name, "RandomLoot")
+    lu.assertEquals(#generation.args.StoreData.GroupsOf[1].OptionsData, 1)
+    lu.assertEquals(session.chooseInventoryGod(state, generation), "ApolloUpgrade")
+    local nativeRecords = { StoreOptions = {
+        { Name = "RandomLoot", Args = { ForceLootName = "ApolloUpgrade" } },
+        { Name = "RoomRewardHealDrop" }, { Name = "MaxManaDrop" },
+    } }
+    local verified = session.verifyInventoryGeneration(state, generation, nativeRecords)
+    lu.assertEquals(verified.kind, "handled")
+    lu.assertEquals(state.state, "synchronized")
+    nativeRecords.StoreOptions[2].Name = "MaxHealthDrop"
+    session.verifyInventoryGeneration(state, generation, nativeRecords)
+    lu.assertEquals(state.firstMismatch.checkpoint, "inventory-generation")
+end
+
+function TestSession.testInitialWellGenerationExcludesTravelDealRefillAndRefillUsesItsPhysicalSlot()
+    local state = session.newState()
+    state.state, state.currentRoomId = "synchronized", "well"
+    state.roomsById = { well = { contents = { stygianWell = { offers = {
+        { generationKey = "initial:healing", offerKey = "Heal" },
+        { generationKey = "initial:secondLeft", offerKey = "Left" },
+        { generationKey = "initial:secondRight", offerKey = "Right" },
+        { generationKey = "travelDealRefill", offerKey = "Refill" },
+    } } } } }
+    local args = { StoreData = {
+        HealingOffers = { WeightedList = { { Name = "Heal" }, { Name = "WrongHeal" } } },
+        Traits = { "Left", "WrongTrait" }, Consumables = { "Right", "WrongConsumable" },
+    } }
+    local generation = session.prepareInventoryGeneration(state, args, false)
+    lu.assertEquals(generation.kind, "handled")
+    lu.assertEquals(generation.args.StoreData.HealingOffers.WeightedList[1].Name, "Heal")
+    lu.assertNil(generation.args.StoreData.Traits[2])
+    lu.assertEquals(generation.args.StoreData.Consumables[1], "Right")
+    lu.assertEquals(#generation.well.offers, 4)
+    local crossCategory = session.orderWellInventoryGeneration(generation, { StoreOptions = {
+        { Name = "Heal" }, { Name = "Right" }, { Name = "Left" },
+    } })
+    lu.assertEquals(crossCategory.StoreOptions[2].Name, "Left")
+    lu.assertEquals(crossCategory.StoreOptions[3].Name, "Right")
+
+    state.roomsById.well.contents.stygianWell.offers[2].offerKey = "SecondRight"
+    state.roomsById.well.contents.stygianWell.offers[3].offerKey = "SecondLeft"
+    generation = session.prepareInventoryGeneration(state, args, false)
+    local sameCategory = session.orderWellInventoryGeneration(generation, { StoreOptions = {
+        { Name = "Heal" }, { Name = "SecondLeft" }, { Name = "SecondRight" },
+    } })
+    lu.assertEquals(sameCategory.StoreOptions[2].Name, "SecondRight")
+    lu.assertEquals(sameCategory.StoreOptions[3].Name, "SecondLeft")
+
+    state.roomsById.well.contents.shop = { offers = {
+        { offerKey = "a", optionKey = "RandomLoot", source = "ApolloUpgrade" },
+        { offerKey = "b", optionKey = "RoomRewardHealDrop" },
+    }, travelDealRefill = {
+        sourceOfferKey = "a", slotIndex = 0, optionKey = "RoomRewardHealDrop",
+        reward = { rewardType = "MajorNonBoon", producerLifecycleKey = "Shop" },
+    } }
+    state.pendingTravelDealRefill = state.roomsById.well.contents.shop.travelDealRefill
+    local refill = session.prepareInventoryGeneration(state, { StoreData = { GroupsOf = {
+        { OptionsData = { { Name = "RandomLoot" }, { Name = "RoomRewardHealDrop" } } },
+        { OptionsData = { { Name = "MaxManaDrop" } } },
+    } } }, true)
+    lu.assertEquals(refill.kind, "handled")
+    lu.assertEquals(refill.args.StoreData.GroupsOf[1].OptionsData[1].Name, "RoomRewardHealDrop")
+    lu.assertEquals(#refill.args.StoreData.GroupsOf[1].OptionsData, 1)
 end
 
 function TestSession.testForcedRewardAndFixedLinkMismatchesAreConformanceDiscrepancies()
