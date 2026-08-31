@@ -5,11 +5,23 @@ local fixtures = require("tests/harness/fixture_loader")
 
 TestProtocol = {}
 
+local function object(fields) return setmetatable(fields, { __json_object = true }) end
+local function list(values) return setmetatable(values, { __json_array = true }) end
+local function semanticAddress(...)
+    local values = { ... }
+    for index, value in ipairs(values) do
+        values[index] = '"' .. value:gsub('\\', '\\\\'):gsub('"', '\\"') .. '"'
+    end
+    return "[" .. table.concat(values, ",") .. "]"
+end
+
 function TestProtocol.testProducerFixtureDecodesToReadyFOpening()
     local plan, errorMessage = protocol.decode(fixtures.decode())
     lu.assertNotNil(plan, errorMessage)
     lu.assertEquals(plan.kind, "ready")
     lu.assertEquals(plan.routeKey, "Underworld")
+    lu.assertEquals(plan.startingKeepsake.keepsakeKey, "ManaOverTimeRefundKeepsake")
+    lu.assertNil(plan.startingKeepsake.equipResults)
     lu.assertEquals(plan.rooms[1].gameName, "F_Opening01")
     lu.assertEquals(plan.rooms[1].contents.incomingReward.source, "ApolloUpgrade")
     lu.assertEquals(plan.rooms[1].outgoing.targets[1].index, 1)
@@ -119,6 +131,28 @@ function TestProtocol.testProducerFixtureDecodesFAndGPeerAndFixedTopology()
     lu.assertEquals(threeExitBatch.outgoing.targets[3].index, 3)
     lu.assertEquals(postboss.outgoing.kind, "fixed")
     lu.assertEquals(postboss.outgoing.target.gameName, "G_Intro")
+    lu.assertFalse(postboss.contents.stygianWell.interacted)
+    lu.assertNil(postboss.contents.stygianWell.offers)
+    lu.assertFalse(postboss.contents.purgingPool.interacted)
+    lu.assertNil(postboss.contents.purgingPool.traits)
+end
+
+function TestProtocol.testFeatureInteractionClosesRuntimeRandomAndAuthoredInventory()
+    local value = fixtures.decode()
+    local postboss
+    for _, room in ipairs(value.rooms) do
+        if room.gameName == "F_PostBoss01" then postboss = room; break end
+    end
+    lu.assertNotNil(postboss)
+    postboss.contents.stygianWell.interacted = true
+    lu.assertNil(protocol.decode(value))
+
+    value = fixtures.decode()
+    for _, room in ipairs(value.rooms) do
+        if room.gameName == "F_PostBoss01" then postboss = room; break end
+    end
+    postboss.contents.purgingPool.traits = setmetatable({}, { __json_array = true })
+    lu.assertNil(protocol.decode(value))
 end
 
 local function mutationRejected(mutate)
@@ -130,6 +164,13 @@ end
 
 function TestProtocol.testClosedShapeRejectsUnsupportedAndCoercedValues()
     mutationRejected(function(value) value.extra = true end)
+    mutationRejected(function(value) value.startingKeepsake = nil end)
+    mutationRejected(function(value) value.startingKeepsake.keepsakeKey = "" end)
+    mutationRejected(function(value)
+        value.startingKeepsake.equipResults = object({
+            experimentalHammer = object({ kind = "selected" }),
+        })
+    end)
     mutationRejected(function(value) value.protocolVersion = 1 end)
     mutationRejected(function(value) value.catalogVersion = "old-catalog" end)
     mutationRejected(function(value) value.rooms[1].outgoing.targets[1].index = "1" end)
@@ -222,6 +263,77 @@ function TestProtocol.testSemanticAddressClosureRejectsCrossRoomAndRoleMutations
     mutationRejected(function(value)
         value.rooms[1].trace[2].roles[1].settlement.entry = '["acquisitionEntry","Underworld","F","wrong-site","source"]'
     end)
+end
+
+local function generatedArtificerAcquisition()
+    local value = fixtures.decode()
+    local room = value.rooms[1]
+    local sourceOwner = room.trace[2].sourceOwner
+    local occurrence = semanticAddress("occurrence", "Underworld", "F", room.id)
+    local site = semanticAddress(
+        "acquisitionSite",
+        "Underworld",
+        "F",
+        occurrence,
+        "artificerSource:" .. sourceOwner
+    )
+    local entry = semanticAddress(
+        "acquisitionEntry",
+        "Underworld",
+        "F",
+        site,
+        "artificer:" .. sourceOwner .. ":self"
+    )
+    local step = object({
+        kind = "acquireReward",
+        owner = entry,
+        sourceOwner = entry,
+        reward = object({
+            rewardType = "Boon",
+            producerLifecycleKey = "RoomReward",
+            source = "ZeusUpgrade",
+        }),
+        producerLifecycleKey = "RoomReward",
+        roles = list({
+            object({
+                role = "source",
+                disposition = "normal",
+                producer = object({
+                    kind = "artificerReplacement",
+                    sourceOwner = sourceOwner,
+                    sourceRole = "self",
+                }),
+                lifecyclePoint = "roomRewardPickup",
+                kind = "consumable",
+                gameName = "RoomRewardConsolationPrize",
+                settlement = object({ site = site, entry = entry }),
+            }),
+        }),
+    })
+    table.insert(room.trace, 3, step)
+    return value, step, site
+end
+
+function TestProtocol.testGeneratedAcquisitionUsesItsSourceActionAsOwner()
+    local value, step, site = generatedArtificerAcquisition()
+    local plan, errorMessage = protocol.decode(value)
+    lu.assertNotNil(plan, errorMessage)
+    lu.assertEquals(plan.rooms[1].trace[3].owner, step.owner)
+    lu.assertEquals(plan.rooms[1].trace[3].roles[1].role, "source")
+
+    value, step = generatedArtificerAcquisition()
+    step.owner = step.roles[1].producer.sourceOwner
+    lu.assertNil(protocol.decode(value))
+
+    value, step, site = generatedArtificerAcquisition()
+    step.roles[1].settlement.entry = semanticAddress(
+        "acquisitionEntry",
+        "Underworld",
+        "F",
+        site,
+        "different-generated-entry"
+    )
+    lu.assertNil(protocol.decode(value))
 end
 
 function TestProtocol.testMalformedRunStateMapsReturnDecodeErrorsInsteadOfAsserting()

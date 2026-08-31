@@ -1,13 +1,14 @@
 -- Strict decoder for the current Run Planner execution-only protocol.
 -- This module accepts resolved facts, not project commands or game policy.
 
-local json = require("mods/json")
+local json = type(import) == "function" and import("mods/json.lua") or require("mods/json")
 local protocol = {}
 
 protocol.FORMAT = "run-planner-execution"
-protocol.VERSION = 7
-protocol.CATALOG_VERSION = "0.52.0-boss-preboss-variants"
+protocol.VERSION = 9
+protocol.CATALOG_VERSION = "0.53.0-chaos-return-batches"
 protocol.MAX_STRING = 512
+protocol.MAX_ADDRESS = 8192
 protocol.MAX_ROOMS = 256
 protocol.MAX_TRACE = 64
 protocol.MAX_TARGETS = 16
@@ -59,6 +60,13 @@ end
 local function stringValue(value, label, allowEmpty)
     if type(value) ~= "string" or (not allowEmpty and value == "") or #value > protocol.MAX_STRING then
         return fail(label .. " must be a bounded " .. (allowEmpty and "string" or "non-empty string"))
+    end
+    return value
+end
+
+local function addressValue(value, label)
+    if type(value) ~= "string" or value == "" or #value > protocol.MAX_ADDRESS then
+        return fail(label .. " must be a bounded non-empty address")
     end
     return value
 end
@@ -116,7 +124,7 @@ end
 -- Addresses are serialized semantic tuples.  They are safety references, not
 -- an invitation for the executor to reinterpret planner policy.
 local function addressParts(value, label)
-    local text, textError = stringValue(value, label)
+    local text, textError = addressValue(value, label)
     if not text then return nil, textError end
     local parsed, decodeError = json.decode(text)
     if parsed == nil or not json.isArray(parsed) or #parsed == 0 then
@@ -169,7 +177,7 @@ local function validateSiteAddress(value, context, label)
     if not parts then return nil, partsError end
     local base, baseError = exactAddressBase(parts, "acquisitionSite", 5, context, label)
     if not base then return nil, baseError end
-    local owner, ownerError = stringValue(parts[4], label .. " owner")
+    local owner, ownerError = addressValue(parts[4], label .. " owner")
     if not owner then return nil, ownerError end
     local ownerParts, ownerPartsError = addressParts(owner, label .. " owner")
     if not ownerParts then return nil, ownerPartsError end
@@ -205,18 +213,32 @@ local function validateAcquisitionSource(value, context, label)
         if not group then return nil, groupError end
         if not slot then return nil, slotError end
         return true
+    elseif kind == "rewardWheelOffer" then
+        local valid, validError = exactAddressBase(parts, kind, 6, context, label)
+        if not valid then return nil, validError end
+        if parts[4] ~= context.roomId then return fail(label .. " does not belong to this room") end
+        local wheel, wheelError = stringValue(parts[5], label .. " wheel")
+        local offer, offerError = stringValue(parts[6], label .. " offer")
+        if not wheel then return nil, wheelError end
+        if not offer then return nil, offerError end
+        return true
+    elseif kind == "shopOffer" then
+        local valid, validError = exactAddressBase(parts, kind, 5, context, label)
+        if not valid then return nil, validError end
+        if parts[4] ~= context.roomId then return fail(label .. " does not belong to this room") end
+        return stringValue(parts[5], label .. " offer")
     elseif kind == "encounterPhase" then
         return validateEncounterAddress(value, context, label)
     elseif kind == "gorgonPhase" then
         local valid, validError = exactAddressBase(parts, kind, 4, context, label)
         if not valid then return nil, validError end
-        local encounter, encounterError = stringValue(parts[4], label .. " encounter")
+        local encounter, encounterError = addressValue(parts[4], label .. " encounter")
         if not encounter then return nil, encounterError end
         return validateEncounterAddress(encounter, context, label .. " encounter")
     elseif kind == "acquisitionEntry" then
         local valid, validError = exactAddressBase(parts, kind, 5, context, label)
         if not valid then return nil, validError end
-        local site, siteError = stringValue(parts[4], label .. " site")
+        local site, siteError = addressValue(parts[4], label .. " site")
         if not site then return nil, siteError end
         local siteValid, siteValidError = validateSiteAddress(site, context, label .. " site")
         if not siteValid then return nil, siteValidError end
@@ -584,6 +606,46 @@ local function parseTraitOffer(value, label)
     return result
 end
 
+local function parseKeepsakeEquipResults(value, label)
+    local results, resultsError = keys(value, {}, { "jeweledPom", "experimentalHammer", "transcendentEmbryo" }, label)
+    if not results then return nil, resultsError end
+    local parsed = {}
+    if results.jeweledPom ~= nil then
+        local pom, pomError = keys(results.jeweledPom, { "traitKey" }, { "rarity" }, label .. ".jeweledPom")
+        if not pom then return nil, pomError end
+        local trait, traitError = stringValue(pom.traitKey, label .. ".jeweledPom.traitKey")
+        if not trait then return nil, traitError end
+        if pom.rarity ~= nil then
+            local rarity, rarityError = stringValue(pom.rarity, label .. ".jeweledPom.rarity")
+            if not rarity then return nil, rarityError end
+            parsed.jeweledPom = { traitKey = trait, rarity = rarity }
+        else parsed.jeweledPom = { traitKey = trait } end
+    end
+    if results.experimentalHammer ~= nil then
+        local hammer, hammerError = object(results.experimentalHammer, label .. ".experimentalHammer")
+        if not hammer then return nil, hammerError end
+        if hammer.kind == "selected" then
+            local checked, checkedError = keys(hammer, { "kind", "traitKey" }, nil, label .. ".experimentalHammer")
+            if not checked then return nil, checkedError end
+            local trait, traitError = stringValue(hammer.traitKey, label .. ".experimentalHammer.traitKey")
+            if not trait then return nil, traitError end
+            parsed.experimentalHammer = { kind = "selected", traitKey = trait }
+        elseif hammer.kind == "exhausted" then
+            local checked, checkedError = keys(hammer, { "kind" }, nil, label .. ".experimentalHammer")
+            if not checked then return nil, checkedError end
+            parsed.experimentalHammer = { kind = "exhausted" }
+        else return fail(label .. ".experimentalHammer.kind unsupported") end
+    end
+    if results.transcendentEmbryo ~= nil then
+        local embryo, embryoError = keys(results.transcendentEmbryo, { "blessingKey" }, nil, label .. ".transcendentEmbryo")
+        if not embryo then return nil, embryoError end
+        local blessing, blessingError = stringValue(embryo.blessingKey, label .. ".transcendentEmbryo.blessingKey")
+        if not blessing then return nil, blessingError end
+        parsed.transcendentEmbryo = { blessingKey = blessing }
+    end
+    return parsed
+end
+
 local function parseRole(value, label)
     local role, roleError = keys(value, { "role", "disposition", "lifecyclePoint", "kind", "gameName" }, { "settlement", "producer", "traitOffer", "levelResolution" }, label)
     if not role then return nil, roleError end
@@ -607,8 +669,8 @@ local function parseRole(value, label)
     if role.settlement ~= nil then
         local settlement, settlementError = keys(role.settlement, { "site", "entry" }, nil, label .. ".settlement")
         if not settlement then return nil, settlementError end
-        local site, siteError = stringValue(settlement.site, label .. ".settlement.site")
-        local entry, entryError = stringValue(settlement.entry, label .. ".settlement.entry")
+        local site, siteError = addressValue(settlement.site, label .. ".settlement.site")
+        local entry, entryError = addressValue(settlement.entry, label .. ".settlement.entry")
         if not site then return nil, siteError end
         if not entry then return nil, entryError end
         result.settlement = { site = site, entry = entry }
@@ -624,7 +686,7 @@ local function parseRole(value, label)
         if level.selectedTarget ~= nil and type(level.selectedTarget) ~= "string" then return fail(label .. ".levelResolution.selectedTarget invalid") end
         if level.selectedTarget ~= nil then
             local found = false; for _, target in ipairs(targets) do if target == level.selectedTarget then found = true end end
-            if not found then return fail(label .. ".levelResolution selected target was not offered") end
+            if #targets > 0 and not found then return fail(label .. ".levelResolution selected target was not offered") end
         end
         result.levelResolution = { offeredTargets = targets, selectedTarget = level.selectedTarget, levelCount = count }
     end
@@ -698,38 +760,48 @@ local function parseRoom(value, index, framing)
         end
     end
     if contents.stygianWell ~= nil then
-        local well, wellError = keys(contents.stygianWell, { "offers" }, nil, label .. ".contents.stygianWell")
+        local well, wellError = keys(contents.stygianWell, { "interacted" }, { "offers" }, label .. ".contents.stygianWell")
         if not well then return nil, wellError end
-        local offers, offersError = array(well.offers, label .. ".contents.stygianWell.offers", 4)
-        if not offers then return nil, offersError end
+        if type(well.interacted) ~= "boolean" then return fail(label .. ".contents.stygianWell.interacted must be boolean") end
+        if (well.interacted and well.offers == nil) or (not well.interacted and well.offers ~= nil) then return fail(label .. ".contents.stygianWell offers must exist exactly when interacted") end
         local allowed = { ["initial:healing"] = true, ["initial:secondLeft"] = true, ["initial:secondRight"] = true, ["travelDealRefill"] = true }
-        result.contents.stygianWell = { offers = {} }
-        local seen = {}
-        for offerIndex, valueOffer in ipairs(offers) do
-            local offer, offerError = keys(valueOffer, { "generationKey", "offerKey" }, { "twistResultKey" }, label .. ".contents.stygianWell.offers[" .. offerIndex .. "]")
-            if not offer then return nil, offerError end
-            if allowed[offer.generationKey] ~= true then return fail(label .. ".contents.stygianWell generation unsupported") end
-            local offerKey, offerKeyError = stringValue(offer.offerKey, label .. ".contents.stygianWell.offers[" .. offerIndex .. "].offerKey")
-            if not offerKey then return nil, offerKeyError end
-            if seen[offer.generationKey] then return fail(label .. ".contents.stygianWell has duplicate generations") end; seen[offer.generationKey] = true
-            local parsed = { generationKey = offer.generationKey, offerKey = offerKey }
-            if offer.twistResultKey ~= nil then local twist, twistError = stringValue(offer.twistResultKey, label .. ".contents.stygianWell.offers[" .. offerIndex .. "].twistResultKey"); if not twist then return nil, twistError end; parsed.twistResultKey = twist end
-            result.contents.stygianWell.offers[offerIndex] = parsed
+        result.contents.stygianWell = { interacted = well.interacted }
+        if well.interacted then
+            local offers, offersError = array(well.offers, label .. ".contents.stygianWell.offers", 4)
+            if not offers then return nil, offersError end
+            result.contents.stygianWell.offers = {}
+            local seen = {}
+            for offerIndex, valueOffer in ipairs(offers) do
+                local offer, offerError = keys(valueOffer, { "generationKey", "offerKey" }, { "twistResultKey" }, label .. ".contents.stygianWell.offers[" .. offerIndex .. "]")
+                if not offer then return nil, offerError end
+                if allowed[offer.generationKey] ~= true then return fail(label .. ".contents.stygianWell generation unsupported") end
+                local offerKey, offerKeyError = stringValue(offer.offerKey, label .. ".contents.stygianWell.offers[" .. offerIndex .. "].offerKey")
+                if not offerKey then return nil, offerKeyError end
+                if seen[offer.generationKey] then return fail(label .. ".contents.stygianWell has duplicate generations") end; seen[offer.generationKey] = true
+                local parsed = { generationKey = offer.generationKey, offerKey = offerKey }
+                if offer.twistResultKey ~= nil then local twist, twistError = stringValue(offer.twistResultKey, label .. ".contents.stygianWell.offers[" .. offerIndex .. "].twistResultKey"); if not twist then return nil, twistError end; parsed.twistResultKey = twist end
+                result.contents.stygianWell.offers[offerIndex] = parsed
+            end
         end
     end
     if contents.purgingPool ~= nil then
-        local pool, poolError = keys(contents.purgingPool, { "traits" }, nil, label .. ".contents.purgingPool")
+        local pool, poolError = keys(contents.purgingPool, { "interacted" }, { "traits" }, label .. ".contents.purgingPool")
         if not pool then return nil, poolError end
-        local traits = array(pool.traits, label .. ".contents.purgingPool.traits", 3)
-        if not traits or #traits ~= 3 then return fail(label .. ".contents.purgingPool requires three canonical slots") end
-        result.contents.purgingPool = { traits = {} }
-        local expectedSlots = { "left", "middle", "right" }
-        for traitIndex, valueTrait in ipairs(traits) do
-            local trait, traitError = keys(valueTrait, { "slotKey", "traitKey" }, nil, label .. ".contents.purgingPool.traits[" .. traitIndex .. "]")
-            if not trait then return nil, traitError end
-            if trait.slotKey ~= expectedSlots[traitIndex] then return fail(label .. ".contents.purgingPool slot order invalid") end
-            if trait.traitKey ~= nil and type(trait.traitKey) ~= "string" then return fail(label .. ".contents.purgingPool trait invalid") end
-            result.contents.purgingPool.traits[traitIndex] = { slotKey = trait.slotKey, traitKey = trait.traitKey }
+        if type(pool.interacted) ~= "boolean" then return fail(label .. ".contents.purgingPool.interacted must be boolean") end
+        if (pool.interacted and pool.traits == nil) or (not pool.interacted and pool.traits ~= nil) then return fail(label .. ".contents.purgingPool traits must exist exactly when interacted") end
+        result.contents.purgingPool = { interacted = pool.interacted }
+        if pool.interacted then
+            local traits = array(pool.traits, label .. ".contents.purgingPool.traits", 3)
+            if not traits or #traits ~= 3 then return fail(label .. ".contents.purgingPool requires three canonical slots") end
+            result.contents.purgingPool.traits = {}
+            local expectedSlots = { "left", "middle", "right" }
+            for traitIndex, valueTrait in ipairs(traits) do
+                local trait, traitError = keys(valueTrait, { "slotKey", "traitKey" }, nil, label .. ".contents.purgingPool.traits[" .. traitIndex .. "]")
+                if not trait then return nil, traitError end
+                if trait.slotKey ~= expectedSlots[traitIndex] then return fail(label .. ".contents.purgingPool slot order invalid") end
+                if trait.traitKey ~= nil and type(trait.traitKey) ~= "string" then return fail(label .. ".contents.purgingPool trait invalid") end
+                result.contents.purgingPool.traits[traitIndex] = { slotKey = trait.slotKey, traitKey = trait.traitKey }
+            end
         end
     end
     if contents.keepsakeRack ~= nil then
@@ -803,7 +875,7 @@ local function parseRoom(value, index, framing)
             if not frame then return nil, frameError end
             result.trace[traceIndex] = frame
         else
-        local owner, ownerError = stringValue(step.owner, label .. ".trace[" .. traceIndex .. "].owner")
+        local owner, ownerError = addressValue(step.owner, label .. ".trace[" .. traceIndex .. "].owner")
         if not owner then return nil, ownerError end
         local parsed = { kind = step.kind, owner = owner }
         if step.kind == "roomEntered" or step.kind == "beforeRoomExit" then
@@ -928,39 +1000,9 @@ local function parseRoom(value, index, framing)
             if result.contents.keepsakeRack == nil or result.contents.keepsakeRack.keepsakeKey ~= key then return fail(label .. ".trace rack target does not close contents") end
             parsed.keepsakeKey = key
             if step.equipResults ~= nil then
-                local results, resultsError = keys(step.equipResults, {}, { "jeweledPom", "experimentalHammer", "transcendentEmbryo" }, label .. ".trace rack results")
+                local results, resultsError = parseKeepsakeEquipResults(step.equipResults, label .. ".trace rack results")
                 if not results then return nil, resultsError end
-                parsed.equipResults = {}
-                if results.jeweledPom ~= nil then
-                    local pom, pomError = keys(results.jeweledPom, { "traitKey" }, { "rarity" }, label .. ".trace rack Pom")
-                    if not pom then return nil, pomError end
-                    local trait, traitError = stringValue(pom.traitKey, label .. ".trace rack Pom trait")
-                    if not trait then return nil, traitError end
-                    if pom.rarity ~= nil then
-                        local rarity, rarityError = stringValue(pom.rarity, label .. ".trace rack Pom rarity")
-                        if not rarity then return nil, rarityError end
-                        parsed.equipResults.jeweledPom = { traitKey = trait, rarity = rarity }
-                    else parsed.equipResults.jeweledPom = { traitKey = trait } end
-                end
-                if results.experimentalHammer ~= nil then
-                    local hammer, hammerError = object(results.experimentalHammer, label .. ".trace rack Hammer")
-                    if not hammer then return nil, hammerError end
-                    if hammer.kind == "selected" then
-                        local checkedHammer, checkedHammerError = keys(hammer, { "kind", "traitKey" }, nil, label .. ".trace rack Hammer")
-                        if not checkedHammer then return nil, checkedHammerError end
-                        local trait, traitError = stringValue(hammer.traitKey, label .. ".trace rack Hammer trait")
-                        if not trait then return nil, traitError end
-                        parsed.equipResults.experimentalHammer = { kind = "selected", traitKey = trait }
-                    elseif hammer.kind == "exhausted" then parsed.equipResults.experimentalHammer = { kind = "exhausted" }
-                    else return fail(label .. ".trace rack Hammer kind unsupported") end
-                end
-                if results.transcendentEmbryo ~= nil then
-                    local embryo, embryoError = keys(results.transcendentEmbryo, { "blessingKey" }, nil, label .. ".trace rack Embryo")
-                    if not embryo then return nil, embryoError end
-                    local blessing, blessingError = stringValue(embryo.blessingKey, label .. ".trace rack Embryo blessing")
-                    if not blessing then return nil, blessingError end
-                    parsed.equipResults.transcendentEmbryo = { blessingKey = blessing }
-                end
+                parsed.equipResults = results
             end
         elseif step.kind == "fountainUse" then
             local checked, checkedError = keys(step, { "kind", "owner" }, { "aromaticPhialTarget" }, label .. ".trace[" .. traceIndex .. "]")
@@ -972,18 +1014,28 @@ local function parseRoom(value, index, framing)
             local checked, checkedError = keys(step, { "kind", "owner", "sourceOwner", "reward", "producerLifecycleKey", "roles" }, nil, label .. ".trace[" .. traceIndex .. "]")
             if not checked then return nil, checkedError end
             local reward, rewardError = parseReward(step.reward, label .. ".trace reward")
-            local sourceOwner, sourceError = stringValue(step.sourceOwner, label .. ".trace sourceOwner")
+            local sourceOwner, sourceError = addressValue(step.sourceOwner, label .. ".trace sourceOwner")
             local producer, producerError = stringValue(step.producerLifecycleKey, label .. ".trace producerLifecycleKey")
             local roles, rolesError = array(step.roles, label .. ".trace roles", 16)
             if not reward then return nil, rewardError end; if not sourceOwner then return nil, sourceError end; if not producer then return nil, producerError end; if not roles then return nil, rolesError end
             if reward.producerLifecycleKey ~= producer then return fail(label .. ".trace acquisition provenance mismatch") end
             local sourceValid, sourceValidError = validateAcquisitionSource(sourceOwner, context, label .. ".trace sourceOwner")
             if not sourceValid then return nil, sourceValidError end
+            local sourceParts, sourcePartsError = addressParts(sourceOwner, label .. ".trace sourceOwner")
+            if not sourceParts then return nil, sourcePartsError end
             local actionParts, actionPartsError = addressParts(owner, label .. ".trace owner")
             if not actionParts then return nil, actionPartsError end
-            local actionValid, actionValidError = exactAddressBase(actionParts, "acquisitionRole", 5, context, label .. ".trace owner")
-            if not actionValid then return nil, actionValidError end
-            if actionParts[4] ~= sourceOwner then return fail(label .. ".trace acquisition owner source mismatch") end
+            local actionRole = nil
+            if actionParts[1] == "acquisitionRole" then
+                local actionValid, actionValidError = exactAddressBase(actionParts, "acquisitionRole", 5, context, label .. ".trace owner")
+                if not actionValid then return nil, actionValidError end
+                if actionParts[4] ~= sourceOwner then return fail(label .. ".trace acquisition owner source mismatch") end
+                actionRole = actionParts[5]
+            else
+                local actionValid, actionValidError = validateAcquisitionSource(owner, context, label .. ".trace owner")
+                if not actionValid then return nil, actionValidError end
+                if owner ~= sourceOwner then return fail(label .. ".trace owner does not identify its source action") end
+            end
             parsed.sourceOwner, parsed.reward, parsed.producerLifecycleKey, parsed.roles = sourceOwner, reward, producer, {}
             local identities = {}
             local actionRoleFound = false
@@ -993,7 +1045,7 @@ local function parseRoom(value, index, framing)
                 local identity = role.role .. "\0" .. role.lifecyclePoint
                 if identities[identity] then return fail(label .. ".trace roles duplicate") end
                 identities[identity] = true
-                if role.role == actionParts[5] then actionRoleFound = true end
+                if actionRole ~= nil and role.role == actionRole then actionRoleFound = true end
                 if role.settlement ~= nil then
                     local siteValid, siteError = validateSiteAddress(role.settlement.site, context, label .. ".trace settlement site")
                     if not siteValid then return nil, siteError end
@@ -1001,12 +1053,15 @@ local function parseRoom(value, index, framing)
                     if not entryParts then return nil, entryPartsError end
                     local entryValid, entryError = exactAddressBase(entryParts, "acquisitionEntry", 5, context, label .. ".trace settlement entry")
                     if not entryValid then return nil, entryError end
-                    if entryParts[4] ~= role.settlement.site or entryParts[5] ~= role.role then return fail(label .. ".trace settlement relation mismatch") end
+                    if entryParts[4] ~= role.settlement.site then return fail(label .. ".trace settlement entry does not match its site") end
+                    if sourceParts[1] == "acquisitionEntry" and role.settlement.entry ~= sourceOwner then
+                        return fail(label .. ".trace settlement entry does not match its source")
+                    end
                 end
                 parsed.roles[roleIndex] = role
             end
             if #parsed.roles == 0 then return fail(label .. ".trace roles cannot be empty") end
-            if not actionRoleFound then return fail(label .. ".trace acquisition owner role mismatch") end
+            if actionRole ~= nil and not actionRoleFound then return fail(label .. ".trace acquisition owner role mismatch") end
         else return fail(label .. ".trace kind unsupported") end
         result.trace[traceIndex] = parsed
         end
@@ -1120,12 +1175,21 @@ local function parseRoom(value, index, framing)
 end
 
 function protocol.decode(value)
-    local record, errorMessage = keys(value, { "format", "protocolVersion", "catalogVersion", "projectId", "planFingerprint", "routeKey", "extent", "rooms" }, nil, "execution plan")
+    local record, errorMessage = keys(value, { "format", "protocolVersion", "catalogVersion", "projectId", "planFingerprint", "routeKey", "startingKeepsake", "extent", "rooms" }, nil, "execution plan")
     if not record then return nil, errorMessage end
     if record.format ~= protocol.FORMAT then return fail("unsupported execution plan format") end
     if record.protocolVersion ~= protocol.VERSION then return fail("unsupported execution protocol version") end
     if record.catalogVersion ~= protocol.CATALOG_VERSION then return fail("unsupported execution catalog version") end
     if record.routeKey ~= "Underworld" then return fail("unsupported execution route") end
+    local startingKeepsake, startingError = keys(record.startingKeepsake, { "keepsakeKey" }, { "equipResults" }, "startingKeepsake")
+    if not startingKeepsake then return nil, startingError end
+    local startingKeepsakeKey, startingKeyError = stringValue(startingKeepsake.keepsakeKey, "startingKeepsake.keepsakeKey")
+    if not startingKeepsakeKey then return nil, startingKeyError end
+    local startingResults
+    if startingKeepsake.equipResults ~= nil then
+        startingResults, startingError = parseKeepsakeEquipResults(startingKeepsake.equipResults, "startingKeepsake.equipResults")
+        if not startingResults then return nil, startingError end
+    end
     local projectId, projectError = stringValue(record.projectId, "projectId")
     local fingerprint, fingerprintError = stringValue(record.planFingerprint, "planFingerprint")
     if not projectId then return nil, projectError end
@@ -1201,7 +1265,7 @@ function protocol.decode(value)
             end
         end
     end
-    return { kind = "ready", format = protocol.FORMAT, protocolVersion = protocol.VERSION, catalogVersion = record.catalogVersion, projectId = projectId, planFingerprint = fingerprint, routeKey = "Underworld", extent = { kind = "configuredPrefix", biomeKeys = biomeKeys, terminalBiomeKey = extent.terminalBiomeKey }, rooms = resultRooms }
+    return { kind = "ready", format = protocol.FORMAT, protocolVersion = protocol.VERSION, catalogVersion = record.catalogVersion, projectId = projectId, planFingerprint = fingerprint, routeKey = "Underworld", startingKeepsake = { keepsakeKey = startingKeepsakeKey, equipResults = startingResults }, extent = { kind = "configuredPrefix", biomeKeys = biomeKeys, terminalBiomeKey = extent.terminalBiomeKey }, rooms = resultRooms }
 end
 
 return protocol

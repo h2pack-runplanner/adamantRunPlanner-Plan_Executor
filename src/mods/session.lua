@@ -5,7 +5,7 @@
 -- their vanilla seams, then records the first mismatch without repairing the
 -- run or finding a replacement instruction.
 
-local chaosAdapter = require("mods/chaos")
+local chaosAdapter = type(import) == "function" and import("mods/chaos.lua") or require("mods/chaos")
 local session = {}
 session.CACHE_NAME = "ExecutionSession"
 session.BIOME_ROUTE = { F = "Underworld", G = "Underworld" }
@@ -14,6 +14,13 @@ local nextTrace
 local plannedRoleFor
 local consumeTraceStep
 local mismatch
+local currentRoomContact
+
+-- The planner's audited fully progressed MetaProgress bag is a 13-entry
+-- projection of the game's raw 19-entry table.  Six mutually exclusive
+-- lower-progression late entries remain physically present in each native
+-- store set but are not members of the planner bag.
+local BAG_RAW_EXTRA_PER_SET = { MetaProgress = 6 }
 
 local function newState()
     return {
@@ -21,6 +28,12 @@ local function newState()
         plan = nil, roomsById = {}, currentRoomId = nil, generation = nil,
         firstMismatch = nil, roomObserved = false, rewardObserved = false,
         diagnostics = {}, pendingExit = nil,
+        -- Native CreateRoom selects the room reward before the returned room
+        -- becomes CurrentRun.CurrentRoom.  This scoped occurrence identity is
+        -- only a construction-time bridge; entered-room contacts still require
+        -- the persisted marker on the realized room.
+        roomCreationId = nil,
+        bagProjectionOffsets = { MetaProgress = BAG_RAW_EXTRA_PER_SET.MetaProgress },
         expectedRunState = nil, expectedRunStateFrame = nil,
         expectedRunStateCheckpoint = nil,
         encounterPhase = nil,
@@ -108,7 +121,7 @@ function session.prepareInventoryGeneration(state, args, refillOnly)
         for _, offer in ipairs(shop.offers or {}) do if offer.source ~= nil then sources[#sources + 1] = offer.source end end
         return { kind = "handled", family = "worldShop", shop = shop, args = inventoryArgs(args, storeData), sources = sources }
     end
-    if well ~= nil then
+    if well ~= nil and well.interacted == true then
         local initial = {}
         for _, offer in ipairs(well.offers or {}) do
             if offer.generationKey ~= "travelDealRefill" then initial[offer.generationKey] = offer end
@@ -213,7 +226,7 @@ function session.applyPurgingPoolInventory(state, currentRoom)
     local pool = room and room.contents and room.contents.purgingPool or nil
     -- OpenSellTraitMenu returns nil.  Its native contract is to populate the
     -- current room's SellOptions before it constructs the screen.
-    if pool == nil or type(currentRoom) ~= "table" or type(currentRoom.SellOptions) ~= "table" then return { kind = "passThrough" } end
+    if pool == nil or pool.interacted ~= true or type(currentRoom) ~= "table" or type(currentRoom.SellOptions) ~= "table" then return { kind = "passThrough" } end
     local available, selected = {}, {}
     for _, option in pairs(currentRoom.SellOptions) do if type(option) == "table" then available[option.Name] = option end end
     for _, slot in ipairs(pool.traits or {}) do
@@ -645,7 +658,20 @@ function session.chooseStartingRoom(state, _currentRun, args, game)
         mismatch(state, "starting-room", { kind = "CreateRoom", key = expected.gameName }, { kind = "CreateRoom", key = nil })
         return nil
     end
-    return createRoom(data, args)
+    local priorCreationId = state.roomCreationId
+    state.roomCreationId = expected.id
+    local ok, room = pcall(createRoom, data, args)
+    state.roomCreationId = priorCreationId
+    if not ok then error(room, 0) end
+    if type(room) == "table" and room.__runPlannerExecutionRoomId == nil
+        and roomName(room) == expected.gameName then
+        room.__runPlannerExecutionRoomId = expected.id
+        room.__runPlannerExecutionPlanFingerprint = state.plan.planFingerprint
+        room.__runPlannerExecutionOwner = expected.owner
+        room.__runPlannerExecutionKind = expected.kind
+        room.__runPlannerExecutionStartingRoom = true
+    end
+    return room
 end
 
 local function selectedTarget(outgoing)
@@ -731,7 +757,92 @@ local function generatedAll(state, outgoing)
     return true
 end
 
-local function generatedTargetContact(state, room)
+local function expectedExitContact(outgoing, roomId)
+    for _, target in ipairs(outgoing.targets or {}) do
+        if target.room.id == roomId then
+            return target, target.type
+        end
+    end
+    for _, additional in ipairs(outgoing.additional or {}) do
+        if additional.room.id == roomId then
+            local exitType = additional.kind == "chaos" and "ChaosExitDoor"
+                or (additional.kind == "zagreusContract" and "ZagContract" or nil)
+            return additional, exitType
+        end
+    end
+    return nil, nil
+end
+
+local function physicalExitTypeMatches(expectedType, observedType)
+    if expectedType == "ChaosReturnExitDoor" then return observedType == "SecretExitDoor" end
+    if expectedType == "ChaosExitDoor" then return observedType == "SecretDoor" end
+    if expectedType == "AnomalyAutoExitDoor" then return true end
+    return expectedType == observedType
+end
+
+local function exitRewardMatches(expected, observed)
+    local reward = expected and expected.contents and expected.contents.incomingReward or nil
+    if reward == nil then return true end
+    if rewardName(observed and observed.ChosenRewardType) ~= reward.rewardType then return false end
+    if reward.source ~= nil and observed.ForceLootName ~= reward.source then return false end
+    return true
+end
+
+-- DoUnlockRoomExits is one stable conformance boundary. Generation adapters
+-- may be contacted several times while vanilla constructs a batch; compare the
+-- completed physical product once instead of turning every native call into a
+-- separate diagnostic checkpoint.
+function session.observeExitsReady(state, currentRun, room, offeredExitDoors)
+    if state.state ~= "synchronized" then return end
+    local matched, expected = currentRoomContact(state, currentRun, room)
+    if not matched then
+        mismatch(state, "exits-ready", { kind = "room", key = expected and expected.id },
+            { kind = "room", key = roomName(room) })
+        return
+    end
+    local outgoing = expected.outgoing
+    if outgoing.kind ~= "batch" then return end
+    local expectedCount = #(outgoing.targets or {}) + #(outgoing.additional or {})
+    if type(offeredExitDoors) ~= "table" or #offeredExitDoors ~= expectedCount then
+        mismatch(state, "exits-ready", { kind = "exitCount", key = expectedCount },
+            { kind = "exitCount", key = type(offeredExitDoors) == "table" and #offeredExitDoors or nil }, false)
+        return
+    end
+    local observedIds = {}
+    for _, door in ipairs(offeredExitDoors) do
+        local generatedRoom = type(door) == "table" and door.Room or nil
+        local roomId = type(generatedRoom) == "table" and generatedRoom.__runPlannerExecutionRoomId or nil
+        local contact, exitType = expectedExitContact(outgoing, roomId)
+        local target = roomId and state.roomsById[roomId] or nil
+        if contact == nil or target == nil or observedIds[roomId]
+            or roomName(generatedRoom) ~= target.gameName then
+            mismatch(state, "exits-ready", { kind = "target", key = roomId },
+                { kind = "target", key = roomName(generatedRoom) }, false)
+            return
+        end
+        observedIds[roomId] = true
+        local observedType = door.Name
+        if exitType ~= nil and not physicalExitTypeMatches(exitType, observedType) then
+            mismatch(state, "exits-ready", { kind = "exitType", key = exitType },
+                { kind = "exitType", key = observedType }, false)
+            return
+        end
+        if not exitRewardMatches(target, generatedRoom) then
+            local reward = target.contents and target.contents.incomingReward or nil
+            mismatch(state, "exits-ready", { kind = "reward", key = reward and reward.rewardType },
+                { kind = "reward", key = rewardName(generatedRoom.ChosenRewardType) }, false)
+            return
+        end
+    end
+    if not generatedAll(state, outgoing) then
+        mismatch(state, "exits-ready", { kind = "generatedBatch", key = outgoing.owner },
+            { kind = "generatedBatch", key = nil }, false)
+        return
+    end
+    state.diagnostics.exitsReady = true
+end
+
+local function generatedContinuationContact(state, room)
     local expected = expectedRoom(state)
     if expected == nil or expected.outgoing.kind ~= "batch" or state.generation == nil then return nil end
     if state.generation.owner ~= expected.outgoing.owner then return nil end
@@ -745,20 +856,60 @@ local function generatedTargetContact(state, room)
             return nil
         end
     end
+    for _, additional in ipairs(expected.outgoing.additional or {}) do
+        if additional.room.id == marker and state.generation.additional ~= nil
+            and state.generation.additional[additional.key] then
+            if roomName(room) == additional.room.gameName then
+                return state.roomsById[additional.room.id]
+            end
+            return nil
+        end
+    end
     return nil
 end
 
-local function currentRoomContact(state, currentRun, room)
+currentRoomContact = function(state, currentRun, room)
     local expected = expectedRoom(state)
     local observed = room or (currentRun and currentRun.CurrentRoom)
     if expected == nil then return false, nil, observed end
-    local generated = room ~= nil and generatedTargetContact(state, room) or nil
+    local generated = room ~= nil and generatedContinuationContact(state, room) or nil
     if generated ~= nil then return true, generated, observed end
+    -- CreateRoom calls ChooseRoomReward before its result can become the live
+    -- CurrentRoom.  The starting-room creator scopes that native call to one
+    -- frozen occurrence.  Use it only when the copied room lost its marker;
+    -- an explicit conflicting marker remains a real mismatch.
+    local creation = state.roomCreationId and state.roomsById[state.roomCreationId] or nil
+    if room ~= nil and creation ~= nil
+        and type(observed) == "table" and observed.__runPlannerExecutionRoomId == nil
+        and roomName(observed) == creation.gameName then
+        return true, creation, observed
+    end
     if type(observed) == "table" and observed.__runPlannerExecutionRoomId ~= nil
         and observed.__runPlannerExecutionRoomId ~= expected.id then
         return false, expected, observed
     end
     return roomIsExpected(state, observed), expected, observed
+end
+
+-- Well presence is a compiled room fact. IsWellShopEligible is contacted both
+-- while vanilla prepares its inventory and while HandleSecretSpawns installs
+-- the physical object, so both calls must read the same planner-owned value.
+-- Nil means this is unrelated vanilla construction and must pass through.
+function session.plannedStygianWellPresence(state, currentRun, room)
+    if state.state ~= "synchronized" then return nil end
+    local matched, expected = currentRoomContact(state, currentRun, room)
+    if not matched then return nil end
+    return expected.contents and expected.contents.stygianWell ~= nil or false
+end
+
+function session.verifyStygianWellPresence(state, currentRun, room)
+    local expected = session.plannedStygianWellPresence(state, currentRun, room)
+    if expected == nil then return end
+    local observed = type(room) == "table" and type(room.WellShop) == "table"
+    if observed ~= expected then
+        mismatch(state, "room-features", { kind = "stygianWell", key = expected },
+            { kind = "stygianWell", key = observed }, false)
+    end
 end
 
 function session.chooseNextRoomData(state, currentRun, args, otherDoors, game)
@@ -857,10 +1008,6 @@ function session.chooseNextRoomData(state, currentRun, args, otherDoors, game)
             return { kind = "failed" }
         end
         if not state.generation.generated[target.index] then
-            if target.type ~= "" and door.Name ~= nil and door.Name ~= target.type then
-                mismatch(state, "door-generation", { kind = "door", key = target.type }, { kind = "door", key = door.Name })
-                return { kind = "failed" }
-            end
             targetToGenerate = target
             break
         end
@@ -990,8 +1137,10 @@ local function nemesisResolution(state)
     return step, step.resolution.outcome
 end
 
-function session.nemesisTextLines(state, source, textLineSets)
-    if state.state ~= "synchronized" or type(source) ~= "table" or type(textLineSets) ~= "table" then return textLineSets end
+function session.nemesisInteractTextLineSets(state, source, textLineSets)
+    if state == nil or state.state ~= "synchronized" or type(source) ~= "table" or type(textLineSets) ~= "table" then
+        return textLineSets
+    end
     local _, outcome = nemesisResolution(state)
     if outcome == nil then return textLineSets end
     local name = source.Name or source.NPCVariantData
@@ -1164,6 +1313,47 @@ function session.prepareTraitOfferOption(state, itemIndex, itemData)
     return { kind = "handled" }
 end
 
+-- TrialUpgrade remains the authority for the two unselected blessing rolls.
+-- Reserve the one engine-authored blessing before presentation without
+-- fabricating either peer or allowing the native roll to duplicate it.
+function session.reserveChaosSelectedBlessing(state, lootData)
+    if state.state ~= "synchronized" then return { kind = "passThrough" } end
+    local pending = state.pendingAcquisition
+    local offer = pending and pending.role and pending.role.traitOffer or nil
+    if offer == nil or offer.kind ~= "chaos" then return { kind = "passThrough" } end
+    local selectedIndex = tonumber(offer.selected and offer.selected:sub(7))
+    local options = type(lootData) == "table" and lootData.UpgradeOptions or nil
+    local expectedCount = #(offer.curseOptions or {})
+    if type(options) ~= "table" or #options ~= expectedCount or selectedIndex == nil or type(options[selectedIndex]) ~= "table" then
+        mismatch(state, "chaos-offer", { kind = "nativePairs", key = expectedCount }, { kind = "nativePairs", key = type(options) == "table" and #options or nil })
+        return { kind = "failed" }
+    end
+    local selected = options[selectedIndex]
+    local generatedIndex = nil
+    for index, option in ipairs(options) do
+        if type(option) == "table" and option.ItemName == offer.blessingKey then
+            generatedIndex = index
+            break
+        end
+    end
+    if generatedIndex ~= nil and generatedIndex ~= selectedIndex then
+        local generated = options[generatedIndex]
+        selected.ItemName, generated.ItemName = generated.ItemName, selected.ItemName
+        selected.Rarity, generated.Rarity = generated.Rarity, selected.Rarity
+    elseif generatedIndex == nil then
+        selected.ItemName = offer.blessingKey
+    end
+    local seen = {}
+    for _, option in ipairs(options) do
+        if type(option) ~= "table" or type(option.ItemName) ~= "string" or seen[option.ItemName] then
+            mismatch(state, "chaos-offer", { kind = "distinctBlessings", key = true }, { kind = "distinctBlessings", key = false })
+            return { kind = "failed" }
+        end
+        seen[option.ItemName] = true
+    end
+    return { kind = "handled" }
+end
+
 function session.applyProcessedChaosCurse(data, context)
     data.RemainingUses = context.requirementCount
     if context.curseValues == nil then return data end
@@ -1316,12 +1506,62 @@ plannedRoleFor = function(state, itemName)
     return action, nil
 end
 
+local function applyTraitOfferOptions(offer, lootData)
+    if offer.kind == "fallbackGold" then
+        lootData.UpgradeOptions = { { ItemName = "FallbackGold", Rarity = "Common" } }
+        return true
+    end
+    if offer.kind ~= "traits" then return false end
+    lootData.UpgradeOptions = {}
+    for index, option in ipairs(offer.options) do
+        local item = { ItemName = option.key, Rarity = option.rarity, StackNum = option.effectiveLevel }
+        if option.replacement then
+            item.TraitToReplace, item.OldRarity = option.replacement.replacedTraitKey, option.replacement.oldRarity
+        end
+        lootData.UpgradeOptions[index] = item
+    end
+    return true
+end
+
+-- Pickup presentation can replace UpgradeOptions after UseLoot begins (for
+-- example through a forced narrative table). Reapply the same planner-owned
+-- ordinary offer at the final whole-screen seam before native sorting.
+function session.prepareTraitOfferScreen(state, lootData)
+    if state.state ~= "synchronized" or type(lootData) ~= "table" then return { kind = "passThrough" } end
+    local pending = state.pendingAcquisition
+    local action, role = pending and pending.action or nextTrace(state), pending and pending.role or nil
+    if role == nil and action ~= nil and action.kind == "acquireReward" then
+        for _, candidate in ipairs(action.roles or {}) do
+            if candidate.traitOffer ~= nil then role = candidate; break end
+        end
+    end
+    if role == nil or role.traitOffer == nil or not applyTraitOfferOptions(role.traitOffer, lootData) then
+        return { kind = "passThrough" }
+    end
+    state.pendingAcquisition = pending or {
+        action = action,
+        role = role,
+        selected = role.traitOffer.selected,
+    }
+    return { kind = "handled" }
+end
+
 -- UseLoot is the common natural acquisition seam for Boons, Devotions,
 -- Hammers and Poms. Resource-cost loot belongs to Gate D and passes through.
+local function hasPositiveResourceCost(resourceCosts)
+    if type(resourceCosts) ~= "table" then return false end
+    for _, amount in pairs(resourceCosts) do
+        if type(amount) == "number" and amount > 0 then return true end
+    end
+    return false
+end
+
 function session.prepareLootUse(state, usee)
     if state.state ~= "synchronized" then return { kind = "passThrough" } end
     if type(usee) ~= "table" then return { kind = "passThrough" } end
-    if usee.ResourceCosts ~= nil and usee.IgnorePurchase ~= true then return { kind = "passThrough" } end
+    if hasPositiveResourceCost(usee.ResourceCosts) and usee.IgnorePurchase ~= true then
+        return { kind = "passThrough" }
+    end
     local action, role = plannedRoleFor(state, usee.Name)
     -- Field Artemis opens the normal upgrade screen immediately after the
     -- encounter interaction.  Its selected offer is not a synthetic reward:
@@ -1340,20 +1580,13 @@ function session.prepareLootUse(state, usee)
     end
     if role.traitOffer then
         local offer = role.traitOffer
-        if offer.kind == "fallbackGold" then
-            usee.UpgradeOptions = { { ItemName = "FallbackGold", Rarity = "Common" } }
-        elseif offer.kind == "chaos" then
+        if offer.kind == "chaos" then
             -- TrialUpgrade owns construction of all three transforming pairs.
             -- Do not fabricate ordinary options here: each native pair reaches
             -- CreateUpgradeChoiceButton and is constrained there.
             usee.UpgradeOptions = nil
         else
-            usee.UpgradeOptions = {}
-            for index, option in ipairs(offer.options) do
-                local item = { ItemName = option.key, Rarity = option.rarity, StackNum = option.effectiveLevel }
-                if option.replacement then item.TraitToReplace, item.OldRarity = option.replacement.replacedTraitKey, option.replacement.oldRarity end
-                usee.UpgradeOptions[index] = item
-            end
+            applyTraitOfferOptions(offer, usee)
         end
         state.pendingAcquisition = { action = action, role = role, selected = offer.selected }
     elseif role.levelResolution then
@@ -1495,6 +1728,13 @@ function session.chooseRoomRewardFor(state, reward, currentRun, room, game, base
     if state.state ~= "synchronized" then return { kind = "passThrough" } end
     local matched, expected, observed = currentRoomContact(state, currentRun, room)
     if not matched then
+        -- Vanilla may construct or restore rewards for rooms outside the
+        -- currently generated batch. Ordinary ChooseRoomReward contacts are
+        -- realization seams, not conformance checkpoints: leave unrelated
+        -- rooms untouched and compare the completed batch at exits-ready.
+        -- An explicit reward is a pending semantic result (for example an
+        -- Artificer child) and must still remain bound to its owning room.
+        if reward == nil then return { kind = "passThrough" } end
         mismatch(state, "reward", { kind = "room", key = expected and expected.id }, { kind = "room", key = roomName(observed) })
         return { kind = "failed" }
     end
@@ -1512,10 +1752,22 @@ function session.chooseRoomRewardFor(state, reward, currentRun, room, game, base
     end
     local priorities = currentRun and currentRun.RewardPriorities
     local prior = type(priorities) == "table" and copyArray(priorities) or nil
+    local store = currentRun and currentRun.RewardStores and currentRun.RewardStores[rewardStoreName]
+    local rawCountBefore = type(store) == "table" and #store or nil
     if prior ~= nil then table.insert(priorities, 1, reward.rewardType) end
     local ok, actual = pcall(base, currentRun, room, rewardStoreName, previouslyChosenRewards, args)
     if prior ~= nil then restoreArray(priorities, prior) end
     if not ok then error(actual, 0) end
+    local rawCountAfter = type(store) == "table" and #store or nil
+    local rawExtra = BAG_RAW_EXTRA_PER_SET[rewardStoreName]
+    if rawExtra ~= nil and rawCountBefore ~= nil and rawCountAfter ~= nil
+        and rawCountAfter > rawCountBefore then
+        -- ChooseRoomReward refills by appending one complete raw store before
+        -- recursively choosing an entry.  Its six non-projected Meta entries
+        -- therefore add one more fixed observation offset.
+        state.bagProjectionOffsets[rewardStoreName] =
+            (state.bagProjectionOffsets[rewardStoreName] or 0) + rawExtra
+    end
     if rewardName(actual) ~= reward.rewardType then
         mismatch(state, "reward-selected", { kind = "reward", key = reward.rewardType }, { kind = "reward", key = rewardName(actual) }, false)
         return { kind = "failed", value = actual }
@@ -1538,12 +1790,11 @@ end
 -- normal Boon/Devotion setup path receives the frozen source pair.
 function session.prepareRewardSource(state, currentRun, room)
     if state.state ~= "synchronized" then return { kind = "passThrough" } end
-    local matched, expected, observed = currentRoomContact(state, currentRun, room)
-    if not matched then
-        mismatch(state, "reward-source", { kind = "room", key = expected and expected.id },
-            { kind = "room", key = roomName(observed) })
-        return { kind = "failed" }
-    end
+    local matched, expected = currentRoomContact(state, currentRun, room)
+    -- SetupRoomReward shares the same construction noise as ChooseRoomReward.
+    -- Only a planner-owned room receives a forced source here; exits-ready or
+    -- room-entry diagnostics own any later conformance decision.
+    if not matched then return { kind = "passThrough" } end
     local reward = expectedReward(expected)
     if reward == nil or reward.source == nil then return { kind = "passThrough" } end
     if type(room) == "table" then
@@ -1604,12 +1855,12 @@ local function liveCounter(currentRun, field)
     return gameField == nil and nil or currentRun[gameField]
 end
 
-local function liveBag(currentRun, storeKey)
+local function liveBag(state, currentRun, storeKey)
     if type(currentRun) ~= "table" then return nil end
     if type(currentRun.RewardStores) ~= "table" then return nil end
     local store = currentRun.RewardStores[storeKey]
     if type(store) ~= "table" then return nil end
-    return #store
+    return #store - (state.bagProjectionOffsets[storeKey] or 0)
 end
 
 local function sameArray(expected, observed, key)
@@ -1639,6 +1890,29 @@ local function keysOfEnabled(values)
     local result = {}
     for key, enabled in pairs(values) do if enabled then result[#result + 1] = key end end
     return result
+end
+
+local function positiveCounts(values)
+    if type(values) ~= "table" then return nil end
+    local result = {}
+    for key, count in pairs(values) do
+        if type(count) ~= "number" then return nil end
+        if count > 0 then result[key] = count end
+    end
+    return result
+end
+
+local function isPlannerTrackedTrait(trait, key)
+    local declaration = type(_G.TraitData) == "table" and _G.TraitData[key] or nil
+    local function field(name)
+        if type(trait) == "table" and trait[name] ~= nil then return trait[name] end
+        return type(declaration) == "table" and declaration[name] or nil
+    end
+    local slot = field("Slot")
+    if slot == "Keepsake" or slot == "Aspect" or slot == "Familiar" then return false end
+    if field("MetaUpgrade") == true or field("FamiliarTrait") == true then return false end
+    if field("Hidden") == true or field("HideInRunHistory") == true then return false end
+    return true
 end
 
 local function liveArcana(currentRun)
@@ -1673,7 +1947,7 @@ local function liveDiagnostic(currentRun, diagnostic)
         local key = type(trait) == "table" and traitKey(trait) or nil
         local isChaosState = type(key) == "string"
             and (key:match("^Chaos.*Curse$") or key:match("^Chaos.*Blessing$"))
-        if type(trait) == "table" and not isChaosState then
+        if type(trait) == "table" and not isChaosState and isPlannerTrackedTrait(trait, key) then
             equipped[#equipped + 1] = {
                 traitKey = key, rarity = trait.Rarity,
                 level = trait.StackNum,
@@ -1732,7 +2006,9 @@ local function liveDiagnostic(currentRun, diagnostic)
         },
         traits = {
             equipped = equipped, slots = slots, elements = hero.Elements,
-            godRarityCounts = hero.GodBoonRarities,
+            -- The game eagerly allocates every rarity at zero; the planner
+            -- retains the same counts as a sparse map.
+            godRarityCounts = positiveCounts(hero.GodBoonRarities),
             upgradableCount = hero.UpgradableTraitCount,
             bannedTraitKeys = keysOfEnabled(currentRun.BannedTraits),
         },
@@ -1752,24 +2028,27 @@ end
 local function liveGateDDiagnostic(currentRun, diagnostic)
     local gameState = _G.GameState
     local hero = type(currentRun) == "table" and currentRun.Hero or nil
-    if type(gameState) ~= "table" or type(hero) ~= "table"
-        or type(currentRun.KeepsakeCache) ~= "table"
-        or type(currentRun.BlockedKeepsakes) ~= "table"
-        or type(gameState.LastAwardTrait) ~= "string"
-        or type(gameState.FatedStatus) ~= "string"
-        or type(currentRun.NumTalentPoints) ~= "number" then return nil end
+    if type(gameState) ~= "table" then return nil, "GameState" end
+    if type(hero) ~= "table" then return nil, "CurrentRun.Hero" end
+    if type(currentRun.KeepsakeCache) ~= "table" then return nil, "CurrentRun.KeepsakeCache" end
+    if type(currentRun.BlockedKeepsakes) ~= "table" then return nil, "CurrentRun.BlockedKeepsakes" end
+    if type(gameState.LastAwardTrait) ~= "string" then return nil, "GameState.LastAwardTrait" end
+    if type(gameState.FatedStatus) ~= "string" then return nil, "GameState.FatedStatus" end
+    if type(currentRun.NumTalentPoints) ~= "number" then return nil, "CurrentRun.NumTalentPoints" end
     local spell = hero.SlottedSpell
-    if spell ~= nil and type(spell) ~= "table" then return nil end
+    if spell ~= nil and type(spell) ~= "table" then return nil, "CurrentRun.Hero.SlottedSpell" end
     -- Native opening runs allocate only NumTalentPoints. The remaining Hex
     -- fields first exist when the spell/talent system touches them, so absent
     -- values have their documented zero/false meaning while no spell is held.
     if spell ~= nil and (type(currentRun.InvestedTalentPoints) ~= "number"
-        or type(currentRun.AllSpellInvestedCache) ~= "boolean") then return nil end
+        or type(currentRun.AllSpellInvestedCache) ~= "boolean") then
+        return nil, "CurrentRun spell progress"
+    end
     local invested, closed = currentRun.InvestedTalentPoints, currentRun.AllSpellInvestedCache
     if spell == nil and invested == nil then invested = 0 end
     if spell == nil and closed == nil then closed = false end
     local talents = spell and spell.Talents or {}
-    if type(talents) ~= "table" then return nil end
+    if type(talents) ~= "table" then return nil, "CurrentRun.Hero.SlottedSpell.Talents" end
     local talentKeys = {}
     local function collectTalents(node)
         if type(node) ~= "table" then return end
@@ -1800,10 +2079,13 @@ local function liveGateDDiagnostic(currentRun, diagnostic)
     }
     if diagnostic.artificer ~= nil then
         local trait = callLive("GetHeroTrait", "MetaToRunMetaUpgrade")
-        if type(trait) ~= "table" or type(trait.MetaConversionUses) ~= "number"
-            or type(currentRun.MetaConversionUses) ~= "number" then return nil end
+        if type(trait) ~= "table" or type(trait.MetaConversionUses) ~= "number" then
+            return nil, "MetaToRunMetaUpgrade.MetaConversionUses"
+        end
         live.artificer = {
-            usedCount = currentRun.MetaConversionUses,
+            -- The native run field is allocated on first use. Its absence before
+            -- then is the game's canonical representation of zero uses.
+            usedCount = currentRun.MetaConversionUses or 0,
             remainingCount = trait.MetaConversionUses,
         }
     end
@@ -1825,12 +2107,64 @@ local function sameStringSet(expected, observed)
     return equalMap(expectedSet, observedSet)
 end
 
+local function gateDComparison(expected, observed)
+    if observed.keepsakes.currentKey ~= expected.keepsakes.currentKey then
+        return "keepsakes.currentKey", expected.keepsakes.currentKey, observed.keepsakes.currentKey
+    end
+    if not sameArray(expected.keepsakes.usedKeys, observed.keepsakes.usedKeys, tostring) then
+        return "keepsakes.usedKeys", expected.keepsakes.usedKeys, observed.keepsakes.usedKeys
+    end
+    if not sameArray(expected.keepsakes.blockedKeys, observed.keepsakes.blockedKeys, tostring) then
+        return "keepsakes.blockedKeys", expected.keepsakes.blockedKeys, observed.keepsakes.blockedKeys
+    end
+    if observed.keepsakes.fatedStatus ~= expected.keepsakes.fatedStatus then
+        return "keepsakes.fatedStatus", expected.keepsakes.fatedStatus, observed.keepsakes.fatedStatus
+    end
+    for _, field in ipairs({ "spellTraitKey", "layoutKey", "closed", "bankedPathPoints", "investedPathPoints" }) do
+        if observed.hexProgress[field] ~= expected.hexProgress[field] then
+            return "hexProgress." .. field, expected.hexProgress[field], observed.hexProgress[field]
+        end
+    end
+    if not sameStringSet(expected.hexProgress.talentKeys, observed.hexProgress.talentKeys) then
+        return "hexProgress.talentKeys", expected.hexProgress.talentKeys, observed.hexProgress.talentKeys
+    end
+    if (expected.artificer == nil) ~= (observed.artificer == nil) then
+        return "artificer", expected.artificer, observed.artificer
+    end
+    if expected.artificer ~= nil then
+        for _, field in ipairs({ "usedCount", "remainingCount" }) do
+            if observed.artificer[field] ~= expected.artificer[field] then
+                return "artificer." .. field, expected.artificer[field], observed.artificer[field]
+            end
+        end
+    end
+    return nil
+end
+
 local function traitMatches(expected, observed)
     if type(observed) ~= "table" then return false end
     for _, field in ipairs({ "traitKey", "rarity", "level", "hammerRank" }) do
         if expected[field] ~= nil and observed[field] ~= expected[field] then return false end
     end
     return true
+end
+
+
+local function traitCountDifference(expected, observed)
+    local expectedCounts, observedCounts = {}, {}
+    for _, trait in ipairs(expected) do
+        expectedCounts[trait.traitKey] = (expectedCounts[trait.traitKey] or 0) + 1
+    end
+    for _, trait in ipairs(observed) do
+        observedCounts[trait.traitKey] = (observedCounts[trait.traitKey] or 0) + 1
+    end
+    for key, count in pairs(expectedCounts) do
+        if observedCounts[key] ~= count then return key, count, observedCounts[key] or 0 end
+    end
+    for key, count in pairs(observedCounts) do
+        if expectedCounts[key] ~= count then return key, expectedCounts[key] or 0, count end
+    end
+    return nil
 end
 
 local function activeChaosKey(value)
@@ -1861,7 +2195,7 @@ function session.observeRunState(state, currentRun, checkpoint)
             end
         end
         for _, bag in ipairs(diagnostic.bags or {}) do
-            local observed = liveBag(currentRun, bag.storeKey)
+            local observed = liveBag(state, currentRun, bag.storeKey)
             if observed == nil or not countInRange(bag.remaining, observed) then
                 mismatch(state, checkpoint, { kind = "bag", key = bag.storeKey }, { kind = "bag", key = observed }, false)
                 return false
@@ -1872,23 +2206,16 @@ function session.observeRunState(state, currentRun, checkpoint)
                 { kind = "rewardPriorities", key = currentRun.RewardPriorities }, false)
             return false
         end
-        local gateD = liveGateDDiagnostic(currentRun, diagnostic)
-        if gateD == nil
-            or gateD.keepsakes.currentKey ~= diagnostic.keepsakes.currentKey
-            or not sameArray(diagnostic.keepsakes.usedKeys, gateD.keepsakes.usedKeys, tostring)
-            or not sameArray(diagnostic.keepsakes.blockedKeys, gateD.keepsakes.blockedKeys, tostring)
-            or gateD.keepsakes.fatedStatus ~= diagnostic.keepsakes.fatedStatus
-            or gateD.hexProgress.spellTraitKey ~= diagnostic.hexProgress.spellTraitKey
-            or gateD.hexProgress.layoutKey ~= diagnostic.hexProgress.layoutKey
-            or not sameStringSet(diagnostic.hexProgress.talentKeys, gateD.hexProgress.talentKeys)
-            or gateD.hexProgress.closed ~= diagnostic.hexProgress.closed
-            or gateD.hexProgress.bankedPathPoints ~= diagnostic.hexProgress.bankedPathPoints
-            or gateD.hexProgress.investedPathPoints ~= diagnostic.hexProgress.investedPathPoints
-            or ((diagnostic.artificer == nil) ~= (gateD and gateD.artificer == nil))
-            or (diagnostic.artificer ~= nil and (gateD.artificer.usedCount ~= diagnostic.artificer.usedCount
-                or gateD.artificer.remainingCount ~= diagnostic.artificer.remainingCount)) then
-            mismatch(state, checkpoint, { kind = "gateD-run-state", key = diagnostic },
-                { kind = "gateD-run-state", key = gateD }, false)
+        local gateD, missingContact = liveGateDDiagnostic(currentRun, diagnostic)
+        if gateD == nil then
+            mismatch(state, checkpoint, { kind = "gateD-contact", key = "available" },
+                { kind = "gateD-contact", key = missingContact }, false)
+            return false
+        end
+        local gateDField, gateDExpected, gateDObserved = gateDComparison(diagnostic, gateD)
+        if gateDField ~= nil then
+            mismatch(state, checkpoint, { kind = "gateD." .. gateDField, key = gateDExpected },
+                { kind = "gateD." .. gateDField, key = gateDObserved }, false)
             return false
         end
         local live = liveDiagnostic(currentRun, diagnostic)
@@ -1915,12 +2242,33 @@ function session.observeRunState(state, currentRun, checkpoint)
                 return false
             end
         end
-        if #diagnostic.traits.equipped ~= #live.traits.equipped or not sameArray(diagnostic.traits.slots, live.traits.slots, function(value) return value.slot .. "=" .. tostring(value.traitKey) end)
-            or not equalMap(diagnostic.traits.elements, live.traits.elements)
-            or not equalMap(diagnostic.traits.godRarityCounts, live.traits.godRarityCounts)
-            or diagnostic.traits.upgradableCount ~= live.traits.upgradableCount
-            or not sameArray(diagnostic.traits.bannedTraitKeys, live.traits.bannedTraitKeys, tostring) then
-            mismatch(state, checkpoint, { kind = "traits", key = diagnostic.traits }, { kind = "traits", key = live.traits }, false)
+        local countKey, expectedCount, observedCount = traitCountDifference(diagnostic.traits.equipped, live.traits.equipped)
+        if countKey ~= nil then
+            mismatch(state, checkpoint, { kind = "traitCount:" .. tostring(countKey), key = expectedCount },
+                { kind = "traitCount:" .. tostring(countKey), key = observedCount }, false)
+            return false
+        end
+        if not sameArray(diagnostic.traits.slots, live.traits.slots, function(value) return value.slot .. "=" .. tostring(value.traitKey) end) then
+            mismatch(state, checkpoint, { kind = "traitSlots", key = diagnostic.traits.slots }, { kind = "traitSlots", key = live.traits.slots }, false)
+            return false
+        end
+        if not equalMap(diagnostic.traits.elements, live.traits.elements) then
+            mismatch(state, checkpoint, { kind = "elements", key = diagnostic.traits.elements }, { kind = "elements", key = live.traits.elements }, false)
+            return false
+        end
+        if not equalMap(diagnostic.traits.godRarityCounts, live.traits.godRarityCounts) then
+            mismatch(state, checkpoint, { kind = "godRarityCounts", key = diagnostic.traits.godRarityCounts },
+                { kind = "godRarityCounts", key = live.traits.godRarityCounts }, false)
+            return false
+        end
+        if diagnostic.traits.upgradableCount ~= live.traits.upgradableCount then
+            mismatch(state, checkpoint, { kind = "upgradableCount", key = diagnostic.traits.upgradableCount },
+                { kind = "upgradableCount", key = live.traits.upgradableCount }, false)
+            return false
+        end
+        if not sameArray(diagnostic.traits.bannedTraitKeys, live.traits.bannedTraitKeys, tostring) then
+            mismatch(state, checkpoint, { kind = "bannedTraitKeys", key = diagnostic.traits.bannedTraitKeys },
+                { kind = "bannedTraitKeys", key = live.traits.bannedTraitKeys }, false)
             return false
         end
         if not sameArray(diagnostic.arcana.active, live.arcana.active, function(value)
@@ -1980,7 +2328,11 @@ function session.observeRoom(state, currentRun, room)
         return
     end
     if state.roomObserved then return end
-    state.roomObserved, state.rewardObserved, state.generation, state.encounterPhase = true, false, nil, nil
+    -- HandleSecretSpawns runs before this room-entry seam and may already have
+    -- created a compiled Chaos continuation. Exit commit clears the previous
+    -- room's generation, so preserve any generation owned by this room while
+    -- ordinary doors are generated later in the lifecycle.
+    state.roomObserved, state.rewardObserved, state.encounterPhase = true, false, nil
     state.traceCursor = 1
     state.reason = "room-entry-observed"
     local step = consumeTraceStep(state, "roomEntered")
@@ -1995,38 +2347,26 @@ local function encounterName(value)
     return type(value) == "table" and (value.Name or value.EncounterName) or value
 end
 
-function session.observeEncounterStart(state, currentRun, room, encounter)
+function session.observeEncounterStart(state, currentRun, room, _)
     if state.state ~= "synchronized" then return end
-    local matched, expected, observed = currentRoomContact(state, currentRun, room)
-    if not matched then
-        mismatch(state, "encounter-start", { kind = "room", key = expected and expected.id },
-            { kind = "room", key = roomName(observed) })
-        return
-    end
+    local matched, expected = currentRoomContact(state, currentRun, room)
+    if not matched then return end
     local step = expected.trace and expected.trace[state.traceCursor or 1] or nil
-    local phase = step and step.kind == "encounterStart" and { slotKey = step.phase, encounterKey = step.encounter } or nil
-    if phase == nil or encounterName(encounter) ~= phase.encounterKey then
-        mismatch(state, "encounter-start", { kind = "encounter", key = phase and phase.encounterKey },
-            { kind = "encounter", key = encounterName(encounter) }, false)
-        return
-    end
-    state.encounterPhase = phase.slotKey
+    -- Encounter callbacks are native scheduling seams, not independent
+    -- conformance checkpoints. The planned encounter was already realized at
+    -- ChooseEncounter/assembly time. Consume its lifecycle marker only when it
+    -- is the next marker; duplicate or representation-only callbacks are inert.
+    if step == nil or step.kind ~= "encounterStart" then return end
+    state.encounterPhase = step.phase
     consumeTraceStep(state, "encounterStart")
 end
 
-function session.observeEncounterEnd(state, currentRun, room, encounter)
+function session.observeEncounterEnd(state, currentRun, room, _)
     if state.state ~= "synchronized" then return end
-    local expected = expectedRoom(state)
+    local matched, expected = currentRoomContact(state, currentRun, room)
+    if not matched then return end
     local step = expected and expected.trace and expected.trace[state.traceCursor or 1] or nil
-    local phase = expected and expected.contents and expected.contents.encounterPhases or {}
-    local expectedEncounter
-    for _, candidate in ipairs(phase) do if candidate.slotKey == (step and step.phase) then expectedEncounter = candidate.encounterKey end end
-    if step == nil or step.kind ~= "encounterEnd" or step.phase ~= state.encounterPhase
-        or encounterName(encounter) ~= expectedEncounter then
-        mismatch(state, "encounter-end", { kind = "phase", key = step and step.phase },
-            { kind = "encounter", key = encounterName(encounter) }, false)
-        return
-    end
+    if step == nil or step.kind ~= "encounterEnd" then return end
     consumeTraceStep(state, "encounterEnd")
 end
 
@@ -2062,8 +2402,19 @@ end
 -- Gate D interaction rows are deliberately closed.  These observers record
 -- player participation at the native interaction seam; they never invoke an
 -- interaction or repair the resulting game state.
+local function enterCleanupInteractionWindow(state)
+    -- The execution trace records cleanup as the boundary before Well, World
+    -- Shop, and Purging Pool interactions. Native code has no single matching
+    -- callback at that boundary: the observable contact is the first action
+    -- itself. Advance the boundary here while retaining observeCleanup's
+    -- required-pickup guard.
+    session.observeCleanup(state)
+    return state.state == "synchronized"
+end
+
 function session.observeStygianWellPurchase(state, offerKey)
     if state.state ~= "synchronized" then return end
+    if not enterCleanupInteractionWindow(state) then return end
     local step = nextTrace(state)
     if step == nil or step.kind ~= "stygianWellPurchase" or step.offerKey ~= offerKey then
         mismatch(state, "stygian-well-purchase", { kind = "offer", key = step and step.offerKey }, { kind = "offer", key = offerKey }, true, "playerDivergence", "player")
@@ -2080,6 +2431,7 @@ end
 
 function session.observeWorldShopPurchase(state, offerKey)
     if state.state ~= "synchronized" then return end
+    if not enterCleanupInteractionWindow(state) then return end
     local step = nextTrace(state)
     if step == nil or step.kind ~= "worldShopPurchase" or step.offerKey ~= offerKey then
         mismatch(state, "world-shop-purchase", { kind = "offer", key = step and step.offerKey }, { kind = "offer", key = offerKey }, true, "playerDivergence", "player")
@@ -2091,6 +2443,7 @@ end
 
 function session.observePurgingPoolSale(state, soldTraitKey)
     if state.state ~= "synchronized" then return end
+    if not enterCleanupInteractionWindow(state) then return end
     local step = nextTrace(state)
     if step == nil or step.kind ~= "purgingPoolSale" or step.traitKey ~= soldTraitKey then
         mismatch(state, "purging-pool-sale", { kind = "trait", key = step and step.traitKey }, { kind = "trait", key = soldTraitKey }, true, "playerDivergence", "player")
@@ -2112,64 +2465,104 @@ function session.beginKeepsakeRackChange(state, keepsakeKey)
     return step
 end
 
-function session.verifyKeepsakeRackChange(state, keepsakeKey, hero)
+local KEEPSAKE_RESULT_BY_KEY = {
+    HadesAndPersephoneKeepsake = "jeweledPom",
+    TempHammerKeepsake = "experimentalHammer",
+    RandomBlessingKeepsake = "transcendentEmbryo",
+}
+
+local function equipResultTarget(resultKind, result)
+    if resultKind == "jeweledPom" then return result and result.traitKey end
+    if resultKind == "experimentalHammer" then
+        return result and result.kind == "selected" and result.traitKey or nil
+    end
+    if resultKind == "transcendentEmbryo" then return result and result.blessingKey end
+    return nil
+end
+
+-- EquipKeepsake is the shared parent for the route-start and rack paths. It
+-- arms one exact planner-owned result; the concrete native acquire callback
+-- creates the narrow random-selection scope and verifies the installed trait.
+function session.beginKeepsakeEquipResult(state, keepsakeKey, source)
+    if state.state ~= "synchronized" then return nil end
+    local results
+    if source == "starting" then
+        local starting = state.plan and state.plan.startingKeepsake or nil
+        if type(starting) ~= "table" or starting.keepsakeKey ~= keepsakeKey then
+            mismatch(state, "starting-keepsake", { kind = "keepsake", key = starting and starting.keepsakeKey },
+                { kind = "keepsake", key = keepsakeKey }, true, "playerDivergence", "player")
+            return nil
+        end
+        results = starting.equipResults
+    elseif source == "rack" then
+        if state.pendingRackKeepsake ~= keepsakeKey then return nil end
+        results = state.pendingRackResults
+    else return nil end
+    local resultKind = KEEPSAKE_RESULT_BY_KEY[keepsakeKey]
+    local result = type(results) == "table" and results[resultKind] or nil
+    local target = equipResultTarget(resultKind, result)
+    if resultKind == nil or result == nil or target == nil then return nil end
+    state.pendingKeepsakeEquipResult = {
+        source = source, resultKind = resultKind, target = target,
+        selectionApplied = false, verified = false,
+    }
+    return state.pendingKeepsakeEquipResult
+end
+
+function session.beginKeepsakeAcquireEffect(state, resultKind)
+    local pending = state.pendingKeepsakeEquipResult
+    if state.state ~= "synchronized" or pending == nil or pending.resultKind ~= resultKind then return nil end
+    return pending.target
+end
+
+function session.selectKeepsakeEquipResult(state, values)
+    local pending = state.pendingKeepsakeEquipResult
+    if state.state ~= "synchronized" or pending == nil or type(values) ~= "table" then return nil end
+    for _, value in ipairs(values) do
+        if value == pending.target then
+            pending.selectionApplied = true
+            return value
+        end
+    end
+    return nil
+end
+
+function session.completeKeepsakeAcquireEffect(state, resultKind, hero)
+    local pending = state.pendingKeepsakeEquipResult
+    if state.state ~= "synchronized" or pending == nil or pending.resultKind ~= resultKind then return end
+    local found = false
+    for _, trait in ipairs(type(hero) == "table" and hero.Traits or {}) do
+        if type(trait) == "table" and (trait.Name == pending.target or trait.TraitName == pending.target) then
+            found = true
+            break
+        end
+    end
+    if pending.selectionApplied ~= true or not found then
+        mismatch(state, "keepsake-equip-result", { kind = "trait", key = pending.target },
+            { kind = "trait", key = found and pending.target or nil }, false)
+        return
+    end
+    pending.verified = true
+    if pending.source == "starting" then state.pendingKeepsakeEquipResult = nil end
+end
+
+function session.verifyKeepsakeRackChange(state, keepsakeKey)
     local expected = state.pendingRackKeepsake
     if state.state ~= "synchronized" or expected == nil then return end
     if keepsakeKey ~= expected then
         mismatch(state, "keepsake-rack", { kind = "keepsake", key = expected }, { kind = "keepsake", key = keepsakeKey }, false)
         return
     end
-    if state.pendingRackExpectedTrait ~= nil then
-        local found = nil
-        for _, trait in ipairs(type(hero) == "table" and hero.Traits or {}) do
-            if type(trait) == "table" and trait.Name == state.pendingRackExpectedTrait then found = trait; break end
-        end
-        if state.pendingRackSelectionApplied ~= true or found == nil then
-            mismatch(state, "keepsake-equip-result", { kind = "trait", key = state.pendingRackExpectedTrait }, { kind = "trait", key = nil }, false)
-            return
-        end
+    local pending = state.pendingKeepsakeEquipResult
+    if pending ~= nil and pending.source == "rack" and pending.verified ~= true then
+        mismatch(state, "keepsake-equip-result", { kind = "trait", key = pending.target },
+            { kind = "trait", key = nil }, false)
+        return
     end
     confirmAction(state, "keepsakeRackChange", expected)
     consumeTraceStep(state, "keepsakeRackChange")
     state.pendingRackKeepsake, state.pendingRackResults = nil, nil
-    state.pendingRackExpectedTrait, state.pendingRackSelectionApplied = nil, nil
-end
-
-function session.beginRackEquipResult(state)
-    local results = state.pendingRackResults
-    if state.state ~= "synchronized" or type(results) ~= "table" then return nil end
-    local target = results.jeweledPom and results.jeweledPom.traitKey
-        or (results.experimentalHammer and results.experimentalHammer.kind == "selected" and results.experimentalHammer.traitKey)
-        or (results.transcendentEmbryo and results.transcendentEmbryo.blessingKey)
-    if target == nil then return nil end
-    state.pendingRackExpectedTrait = target
-    return target
-end
-
-function session.selectRackEquipResult(state, values)
-    local expected = state.pendingRackExpectedTrait
-    if state.state ~= "synchronized" or expected == nil or type(values) ~= "table" then return nil end
-    for _, value in ipairs(values) do
-        if value == expected then
-            state.pendingRackSelectionApplied = true
-            return value
-        end
-    end
-    -- Other native helpers may select unrelated random arrays while the
-    -- rack closes. Only an array containing our target is the result seam.
-    return nil
-end
-
-function session.verifyRackEquipResult(state, trait)
-    local expected = state.pendingRackExpectedTrait
-    if state.state ~= "synchronized" or expected == nil or state.pendingRackSelectionApplied ~= true then return end
-    local actual = type(trait) == "table" and (trait.Name or trait.TraitName) or nil
-    if actual ~= expected then
-        mismatch(state, "keepsake-equip-result", { kind = "trait", key = expected }, { kind = "trait", key = actual }, false)
-        return
-    end
-    -- The close observer owns trace consumption. This contact proves the
-    -- native equip result, but must not make a failed close look committed.
+    state.pendingKeepsakeEquipResult = nil
 end
 
 function session.observeFountainUse(state, observedTarget)
@@ -2355,7 +2748,6 @@ function session.observeExit(state, currentRun, door)
         local validSelected = target ~= nil and marker == target.room.id
             and generatedAll(state, outgoing)
             and type(room) == "table" and room.__runPlannerExecutionBatchOwner == outgoing.owner
-            and (door == nil or door.Name == nil or target.type == "" or door.Name == target.type)
         if not validSelected then
             local disposition = alternate ~= nil and alternate ~= target
                 and "playerDivergence" or "conformanceDiscrepancy"

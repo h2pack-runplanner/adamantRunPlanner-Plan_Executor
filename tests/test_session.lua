@@ -84,7 +84,7 @@ local function applyRunState(run, snapshot)
     run.RewardStores = {}
     for _, bag in ipairs(snapshot.bags) do
         run.RewardStores[bag.storeKey] = {}
-        local count = bag.remaining.count
+        local count = bag.remaining.count + (bag.storeKey == "MetaProgress" and 6 or 0)
         for index = 1, count do run.RewardStores[bag.storeKey][index] = {} end
     end
     run.Hero = { Traits = {}, SlottedTraits = {} }
@@ -144,6 +144,73 @@ function TestSession.testStartNewRunFreezesOnlyAtStartAndRealizesOpening()
     lu.assertEquals(room.__runPlannerExecutionRoomId, "golden-f-start")
     lu.assertEquals(room.__runPlannerExecutionEncounterPhases[1].encounterKey, "OpeningGeneratedF")
     lu.assertEquals(room.LegalEncounters[1], "OpeningGeneratedF")
+end
+
+function TestSession.testOpeningRewardUsesScopedOccurrenceDuringNativeRoomConstruction()
+    local plan = fixturePlan()
+    local state, currentRun, game = start(plan, {
+        CurrentRoom = { RoomSetName = "F" },
+        RewardPriorities = {},
+    })
+    local opening = plan.rooms[1]
+    local rewardResult
+    game.CreateRoom = function(data)
+        -- Model a native construction boundary that does not retain extension
+        -- metadata until the executor receives the completed room.
+        local room = { Name = data.Name, RoomSetName = data.RoomSetName }
+        rewardResult = session.chooseRoomReward(
+            state,
+            currentRun,
+            room,
+            game,
+            function() return { Name = opening.contents.incomingReward.rewardType } end,
+            opening.contents.incomingReward.resolvedStoreKey,
+            {},
+            {}
+        )
+        return room
+    end
+
+    local room = session.chooseStartingRoom(state, currentRun, { StartingBiome = "F" }, game)
+    lu.assertEquals(rewardResult.kind, "handled")
+    lu.assertEquals(room.__runPlannerExecutionRoomId, opening.id)
+    lu.assertEquals(state.state, "synchronized")
+    lu.assertNil(state.roomCreationId)
+end
+
+function TestSession.testMetaProgressProjectionAdvancesWithNativeStoreRefill()
+    local plan = fixturePlan()
+    local state, currentRun, game = start(plan, { RewardPriorities = {} })
+    local opening = plan.rooms[1]
+    local room = {
+        Name = opening.gameName,
+        RoomSetName = opening.biomeKey,
+        __runPlannerExecutionRoomId = opening.id,
+    }
+    -- Only the six non-projected raw entries remain when native eligibility
+    -- triggers a refill. Native appends 19 and then removes the selected one;
+    -- the planner's fresh projected set contains the expected 12.
+    currentRun.RewardStores = { MetaProgress = {} }
+    for index = 1, 6 do currentRun.RewardStores.MetaProgress[index] = {} end
+    local result = session.chooseRoomRewardFor(
+        state,
+        { rewardType = "MetaCurrencyDrop", resolvedStoreKey = "MetaProgress" },
+        currentRun,
+        room,
+        game,
+        function(run)
+            for _ = 1, 19 do run.RewardStores.MetaProgress[#run.RewardStores.MetaProgress + 1] = {} end
+            table.remove(run.RewardStores.MetaProgress)
+            return "MetaCurrencyDrop"
+        end,
+        "MetaProgress",
+        {},
+        {}
+    )
+    lu.assertEquals(result.kind, "handled")
+    lu.assertEquals(#currentRun.RewardStores.MetaProgress, 24)
+    lu.assertEquals(state.bagProjectionOffsets.MetaProgress, 12)
+    lu.assertEquals(state.state, "synchronized")
 end
 
 function TestSession.testSuccessfulResourceUsesNativePointAndVerifiesItsSettledElement()
@@ -270,6 +337,62 @@ function TestSession.testGeneratedPeersResolveRewardsWithoutAdvancingSource()
     lu.assertEquals(selected.room.id, generated[1].roomData.__runPlannerExecutionRoomId)
 end
 
+function TestSession.testUnrelatedRewardConstructionPassesThroughWithoutBecomingACheckpoint()
+    local plan = fixturePlan("test/fixtures/execution-plan/fg-ixion-chaos.execution.json")
+    local state = session.newState()
+    local chaos
+    for _, room in ipairs(plan.rooms) do
+        if room.gameName == "Chaos_01" then chaos = room; break end
+    end
+    lu.assertNotNil(chaos)
+    state.state, state.currentRoomId = "synchronized", chaos.id
+    state.roomsById = {}
+    for _, room in ipairs(plan.rooms) do state.roomsById[room.id] = room end
+
+    local unrelated = {
+        Name = "F_Combat10",
+        __runPlannerExecutionRoomId = "unrelated-future-occurrence",
+    }
+    local run = {
+        CurrentRoom = { Name = chaos.gameName, __runPlannerExecutionRoomId = chaos.id },
+    }
+    local reward = session.chooseRoomReward(
+        state,
+        run,
+        unrelated,
+        {},
+        function() error("session must not realize an unrelated reward") end,
+        "RunProgress",
+        {},
+        {}
+    )
+    local source = session.prepareRewardSource(state, run, unrelated)
+
+    lu.assertEquals(reward.kind, "passThrough")
+    lu.assertEquals(source.kind, "passThrough")
+    lu.assertEquals(state.state, "synchronized")
+    lu.assertNil(state.firstMismatch)
+end
+
+function TestSession.testMissingCompiledStygianWellIsAFeatureRealizationMismatch()
+    local state = session.newState()
+    local expected = {
+        id = "well-room",
+        gameName = "F_Combat08",
+        contents = { stygianWell = { interacted = true, offers = {} } },
+        outgoing = { kind = "terminal" },
+    }
+    state.state, state.currentRoomId = "synchronized", expected.id
+    state.roomsById = { [expected.id] = expected }
+    local observed = { Name = expected.gameName, __runPlannerExecutionRoomId = expected.id }
+
+    session.verifyStygianWellPresence(state, { CurrentRoom = observed }, observed)
+
+    lu.assertEquals(state.state, "desynchronized")
+    lu.assertEquals(state.firstMismatch.checkpoint, "room-features")
+    lu.assertEquals(state.firstMismatch.expected.kind, "stygianWell")
+end
+
 function TestSession.testThreeDoorGenerationPreservesPhysicalOrder()
     local plan = fixturePlan("test/fixtures/execution-plan/fg.execution.json")
     local state, currentRun, game = start(plan)
@@ -306,7 +429,9 @@ function TestSession.testSelectedAndUnpickedDoorIdentityControlsTraversal()
     end
     -- Use marked copies directly for the observation-only branch witness.
     local selected = outgoing.targets[1]
-    local selectedDoor = { Name = selected.type, Room = generatedRooms[1] }
+    -- The occurrence marker is the semantic authority; the physical obstacle
+    -- name is an implementation detail and may differ from the plan's type.
+    local selectedDoor = { Name = "NativePresentationDoor", Room = generatedRooms[1] }
     session.observeExit(state, currentRun, selectedDoor)
     session.commitExit(state)
     lu.assertEquals(state.currentRoomId, selected.room.id)
@@ -318,6 +443,48 @@ function TestSession.testSelectedAndUnpickedDoorIdentityControlsTraversal()
     session.observeExit(diverged, run2, { Name = unpicked.type, Room = generatedRooms[2] })
     lu.assertEquals(diverged.state, "desynchronized")
     lu.assertEquals(diverged.firstMismatch.disposition, "playerDivergence")
+end
+
+function TestSession.testChaosGenerationBeforeRoomObservationSurvivesUntilExitSelection()
+    local source = {
+        id = "source", owner = "source-owner", gameName = "F_Test", biomeKey = "F",
+        trace = { { kind = "roomEntered" } },
+        outgoing = { kind = "batch", owner = "batch-owner", resolvedSharedRewardStoreKey = "RunProgress",
+            targets = { {
+                exitKey = "exit1", index = 1, type = "ErebusExitDoor", picked = false,
+                room = { id = "normal", biomeKey = "F", gameName = "F_Combat01" },
+            } },
+            additional = { {
+                kind = "chaos", key = "chaos", owner = "chaos-owner", picked = true,
+                room = { id = "chaos", biomeKey = "F", gameName = "Chaos_01" },
+            } },
+        },
+    }
+    local normal = { id = "normal", owner = "normal-owner", gameName = "F_Combat01", biomeKey = "F", outgoing = { kind = "terminal" } }
+    local chaos = { id = "chaos", owner = "chaos-owner", gameName = "Chaos_01", biomeKey = "F", outgoing = { kind = "terminal" } }
+    local state = session.newState()
+    state.state, state.currentRoomId = "synchronized", source.id
+    state.plan = { planFingerprint = "test-plan" }
+    state.roomsById = { source = source, normal = normal, chaos = chaos }
+    local run = { CurrentRoom = { Name = "F_Test", RoomSetName = "F", __runPlannerExecutionRoomId = "source" } }
+    local game = { RoomData = {
+        F_Combat01 = { Name = "F_Combat01", RoomSetName = "F" },
+        Chaos_01 = { Name = "Chaos_01", RoomSetName = "F" },
+    } }
+
+    -- Native HandleSecretSpawns runs before StartRoomPreLoadBinks.
+    local gate = session.chooseNextRoomData(state, run, { ForceNextRoomSet = "Chaos" }, nil, game)
+    lu.assertTrue(state.generation.additional.chaos)
+    session.observeRoom(state, run, run.CurrentRoom)
+    lu.assertTrue(state.generation.additional.chaos)
+
+    -- Ordinary exits are generated later, when the encounter unlocks them.
+    local ordinary = session.chooseNextRoomData(state, run, {}, { { Name = "ErebusExitDoor" } }, game)
+    lu.assertEquals(ordinary.kind, "handled")
+    session.observeExit(state, run, { Name = "SecretDoor", Room = gate.roomData })
+    lu.assertEquals(state.state, "synchronized")
+    session.commitExit(state)
+    lu.assertEquals(state.currentRoomId, "chaos")
 end
 
 function TestSession.testFixedPrebossBossPostbossLinksAndTerminalCompletion()
@@ -487,6 +654,64 @@ function TestSession.testOpeningWithoutHexUsesNativeAbsentHexDefaults()
     lu.assertEquals(state.state, "synchronized")
 end
 
+function TestSession.testUnusedArtificerUsesNativeAbsentCounterAsZero()
+    local plan = fixturePlan()
+    local snapshot = checkpointSnapshot(plan, plan.rooms[1].trace[1])
+    snapshot.artificer = { usedCount = 0, remainingCount = 3 }
+    local run = { CurrentRoom = { RoomSetName = "F" } }
+    applyRunState(run, snapshot)
+    run.MetaConversionUses = nil
+    local state = session.newState()
+    state.state, state.currentRoomId, state.traceCursor = "synchronized", plan.rooms[1].id, 1
+    state.roomsById = { [plan.rooms[1].id] = plan.rooms[1] }
+    state.expectedRunState, state.expectedRunStateFrame = snapshot, 0
+    state.expectedRunStateCheckpoint = "roomEntered"
+    session.observeRunState(state, run, "roomEntered")
+    lu.assertEquals(state.state, "synchronized")
+end
+
+function TestSession.testRunStateExcludesNativeSupportTraitsButDetectsUnexpectedRunTraits()
+    local plan = fixturePlan()
+    local snapshot = checkpointSnapshot(plan, plan.rooms[1].trace[1])
+    local run = { CurrentRoom = { RoomSetName = "F" } }
+    applyRunState(run, snapshot)
+    _G.TraitData = {
+        TestKeepsake = { Slot = "Keepsake" },
+        TestArcana = { MetaUpgrade = true },
+        TestAspect = { Slot = "Aspect" },
+        TestFamiliar = { Slot = "Familiar" },
+        TestHiddenSupport = { Hidden = true },
+        TestHistoryHiddenSupport = { HideInRunHistory = true },
+        TestUnexpectedBoon = {},
+    }
+    for _, key in ipairs({ "TestKeepsake", "TestArcana", "TestAspect", "TestFamiliar",
+        "TestHiddenSupport", "TestHistoryHiddenSupport" }) do
+        run.Hero.Traits[#run.Hero.Traits + 1] = { Name = key }
+    end
+    local function observe()
+        local state = session.newState()
+        state.state, state.currentRoomId, state.traceCursor = "synchronized", plan.rooms[1].id, 1
+        state.roomsById = { [plan.rooms[1].id] = plan.rooms[1] }
+        state.expectedRunState, state.expectedRunStateFrame = snapshot, 0
+        state.expectedRunStateCheckpoint = "roomEntered"
+        session.observeRunState(state, run, "roomEntered")
+        return state
+    end
+    run.Hero.GodBoonRarities = { Common = 0, Rare = 0, Epic = 0, Heroic = 0 }
+    lu.assertEquals(observe().state, "synchronized")
+
+    run.Hero.GodBoonRarities.Common = 1
+    local rarityMismatch = observe()
+    lu.assertEquals(rarityMismatch.state, "desynchronized")
+    lu.assertEquals(rarityMismatch.firstMismatch.expected.kind, "godRarityCounts")
+    run.Hero.GodBoonRarities.Common = 0
+
+    run.Hero.Traits[#run.Hero.Traits + 1] = { Name = "TestUnexpectedBoon" }
+    local mismatch = observe()
+    lu.assertEquals(mismatch.state, "desynchronized")
+    lu.assertEquals(mismatch.firstMismatch.expected.kind, "traitCount:TestUnexpectedBoon")
+end
+
 function TestSession.testKeepsakeRackConsumesOnlyAfterNativeCloseVerification()
     local state = session.newState()
     local step = { kind = "keepsakeRackChange", keepsakeKey = "TestKeepsake", equipResults = {} }
@@ -512,12 +737,134 @@ function TestSession.testEncounterPhasesAreObservedInDeclaredOrder()
     session.observeEncounterStart(state, run, room, { Name = opening.contents.encounterPhases[1].encounterKey })
     session.observeEncounterEnd(state, run, room, { Name = opening.contents.encounterPhases[1].encounterKey })
     lu.assertEquals(state.state, "synchronized")
+    local cursor = state.traceCursor
     session.observeEncounterStart(state, run, room, { Name = "WrongEncounter" })
-    lu.assertEquals(state.state, "desynchronized")
-    lu.assertEquals(state.firstMismatch.checkpoint, "encounter-start")
+    lu.assertEquals(state.state, "synchronized")
+    lu.assertEquals(state.traceCursor, cursor)
 end
 
-function TestSession.testFGRoomDataSuppressesExcludedSpontaneousNpcFamiliesAndReportsContact()
+function TestSession.testUntracedNativeNonCombatCallbacksDoNotAdvanceChronology()
+    local state = session.newState()
+    local room = {
+        id = "chaos-room",
+        gameName = "Chaos_01",
+        contents = { encounterPhases = {
+            { slotKey = "Encounter", encounterKey = "Empty_Chaos", kind = "nonCombat" },
+        } },
+        trace = { { kind = "cleanup", owner = "chaos-room" } },
+        outgoing = { kind = "terminal" },
+    }
+    local observed = { Name = room.gameName, __runPlannerExecutionRoomId = room.id }
+    local run = { CurrentRoom = observed }
+    state.state, state.currentRoomId, state.traceCursor = "synchronized", room.id, 1
+    state.roomsById = { [room.id] = room }
+
+    session.observeEncounterStart(state, run, observed, { Name = "Empty_Chaos" })
+    session.observeEncounterEnd(state, run, observed, { Name = "Empty_Chaos" })
+
+    lu.assertEquals(state.state, "synchronized")
+    lu.assertEquals(state.traceCursor, 1)
+end
+
+function TestSession.testUntracedCombatCallbackIsOnlyASchedulingSignal()
+    local state = session.newState()
+    local room = {
+        id = "combat-room",
+        gameName = "F_Combat01",
+        contents = { encounterPhases = {
+            { slotKey = "Encounter", encounterKey = "GeneratedF", kind = "combat" },
+        } },
+        trace = { { kind = "cleanup", owner = "combat-room" } },
+        outgoing = { kind = "terminal" },
+    }
+    local observed = { Name = room.gameName, __runPlannerExecutionRoomId = room.id }
+    local run = { CurrentRoom = observed }
+    state.state, state.currentRoomId, state.traceCursor = "synchronized", room.id, 1
+    state.roomsById = { [room.id] = room }
+
+    session.observeEncounterEnd(state, run, observed, { Name = "GeneratedF" })
+
+    lu.assertEquals(state.state, "synchronized")
+    lu.assertEquals(state.traceCursor, 1)
+end
+
+function TestSession.testCompletedExitBatchIsOneBlockingConformanceCheckpoint()
+    local plan = openingCheckpointsOnly(fixturePlan())
+    local opening = plan.rooms[1]
+    local target = opening.outgoing.targets[1]
+    local targetRoom = plan.rooms[2]
+    local state = session.newState()
+    state.state, state.currentRoomId = "synchronized", opening.id
+    state.roomsById = { [opening.id] = opening, [targetRoom.id] = targetRoom }
+    state.generation = {
+        owner = opening.outgoing.owner,
+        generated = { [target.index] = true },
+        additional = {},
+    }
+    local observedRoom = { Name = opening.gameName, __runPlannerExecutionRoomId = opening.id }
+    local generatedRoom = {
+        Name = targetRoom.gameName,
+        __runPlannerExecutionRoomId = targetRoom.id,
+        ChosenRewardType = targetRoom.contents.incomingReward.rewardType,
+        ForceLootName = targetRoom.contents.incomingReward.source,
+    }
+    session.observeExitsReady(state, { CurrentRoom = observedRoom }, observedRoom, {
+        { Name = target.type, Room = generatedRoom },
+    })
+    lu.assertEquals(state.state, "synchronized")
+    lu.assertTrue(state.diagnostics.exitsReady)
+
+    local mismatch = session.newState()
+    mismatch.state, mismatch.currentRoomId = "synchronized", opening.id
+    mismatch.roomsById = state.roomsById
+    mismatch.generation = state.generation
+    session.observeExitsReady(mismatch, { CurrentRoom = observedRoom }, observedRoom, {})
+    lu.assertEquals(mismatch.state, "desynchronized")
+    lu.assertEquals(mismatch.firstMismatch.checkpoint, "exits-ready")
+    lu.assertEquals(mismatch.firstMismatch.expected.kind, "exitCount")
+end
+
+function TestSession.testChaosReturnBatchMatchesEveryDeclaredPhysicalExitAtOneCheckpoint()
+    local plan = fixturePlan("test/fixtures/execution-plan/fg-ixion-chaos.execution.json")
+    local chaos
+    local roomsById = {}
+    for _, room in ipairs(plan.rooms) do
+        roomsById[room.id] = room
+        if room.gameName == "Chaos_01" then chaos = room end
+    end
+    lu.assertNotNil(chaos)
+    lu.assertEquals(#chaos.outgoing.targets, 2)
+
+    local state = session.newState()
+    state.state, state.currentRoomId = "synchronized", chaos.id
+    state.roomsById = roomsById
+    state.generation = {
+        owner = chaos.outgoing.owner,
+        generated = { [1] = true, [2] = true },
+        additional = {},
+    }
+    local observedRoom = { Name = chaos.gameName, __runPlannerExecutionRoomId = chaos.id }
+    local doors = {}
+    for _, expectedExit in ipairs(chaos.outgoing.targets) do
+        local target = roomsById[expectedExit.room.id]
+        doors[#doors + 1] = {
+            Name = "SecretExitDoor",
+            Room = {
+                Name = target.gameName,
+                __runPlannerExecutionRoomId = target.id,
+                ChosenRewardType = target.contents.incomingReward.rewardType,
+                ForceLootName = target.contents.incomingReward.source,
+            },
+        }
+    end
+
+    session.observeExitsReady(state, { CurrentRoom = observedRoom }, observedRoom, doors)
+
+    lu.assertEquals(state.state, "synchronized")
+    lu.assertTrue(state.diagnostics.exitsReady)
+end
+
+function TestSession.testFGRoomDataSuppressesExcludedSpontaneousNpcFamiliesWithoutCallbackMatching()
     local plan = withoutOpeningAcquisition(fixturePlan())
     local state, run, game = start(plan)
     local opening = plan.rooms[1]
@@ -530,8 +877,7 @@ function TestSession.testFGRoomDataSuppressesExcludedSpontaneousNpcFamiliesAndRe
     applyRunState(run, checkpointSnapshot(plan, opening.trace[1]))
     session.observeRoom(state, run, room)
     session.observeEncounterStart(state, run, room, { Name = "NPC_Nemesis_01" })
-    lu.assertEquals(state.state, "desynchronized")
-    lu.assertEquals(state.firstMismatch.checkpoint, "encounter-start")
+    lu.assertEquals(state.state, "synchronized")
 end
 
 function TestSession.testMultiEncounterAssemblyIsVerifiedAfterVanillaSetup()
@@ -731,18 +1077,23 @@ function TestSession.testNemesisTradeUsesClosedResponseAndExactTrait()
     lu.assertNil(state.pendingNemesisOutcome)
 end
 
-function TestSession.testNemesisFamilyFiltersNativeTextLinesBeforeSelection()
+function TestSession.testNemesisFamilyFiltersNativeInteractionLinesBeforeSelection()
     local interaction = {
         id = "nemesis", kind = "encounterInteraction", phaseKey = "Encounter",
         resolution = { kind = "nemesisRandomEvent", outcome = { kind = "freeItem" } },
     }
     local state = traceState(interaction)
-    local lines = session.nemesisTextLines(state, { Name = "NPC_Nemesis_01" }, {
+    local lines = session.nemesisInteractTextLineSets(state, { Name = "NPC_Nemesis_01" }, {
         NemesisGetFreeItem01 = {}, NemesisBuyItem01 = {}, NemesisDamageContest01 = {},
     })
     lu.assertNotNil(lines.NemesisGetFreeItem01)
     lu.assertNil(lines.NemesisBuyItem01)
     lu.assertNil(lines.NemesisDamageContest01)
+end
+
+function TestSession.testNemesisInteractionLinesPassThroughWithoutAnActiveSession()
+    local lines = { NemesisGetFreeItem01 = {}, NemesisBuyItem01 = {} }
+    lu.assertEquals(session.nemesisInteractTextLineSets(nil, { Name = "NPC_Nemesis_01" }, lines), lines)
 end
 
 function TestSession.testNemesisTradeObservesThePlayerResponse()
@@ -910,6 +1261,47 @@ function TestSession.testCleanupConsumesAuthoredSkipButRejectsRequiredPickup()
     lu.assertEquals(state.firstMismatch.checkpoint, "acquisition-window-close")
 end
 
+function TestSession.testCleanupPhaseInteractionsAdvanceTheirLifecycleBoundary()
+    local cases = {
+        {
+            step = { kind = "stygianWellPurchase", offerKey = "TemporaryForcedSecretDoorTrait" },
+            observe = function(state)
+                session.observeStygianWellPurchase(state, "TemporaryForcedSecretDoorTrait")
+            end,
+        },
+        {
+            step = { kind = "worldShopPurchase", offerKey = "ShopItem" },
+            observe = function(state) session.observeWorldShopPurchase(state, "ShopItem") end,
+        },
+        {
+            step = { kind = "purgingPoolSale", traitKey = "ApolloWeaponBoon" },
+            observe = function(state) session.observePurgingPoolSale(state, "ApolloWeaponBoon") end,
+        },
+    }
+    for _, case in ipairs(cases) do
+        local state = traceState({ kind = "cleanup" })
+        state.roomsById.test.trace[2] = case.step
+        case.observe(state)
+        lu.assertEquals(state.state, "synchronized")
+        lu.assertEquals(state.traceCursor, 3)
+    end
+end
+
+function TestSession.testCleanupPhaseInteractionStillRejectsAnUncollectedRequiredPickup()
+    local state = traceState({
+        kind = "acquireReward",
+        owner = "required",
+        roles = { { settlement = { site = "site", entry = "entry" } } },
+    })
+    state.roomsById.test.trace[2] = { kind = "cleanup" }
+    state.roomsById.test.trace[3] = {
+        kind = "stygianWellPurchase",
+        offerKey = "TemporaryForcedSecretDoorTrait",
+    }
+    session.observeStygianWellPurchase(state, "TemporaryForcedSecretDoorTrait")
+    lu.assertEquals(state.firstMismatch.checkpoint, "acquisition-window-close")
+end
+
 function TestSession.testSteadyGrowthRequiresReturnedAndLiveNextRarity()
     local state = traceState({ kind = "steadyGrowth", source = "SteadyGrowth", target = "ApolloWeaponBoon" })
     _G.GetUpgradedRarity = function() return "Epic" end
@@ -1029,6 +1421,41 @@ function TestSession.testChaosOfferKeepsThreeRawPairsAndScopesSelectedPairOperan
     lu.assertEquals(blessing.WeaponSpeedMultiplier.Value, 1.25)
 end
 
+function TestSession.testChaosReservationKeepsNativePeersDistinct()
+    local state = chaosTraceState()
+    state.pendingAcquisition = {
+        role = state.roomsById.chaos.trace[1].roles[1],
+    }
+    local loot = { UpgradeOptions = {
+        { ItemName = "ChaosWeaponBlessing", Rarity = "Common", Type = "TransformingTrait" },
+        { ItemName = "ChaosHealthBlessing", Rarity = "Epic", Type = "TransformingTrait" },
+        { ItemName = "ChaosExSpeedBlessing", Rarity = "Heroic", Type = "TransformingTrait" },
+    } }
+    lu.assertEquals(session.reserveChaosSelectedBlessing(state, loot).kind, "handled")
+    lu.assertEquals(loot.UpgradeOptions[1].ItemName, "ChaosWeaponBlessing")
+    lu.assertEquals(loot.UpgradeOptions[2].ItemName, "ChaosExSpeedBlessing")
+    lu.assertEquals(loot.UpgradeOptions[2].Rarity, "Heroic")
+    lu.assertEquals(loot.UpgradeOptions[3].ItemName, "ChaosHealthBlessing")
+    lu.assertEquals(loot.UpgradeOptions[3].Rarity, "Epic")
+
+    loot.UpgradeOptions = {
+        { ItemName = "ChaosWeaponBlessing", Rarity = "Common" },
+        { ItemName = "ChaosHealthBlessing", Rarity = "Epic" },
+        { ItemName = "ChaosManaBlessing", Rarity = "Rare" },
+    }
+    lu.assertEquals(session.reserveChaosSelectedBlessing(state, loot).kind, "handled")
+    lu.assertEquals(loot.UpgradeOptions[1].ItemName, "ChaosWeaponBlessing")
+    lu.assertEquals(loot.UpgradeOptions[2].ItemName, "ChaosExSpeedBlessing")
+    lu.assertEquals(loot.UpgradeOptions[3].ItemName, "ChaosManaBlessing")
+
+    loot.UpgradeOptions = {
+        { ItemName = "ChaosWeaponBlessing", Rarity = "Common" },
+        { ItemName = "ChaosHealthBlessing", Rarity = "Epic" },
+    }
+    lu.assertEquals(session.reserveChaosSelectedBlessing(state, loot).kind, "failed")
+    lu.assertEquals(state.state, "desynchronized")
+end
+
 function TestSession.testChaosSelectionAndAcquisitionObserveTheNativePair()
     local state = chaosTraceState()
     local prepared = session.prepareTraitOfferOption(state, 2, {})
@@ -1067,6 +1494,22 @@ function TestSession.testSharedIxionChaosFixtureGeneratesItsGatePairAndFixedRetu
     lu.assertEquals(gate.kind, "handled")
     lu.assertEquals(gate.roomData.__runPlannerExecutionRoomId, "golden-g-intro:chaos")
     lu.assertEquals(gate.roomData.Name, "Chaos_01")
+
+    -- Native generates the additional exit's reward while the source room is
+    -- still CurrentRoom. It is the same owned-generation contact as an
+    -- ordinary door target, not a mismatch against the source occurrence.
+    local reward = session.chooseRoomReward(
+        state,
+        run,
+        gate.roomData,
+        game,
+        function() return "TrialUpgrade" end,
+        "RunProgress",
+        {},
+        {}
+    )
+    lu.assertEquals(reward.kind, "handled")
+    lu.assertEquals(state.state, "synchronized")
 
     local chaosRoom = state.roomsById[gate.roomData.__runPlannerExecutionRoomId]
     state.currentRoomId, state.traceCursor = chaosRoom.id, 2
@@ -1107,7 +1550,9 @@ function TestSession.testSharedIxionChaosFixtureGeneratesItsGatePairAndFixedRetu
     lu.assertEquals(diverged.firstMismatch.disposition, "playerDivergence")
 
     state.currentRoomId, state.generation = chaosRoom.id, nil
-    local returned = session.chooseNextRoomData(state, run, {}, { { Name = "ChaosReturnExitDoor" } }, game)
+    -- ChaosReturnExitDoor is the plan's semantic visible-return type; the
+    -- native map obstacle is SecretExitDoor.
+    local returned = session.chooseNextRoomData(state, run, {}, { { Name = "SecretExitDoor" } }, game)
     lu.assertEquals(returned.kind, "handled")
     lu.assertEquals(returned.roomData.__runPlannerExecutionRoomId, "golden-g-b2-e1")
     lu.assertEquals(returned.roomData.Name, "G_Combat02")
@@ -1242,7 +1687,7 @@ end
 function TestSession.testInitialWellGenerationExcludesTravelDealRefillAndRefillUsesItsPhysicalSlot()
     local state = session.newState()
     state.state, state.currentRoomId = "synchronized", "well"
-    state.roomsById = { well = { contents = { stygianWell = { offers = {
+    state.roomsById = { well = { contents = { stygianWell = { interacted = true, offers = {
         { generationKey = "initial:healing", offerKey = "Heal" },
         { generationKey = "initial:secondLeft", offerKey = "Left" },
         { generationKey = "initial:secondRight", offerKey = "Right" },
@@ -1288,6 +1733,21 @@ function TestSession.testInitialWellGenerationExcludesTravelDealRefillAndRefillU
     lu.assertEquals(refill.kind, "handled")
     lu.assertEquals(refill.args.StoreData.GroupsOf[1].OptionsData[1].Name, "RoomRewardHealDrop")
     lu.assertEquals(#refill.args.StoreData.GroupsOf[1].OptionsData, 1)
+end
+
+function TestSession.testUninteractedWellAndPoolKeepNativeInventoryUnconstrained()
+    local state = session.newState()
+    state.state, state.currentRoomId = "synchronized", "runtime-random"
+    state.roomsById = { ["runtime-random"] = { contents = {
+        stygianWell = { interacted = false },
+        purgingPool = { interacted = false },
+    } } }
+    local well = session.prepareInventoryGeneration(state, { StoreData = {} }, false)
+    lu.assertEquals(well.kind, "passThrough")
+    local room = { SellOptions = { { Name = "TraitA" } } }
+    local pool = session.applyPurgingPoolInventory(state, room)
+    lu.assertEquals(pool.kind, "passThrough")
+    lu.assertEquals(room.SellOptions[1].Name, "TraitA")
 end
 
 function TestSession.testForcedRewardAndFixedLinkMismatchesAreConformanceDiscrepancies()

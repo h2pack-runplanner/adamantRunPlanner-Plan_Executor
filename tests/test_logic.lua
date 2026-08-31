@@ -68,7 +68,8 @@ local function applyRunState(run, snapshot)
     run.RewardStores = {}
     for _, bag in ipairs(snapshot.bags) do
         run.RewardStores[bag.storeKey] = {}
-        for index = 1, bag.remaining.count do run.RewardStores[bag.storeKey][index] = {} end
+        local count = bag.remaining.count + (bag.storeKey == "MetaProgress" and 6 or 0)
+        for index = 1, count do run.RewardStores[bag.storeKey][index] = {} end
     end
     run.Hero = { Traits = {}, SlottedTraits = {} }
     if snapshot.hexProgress.spellTraitKey then
@@ -130,6 +131,7 @@ function TestLogic.testGateBHooksRealizeBatchAndObserveSelectedRoom()
             chooseRoomReward = session.chooseRoomReward,
             chooseNextRoomData = session.chooseNextRoomData,
             prepareBatchRewardStore = session.prepareBatchRewardStore,
+            observeExitsReady = session.observeExitsReady,
             observeExit = session.observeExit,
             commitExit = session.commitExit,
             observeBeforeRoomExit = session.observeBeforeRoomExit,
@@ -179,6 +181,10 @@ function TestLogic.testGateBHooksRealizeBatchAndObserveSelectedRoom()
     local targetData = wrapped.ChooseNextRoomData(nil, runtime, function() error("base should not realize planner peer") end, result, {}, doors)
     lu.assertEquals(targetData.__runPlannerExecutionExitIndex, 1)
     doors[1].Room = targetData
+    local expectedTarget = state.roomsById[targetData.__runPlannerExecutionRoomId]
+    targetData.ChosenRewardType = expectedTarget.contents.incomingReward.rewardType
+    targetData.ForceLootName = expectedTarget.contents.incomingReward.source
+    _G.MapState = { OfferedExitDoors = doors }
     wrapped.DoUnlockRoomExits(nil, runtime, function(run, room) return room end, result, currentRun.StartingRoom)
     applyRunState(currentRun, checkpointSnapshot(plan, plan.rooms[1].trace[#plan.rooms[1].trace]))
     local observedSourceAtCommit = false
@@ -225,6 +231,7 @@ function TestLogic.testStartOutsideLifecycleCannotFreezePlan()
             chooseRoomReward = session.chooseRoomReward,
             chooseNextRoomData = session.chooseNextRoomData,
             prepareBatchRewardStore = session.prepareBatchRewardStore,
+            observeExitsReady = session.observeExitsReady,
             observeExit = session.observeExit,
             commitExit = session.commitExit,
             observeBeforeRoomExit = session.observeBeforeRoomExit,
@@ -236,6 +243,156 @@ function TestLogic.testStartOutsideLifecycleCannotFreezePlan()
     wrapped.ChooseStartingRoom(nil, { status = {} }, function() fallback = fallback + 1; return {} end, { CurrentRoom = { RoomSetName = "F" } }, { StartingBiome = "F" })
     lu.assertEquals(fallback, 1)
     lu.assertFalse(state.initialized)
+end
+
+function TestLogic.testStartingKeepsakeResultIsArmedBeforeNativeEquipEffect()
+    local cases = {
+        {
+            keepsakeKey = "HadesAndPersephoneKeepsake",
+            resultKind = "jeweledPom",
+            result = { traitKey = "HadesDashSweepBoon" },
+            target = "HadesDashSweepBoon",
+            nativeFunction = "GiveRandomHadesBoonAndBoostBoons",
+        },
+        {
+            keepsakeKey = "TempHammerKeepsake",
+            resultKind = "experimentalHammer",
+            result = { kind = "selected", traitKey = "StaffTripleShotTrait" },
+            target = "StaffTripleShotTrait",
+            nativeFunction = "GiveDurationHammer",
+        },
+        {
+            keepsakeKey = "RandomBlessingKeepsake",
+            resultKind = "transcendentEmbryo",
+            result = { blessingKey = "ChaosWeaponBlessing" },
+            target = "ChaosWeaponBlessing",
+            nativeFunction = "ChaosBlessingBonus",
+        },
+    }
+    for _, case in ipairs(cases) do
+        local plan = fixturePlan()
+        plan.startingKeepsake = {
+            keepsakeKey = case.keepsakeKey,
+            equipResults = { [case.resultKind] = case.result },
+        }
+        local state, wrapped = session.newState(), {}
+        local api = setmetatable({ defineCache = function() end, get = function() return state end }, { __index = session })
+        logic.attach({ hooks = { wrap = function(name, _, callback) wrapped[name] = callback end } }, {
+            inbox = { load = function() return true, plan end }, session = api,
+        })
+        local runtime = { status = { write = function() end } }
+        _G.GameState = { LastAwardTrait = case.keepsakeKey }
+        local selected
+        local run = wrapped.StartNewRun({ isEnabled = function() return true end }, runtime, function()
+            local currentRun = { Hero = { Traits = {} } }
+            _G.CurrentRun = currentRun
+            wrapped.EquipKeepsake(nil, runtime, function(hero)
+                return wrapped[case.nativeFunction](nil, runtime, function()
+                    selected = wrapped.GetRandomArrayValue(nil, runtime, function() return "wrong" end,
+                        { "wrong", case.target })
+                    hero.Traits[#hero.Traits + 1] = { Name = selected }
+                    return selected
+                end, {}, {})
+            end, currentRun.Hero, case.keepsakeKey, { FromLoot = true })
+            return currentRun
+        end, nil, { StartingBiome = "F" })
+        lu.assertEquals(selected, case.target)
+        lu.assertEquals(run.Hero.Traits[1].Name, case.target)
+        lu.assertEquals(state.state, "synchronized")
+        lu.assertNil(state.pendingKeepsakeEquipResult)
+    end
+end
+
+function TestLogic.testRackKeepsakeUsesTheSameExactEquipEffectSeam()
+    local state = session.newState()
+    state.state, state.reason = "synchronized", "test"
+    state.currentRoomId, state.traceCursor = "room", 1
+    state.roomsById = { room = { trace = { {
+        kind = "keepsakeRackChange", keepsakeKey = "TempHammerKeepsake",
+        equipResults = {
+            jeweledPom = { traitKey = "dormant-pom-result" },
+            experimentalHammer = { kind = "selected", traitKey = "StaffTripleShotTrait" },
+        },
+    } } } }
+    local wrapped = {}
+    local api = setmetatable({ defineCache = function() end, get = function() return state end }, { __index = session })
+    logic.attach({ hooks = { wrap = function(name, _, callback) wrapped[name] = callback end } }, {
+        inbox = {}, session = api,
+    })
+    local runtime = { status = { write = function() end } }
+    _G.GameState = { LastAwardTrait = "TempHammerKeepsake" }
+    _G.CurrentRun = { Hero = { Traits = {} } }
+    local selected
+    wrapped.KeepsakeScreenClose(nil, runtime, function()
+        wrapped.EquipKeepsake(nil, runtime, function(hero)
+            return wrapped.GiveDurationHammer(nil, runtime, function()
+                selected = wrapped.GetRandomArrayValue(nil, runtime, function() return "wrong" end,
+                    { "wrong", "StaffTripleShotTrait", "dormant-pom-result" })
+                hero.Traits[#hero.Traits + 1] = { Name = selected }
+            end, {}, {})
+        end, _G.CurrentRun.Hero, "TempHammerKeepsake", { FromLoot = true })
+    end, { LastTrait = "ManaOverTimeRefundKeepsake" }, {})
+    lu.assertEquals(selected, "StaffTripleShotTrait")
+    lu.assertEquals(state.traceCursor, 2)
+    lu.assertNil(state.pendingKeepsakeEquipResult)
+end
+
+function TestLogic.testNemesisFamilyIsScopedToLiveInteractionSelection()
+    local state = session.newState()
+    local activeState = nil
+    local wrapped = {}
+    local data = {
+        session = {
+            defineCache = function() end,
+            get = function() return activeState end,
+            status = session.status,
+            nemesisInteractTextLineSets = session.nemesisInteractTextLineSets,
+        },
+    }
+    logic.attach({ hooks = { wrap = function(name, _, callback) wrapped[name] = callback end } }, data)
+    lu.assertNil(wrapped.ProcessTextLines)
+    lu.assertNotNil(wrapped.SpawnNemesisForRandomEvents)
+    lu.assertNotNil(wrapped.CheckAvailableTextLines)
+
+    local interaction = {
+        kind = "encounterInteraction", phaseKey = "Encounter",
+        resolution = { kind = "nemesisRandomEvent", outcome = { kind = "freeItem" } },
+    }
+    state.state, state.currentRoomId, state.traceCursor = "synchronized", "nemesis", 1
+    state.roomsById = { nemesis = { trace = { interaction } } }
+    local original = {
+        NemesisGetFreeItem01 = {}, NemesisBuyItem01 = {}, NemesisDamageContest01 = {},
+    }
+    local source = { Name = "NPC_Nemesis_01", InteractTextLineSets = original }
+    local outsideSpawn = wrapped.CheckAvailableTextLines(nil, { status = {} }, function(selectedSource)
+        lu.assertEquals(selectedSource.InteractTextLineSets, original)
+        return "vanilla"
+    end, source, {})
+    lu.assertEquals(outsideSpawn, "vanilla")
+
+    activeState = state
+    local result = wrapped.SpawnNemesisForRandomEvents(nil, { status = {} }, function()
+        return wrapped.CheckAvailableTextLines(nil, { status = {} }, function(selectedSource)
+            lu.assertNotNil(selectedSource.InteractTextLineSets.NemesisGetFreeItem01)
+            lu.assertNil(selectedSource.InteractTextLineSets.NemesisBuyItem01)
+            return "selected"
+        end, source, {})
+    end, {}, {})
+    lu.assertEquals(result, "selected")
+    lu.assertEquals(source.InteractTextLineSets, original)
+
+    local ok = pcall(wrapped.SpawnNemesisForRandomEvents, nil, { status = {} }, function()
+        return wrapped.CheckAvailableTextLines(nil, { status = {} }, function()
+            error("native-selection-failed")
+        end, source, {})
+    end, {}, {})
+    lu.assertFalse(ok)
+    lu.assertEquals(source.InteractTextLineSets, original)
+    local afterFailure = wrapped.CheckAvailableTextLines(nil, { status = {} }, function(selectedSource)
+        lu.assertEquals(selectedSource.InteractTextLineSets, original)
+        return "vanilla"
+    end, source, {})
+    lu.assertEquals(afterFailure, "vanilla")
 end
 
 function TestLogic.testPreContactMismatchDelegatesToVanillaAndFreezesPlannerSuffix()
@@ -251,6 +408,7 @@ function TestLogic.testPreContactMismatchDelegatesToVanillaAndFreezesPlannerSuff
             chooseRoomReward = session.chooseRoomReward,
             chooseNextRoomData = session.chooseNextRoomData,
             prepareBatchRewardStore = session.prepareBatchRewardStore,
+            observeExitsReady = session.observeExitsReady,
             observeExit = session.observeExit, commitExit = session.commitExit,
             observeBeforeRoomExit = session.observeBeforeRoomExit,
             prepareRewardSource = session.prepareRewardSource,
@@ -276,7 +434,7 @@ function TestLogic.testPreContactMismatchDelegatesToVanillaAndFreezesPlannerSuff
     lu.assertEquals(baseCalls, 2)
 end
 
-function TestLogic.testAcquisitionHooksWireOrdinaryOfferAndPostBaseVerification()
+function TestLogic.testAcquisitionHooksVerifyBeforeUpgradeScreenNotifiesRoomWaiter()
     local state = session.newState()
     state.state, state.currentRoomId, state.traceCursor = "synchronized", "room", 1
     state.roomsById = { room = { trace = { { kind = "acquireReward", roles = { {
@@ -301,10 +459,49 @@ function TestLogic.testAcquisitionHooksWireOrdinaryOfferAndPostBaseVerification(
     end, {}, loot, 1, item, {})
     wrapped.HandleUpgradeChoiceSelection(nil, runtime, function(_, button)
         _G.CurrentRun.Hero.Traits = { { Name = button.Data.Name, Rarity = button.Data.Rarity, StackNum = button.Data.StackNum } }
+        wrapped.CloseUpgradeChoiceScreen(nil, runtime, function()
+            lu.assertEquals(state.traceCursor, 2)
+        end, {}, button)
         return "selected"
     end, {}, { Data = { Name = "ApolloWeaponBoon", Rarity = "Rare", StackNum = 2 } }, {})
     lu.assertEquals(state.state, "synchronized")
     lu.assertEquals(state.traceCursor, 2)
+end
+
+function TestLogic.testHammerOfferIsReappliedAfterPickupPresentationOverwritesItsOptions()
+    local state = session.newState()
+    state.state, state.currentRoomId, state.traceCursor = "synchronized", "room", 1
+    state.roomsById = { room = { trace = { { kind = "acquireReward", roles = { {
+        gameName = "WeaponUpgrade", role = "self", settlement = { site = "s", entry = "e" },
+        traitOffer = { kind = "traits", giver = "WeaponUpgrade", selected = "option1", options = {
+            { key = "StaffTripleShotTrait" },
+            { key = "StaffLongAttackTrait" },
+            { key = "StaffDashAttackTrait" },
+        } },
+    } } } } } }
+    local wrapped = {}
+    local api = setmetatable({ defineCache = function() end, get = function() return state end }, { __index = session })
+    logic.attach({ hooks = { wrap = function(name, _, callback) wrapped[name] = callback end } }, {
+        inbox = {}, session = api,
+    })
+    local runtime = { status = { write = function() end } }
+    local loot = { Name = "WeaponUpgrade" }
+    wrapped.UseLoot(nil, runtime, function(usee)
+        usee.UpgradeOptions = {
+            { ItemName = "NativeHammerOne" },
+            { ItemName = "NativeHammerTwo" },
+            { ItemName = "NativeHammerThree" },
+        }
+        return wrapped.CreateBoonLootButtons(nil, runtime, function(_, options)
+            lu.assertEquals(options.UpgradeOptions, {
+                { ItemName = "StaffTripleShotTrait" },
+                { ItemName = "StaffLongAttackTrait" },
+                { ItemName = "StaffDashAttackTrait" },
+            })
+            return true
+        end, {}, usee, false, {})
+    end, loot, {}, {})
+    lu.assertEquals(state.state, "synchronized")
 end
 
 function TestLogic.testChaosTrialUpgradeLeavesNativePairConstructionToPerOptionSeam()
@@ -336,9 +533,19 @@ function TestLogic.testChaosTrialUpgradeLeavesNativePairConstructionToPerOptionS
         lu.assertNil(usee.UpgradeOptions)
         return true
     end, loot, {}, {})
+    wrapped.SetTransformingTraitsOnLoot(nil, runtime, function(target)
+        target.UpgradeOptions = {
+            { ItemName = "ChaosWeaponBlessing", SecondaryItemName = "NativeCurse1", Rarity = "Common", Type = "TransformingTrait" },
+            { ItemName = "ChaosHealthBlessing", SecondaryItemName = "NativeCurse2", Rarity = "Epic", Type = "TransformingTrait" },
+            { ItemName = "ChaosExSpeedBlessing", SecondaryItemName = "NativeCurse3", Rarity = "Heroic", Type = "TransformingTrait" },
+        }
+    end, loot, {})
+    lu.assertEquals(loot.UpgradeOptions[1].ItemName, "ChaosWeaponBlessing")
+    lu.assertEquals(loot.UpgradeOptions[2].ItemName, "ChaosExSpeedBlessing")
+    lu.assertEquals(loot.UpgradeOptions[3].ItemName, "ChaosHealthBlessing")
     local selected = {}
     for index = 1, 3 do
-        local item = {}
+        local item = loot.UpgradeOptions[index]
         wrapped.CreateUpgradeChoiceButton(nil, runtime, function(_, _, _, data) return data end, {}, loot, index, item, {})
         if index == 2 then selected = item end
     end
@@ -353,6 +560,9 @@ function TestLogic.testChaosTrialUpgradeLeavesNativePairConstructionToPerOptionS
         blessing.WeaponSpeedMultiplier.Value, blessing.PropertyChanges[1].ChangeValue = 1.25, 0.6
         curse.OnExpire = { TraitData = blessing }
         _G.CurrentRun.Hero.Traits = { curse }
+        wrapped.CloseUpgradeChoiceScreen(nil, runtime, function()
+            lu.assertEquals(state.traceCursor, 2)
+        end, {}, button)
         return true
     end, {}, { Data = { Name = "ChaosDamageCurse", SecondaryItemName = "ChaosDamageCurse", Rarity = "Rare" } }, {})
     lu.assertEquals(state.state, "synchronized")
@@ -440,6 +650,52 @@ function TestLogic.testChaosAndContractNativeGenerationSeamsOnlyScopeCompiledAdd
     lu.assertTrue(room.SecretChanceSuccess)
 end
 
+function TestLogic.testCompiledStygianWellPresenceOwnsInventoryAndPhysicalEligibility()
+    local state, wrapped = session.newState(), {}
+    local source = {
+        id = "source",
+        owner = "source-owner",
+        gameName = "F_Combat08",
+        biomeKey = "F",
+        contents = { stygianWell = { interacted = true, offers = {} } },
+        outgoing = { kind = "terminal" },
+    }
+    state.state, state.currentRoomId = "synchronized", source.id
+    state.plan = { planFingerprint = "test-plan" }
+    state.roomsById = { source = source }
+    local api = setmetatable({ defineCache = function() end, get = function() return state end },
+        { __index = session })
+    logic.attach({ hooks = { wrap = function(name, _, callback) wrapped[name] = callback end } },
+        { inbox = {}, session = api })
+    local runtime = { status = { write = function() end } }
+    local room = { Name = source.gameName, __runPlannerExecutionRoomId = source.id }
+    local run = { CurrentRoom = room }
+
+    -- RunShopGeneration contacts this eligibility function before the physical
+    -- spawn pass. Both contacts must receive the same compiled presence fact.
+    lu.assertTrue(wrapped.IsWellShopEligible(nil, runtime, function() return false end, run, room))
+    wrapped.HandleSecretSpawns(nil, runtime, function(currentRun)
+        if wrapped.IsWellShopEligible(nil, runtime, function() return false end,
+                currentRun, currentRun.CurrentRoom) then
+            currentRun.CurrentRoom.WellShop = { ObjectId = 17 }
+        end
+    end, run)
+    lu.assertEquals(room.WellShop.ObjectId, 17)
+    lu.assertEquals(state.state, "synchronized")
+
+    source.contents.stygianWell = nil
+    room.WellShop = nil
+    lu.assertFalse(wrapped.IsWellShopEligible(nil, runtime, function() return true end, run, room))
+    wrapped.HandleSecretSpawns(nil, runtime, function(currentRun)
+        if wrapped.IsWellShopEligible(nil, runtime, function() return true end,
+                currentRun, currentRun.CurrentRoom) then
+            currentRun.CurrentRoom.WellShop = { ObjectId = 18 }
+        end
+    end, run)
+    lu.assertNil(room.WellShop)
+    lu.assertEquals(state.state, "synchronized")
+end
+
 function TestLogic.testSharedTraitHooksCoverDevotionHammerAndSpell()
     for _, surface in ipairs({ { "Devotion", "AphroditeUpgrade" }, { "WeaponUpgrade", "WeaponUpgrade" }, { "Spell", "SpellUpgrade" } }) do
         local step = { kind = "acquireReward", roles = { { gameName = surface[2], role = "source", settlement = { site = "s", entry = "e" }, traitOffer = { kind = "traits", giver = surface[1], selected = "option1", options = { { key = surface[1] .. "Trait", rarity = "Common", effectiveLevel = 1 } } } } } }
@@ -464,6 +720,39 @@ function TestLogic.testTalentConsumableHookUsesNestedPresentation()
         return wrapped.ConsumableUsedPresentation(nil, runtime, function() return true end, {}, consumable, args)
     end, item, {}, {})
     lu.assertEquals(state.traceCursor, 2)
+end
+
+function TestLogic.testZeroCostArtificerOnionRemainsARequiredPickup()
+    local step = {
+        kind = "acquireReward",
+        roles = { {
+            gameName = "RoomRewardConsolationPrize",
+            role = "source",
+            settlement = { site = "s", entry = "e" },
+        } },
+    }
+    local state, wrapped, runtime = hookedTrace(step)
+    -- CheckBoonSkipShrineUpgrade passes costOverride = 0 to
+    -- CreateConsumableItem. Lua treats zero as truthy, so native construction
+    -- materializes a zero-valued ResourceCosts table on this free pickup.
+    local onion = { Name = "RoomRewardConsolationPrize", ResourceCosts = { Money = 0 } }
+    wrapped.UseConsumableItem(nil, runtime, function(consumable, args)
+        return wrapped.ConsumableUsedPresentation(nil, runtime, function() return true end, {}, consumable, args)
+    end, onion, {}, {})
+    lu.assertEquals(state.traceCursor, 2)
+    lu.assertEquals(state.state, "synchronized")
+end
+
+function TestLogic.testPositiveCostConsumableRemainsOutsideAcquisitionTracking()
+    local step = {
+        kind = "acquireReward",
+        roles = { { gameName = "PlannedPickup", role = "self", settlement = { site = "s", entry = "e" } } },
+    }
+    local state, wrapped, runtime = hookedTrace(step)
+    local purchase = { Name = "ShopPurchase", ResourceCosts = { Money = 10 } }
+    wrapped.UseConsumableItem(nil, runtime, function() return true end, purchase, {}, {})
+    lu.assertEquals(state.traceCursor, 1)
+    lu.assertEquals(state.state, "synchronized")
 end
 
 function TestLogic.testPomHookCapturesPreBaseStackAndVerifiesDelta()

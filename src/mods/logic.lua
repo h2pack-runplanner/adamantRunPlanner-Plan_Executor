@@ -17,23 +17,83 @@ end
 
 function logic.attach(moduleRef, data)
     data.session.defineCache(moduleRef)
-    -- Vanilla StartNewRun enters ChooseStartingRoom before it returns.  Keep
-    -- initialization scoped to that lifecycle so a standalone mid-run hook
-    -- can never freeze a newly published plan.
+    -- Vanilla StartNewRun equips the selected keepsake before it chooses the
+    -- opening room. Initialize at that nested equip contact so immediate
+    -- keepsake results are realized; ChooseStartingRoom remains the fallback.
     local startLifecycleDepth = 0
     local startLifecycleEnabled = true
+    local startLifecycleArgs = nil
     local embryoSelection = nil
     local resourceElementGrant = nil
     local leaveRoomDepth = 0
     local travelDealRefillDepth = 0
     local inventoryGeneration = nil
     local wellTwistSelection = nil
-    local rackSelection = nil
+    local keepsakeAcquireSelection = nil
     local echoLastRewardDepth = 0
     local lootUseDepth, consumableUseDepth = 0, 0
     local chaosTraitProcessing = nil
     local chaosGeneration = nil
+    local nemesisRandomEventSpawnDepth = 0
+    local loggedMismatch = nil
+    local function hasPositiveResourceCost(resourceCosts)
+        if type(resourceCosts) ~= "table" then return false end
+        for _, amount in pairs(resourceCosts) do
+            if type(amount) == "number" and amount > 0 then return true end
+        end
+        return false
+    end
+    local function diagnosticValue(value)
+        if type(value) ~= "table" then return tostring(value) end
+        if value.kind ~= nil then
+            local parts = { "kind=" .. tostring(value.kind) }
+            if value.key ~= nil then parts[#parts + 1] = "key=" .. tostring(value.key) end
+            if value.index ~= nil then parts[#parts + 1] = "index=" .. tostring(value.index) end
+            return "{" .. table.concat(parts, ",") .. "}"
+        end
+        if type(_G.GetTableString) == "function" then
+            local ok, result = pcall(_G.GetTableString, value)
+            if ok and type(result) == "string" then
+                return #result > 600 and result:sub(1, 597) .. "..." or result
+            end
+        end
+        return tostring(value)
+    end
+    local function emitDiagnostic(text)
+        local host = _G.rom
+        if type(host) == "table" and type(host.log) == "table" and type(host.log.info) == "function" then
+            host.log.info("[RunPlanner] " .. text)
+        elseif type(_G.DebugPrint) == "function" then
+            _G.DebugPrint({ Text = "[RunPlanner] " .. text })
+        else
+            print("[RunPlanner] " .. text)
+        end
+    end
+    local function offeredExitDoors()
+        local offered = type(_G.MapState) == "table" and _G.MapState.OfferedExitDoors or nil
+        if type(offered) ~= "table" then return nil end
+        if type(_G.CollapseTableOrdered) == "function" then
+            local ok, result = pcall(_G.CollapseTableOrdered, offered)
+            if ok and type(result) == "table" then return result end
+        end
+        local result = {}
+        for _, door in pairs(offered) do result[#result + 1] = door end
+        table.sort(result, function(left, right)
+            return (left.ObjectId or 0) < (right.ObjectId or 0)
+        end)
+        return result
+    end
     local function writeStatus(runtime, state)
+        if state == nil then return end
+        if state.firstMismatch ~= nil and state.firstMismatch ~= loggedMismatch then
+            loggedMismatch = state.firstMismatch
+            emitDiagnostic(table.concat({
+                "first-mismatch",
+                "checkpoint=" .. tostring(state.firstMismatch.checkpoint),
+                "expected=" .. diagnosticValue(state.firstMismatch.expected),
+                "observed=" .. diagnosticValue(state.firstMismatch.observed),
+            }, " "))
+        end
         if runtime.status and type(runtime.status.write) == "function" then
             local status = data.session.status(state)
             local text = status.state .. ": " .. status.reason
@@ -46,12 +106,15 @@ function logic.attach(moduleRef, data)
     moduleRef.hooks.wrap("StartNewRun", "execution-start-new-run", function(host, runtime, base, previousRun, args)
         local priorDepth = startLifecycleDepth
         local priorEnabled = startLifecycleEnabled
+        local priorArgs = startLifecycleArgs
         local lifecycleEnabled = host.isEnabled == nil or host.isEnabled()
         startLifecycleDepth = priorDepth + 1
         startLifecycleEnabled = lifecycleEnabled
+        startLifecycleArgs = args
         local ok, currentRun = pcall(base, previousRun, args)
         startLifecycleDepth = priorDepth
         startLifecycleEnabled = priorEnabled
+        startLifecycleArgs = priorArgs
         if not ok then error(currentRun, 0) end
         local state = data.session.get(runtime)
         -- The normal base call has already passed through the nested starting
@@ -68,6 +131,44 @@ function logic.attach(moduleRef, data)
         writeStatus(runtime, state)
         return currentRun
     end)
+    moduleRef.hooks.wrap("EquipKeepsake", "execution-keepsake-equip", function(_, runtime, base, hero, keepsakeKey, args)
+        local state = data.session.get(runtime)
+        if startLifecycleDepth > 0 and not state.initialized then
+            data.session.startNewRun(state, {
+                currentRun = _G.CurrentRun,
+                args = startLifecycleArgs,
+                enabled = startLifecycleEnabled,
+                inbox = data.inbox,
+            })
+        end
+        local resolvedKey = keepsakeKey or (_G.GameState and _G.GameState.LastAwardTrait)
+        local source = startLifecycleDepth > 0 and "starting"
+            or (state.pendingRackKeepsake == resolvedKey and "rack" or nil)
+        if source ~= nil then data.session.beginKeepsakeEquipResult(state, resolvedKey, source) end
+        local result = base(hero, keepsakeKey, args)
+        writeStatus(runtime, state)
+        return result
+    end)
+    local function wrapKeepsakeAcquire(functionName, hookId, resultKind)
+        moduleRef.hooks.wrap(functionName, hookId, function(_, runtime, base, ...)
+            local state = data.session.get(runtime)
+            local prior = keepsakeAcquireSelection
+            keepsakeAcquireSelection = data.session.beginKeepsakeAcquireEffect(state, resultKind)
+            local ok, result = pcall(base, ...)
+            keepsakeAcquireSelection = prior
+            if not ok then error(result, 0) end
+            data.session.completeKeepsakeAcquireEffect(
+                state,
+                resultKind,
+                _G.CurrentRun and _G.CurrentRun.Hero or nil
+            )
+            writeStatus(runtime, state)
+            return result
+        end)
+    end
+    wrapKeepsakeAcquire("GiveDurationHammer", "execution-experimental-hammer-equip", "experimentalHammer")
+    wrapKeepsakeAcquire("GiveRandomHadesBoonAndBoostBoons", "execution-jeweled-pom-equip", "jeweledPom")
+    wrapKeepsakeAcquire("ChaosBlessingBonus", "execution-transcendent-embryo-equip", "transcendentEmbryo")
     moduleRef.hooks.wrap("ChooseStartingRoom", "execution-opening-room", function(_, runtime, base, currentRun, args)
         local state = data.session.get(runtime)
         if startLifecycleDepth > 0 and not state.initialized then
@@ -110,6 +211,8 @@ function logic.attach(moduleRef, data)
         chaosGeneration = prior
         data.session.applyChaosGeneration(scope, room)
         if not ok then error(result, 0) end
+        data.session.verifyStygianWellPresence(state, currentRun, room)
+        writeStatus(runtime, state)
         return result
     end)
     moduleRef.hooks.wrap(
@@ -117,6 +220,16 @@ function logic.attach(moduleRef, data)
         "execution-chaos-gate-eligibility",
         function(_, _, base, currentRun, currentRoom)
             if chaosGeneration ~= nil then return chaosGeneration.force end
+            return base(currentRun, currentRoom)
+        end
+    )
+    moduleRef.hooks.wrap(
+        "IsWellShopEligible",
+        "execution-stygian-well-presence",
+        function(_, runtime, base, currentRun, currentRoom)
+            local planned = data.session.plannedStygianWellPresence(
+                data.session.get(runtime), currentRun, currentRoom)
+            if planned ~= nil then return planned end
             return base(currentRun, currentRoom)
         end
     )
@@ -175,11 +288,10 @@ function logic.attach(moduleRef, data)
     moduleRef.hooks.wrap("DoUnlockRoomExits", "execution-batch-reward-store", function(_, runtime, base, currentRun, room)
         local state = data.session.get(runtime)
         local result = data.session.prepareBatchRewardStore(state, currentRun)
-        if result.kind == "failed" then
-            writeStatus(runtime, state)
-            return base(currentRun, room)
-        end
-        return base(currentRun, room)
+        local value = base(currentRun, room)
+        data.session.observeExitsReady(state, currentRun, room, offeredExitDoors())
+        if result.kind == "failed" then writeStatus(runtime, state) end
+        return value
     end)
     moduleRef.hooks.wrap("LeaveRoom", "execution-observe-exit", function(_, runtime, base, currentRun, door)
         local state = data.session.get(runtime)
@@ -355,7 +467,11 @@ function logic.attach(moduleRef, data)
     moduleRef.hooks.wrap("UseConsumableItem", "execution-acquire-consumable", function(_, runtime, base, consumableItem, args, user)
         -- Purchases and cost-bearing world items are Gate D; resource/minor
         -- pickups reach the same closed acquisition observer after vanilla use.
-        if type(consumableItem) == "table" and consumableItem.ResourceCosts ~= nil and consumableItem.IgnorePurchase ~= true then return base(consumableItem, args, user) end
+        if type(consumableItem) == "table"
+            and hasPositiveResourceCost(consumableItem.ResourceCosts)
+            and consumableItem.IgnorePurchase ~= true then
+            return base(consumableItem, args, user)
+        end
         local state = data.session.get(runtime)
         local prepared = data.session.prepareLootUse(state, consumableItem)
         local seaStar = data.session.beginSeaStarDuplicate(state, consumableItem)
@@ -386,10 +502,32 @@ function logic.attach(moduleRef, data)
         writeStatus(runtime, data.session.get(runtime))
         return result
     end)
-    moduleRef.hooks.wrap("ProcessTextLines", "execution-nemesis-event-family", function(_, runtime, base, source, textLineSets, prioritiesName, args)
+    -- SpawnNemesisForRandomEvents owns the one initial random-event selection,
+    -- but keeps its spawned unit local and returns no selection product. Use it
+    -- only to scope the nested native selector; later Nemesis conversations
+    -- must remain untouched.
+    moduleRef.hooks.wrap("SpawnNemesisForRandomEvents", "execution-nemesis-event-spawn", function(_, _, base, eventSource, args)
+        local priorDepth = nemesisRandomEventSpawnDepth
+        nemesisRandomEventSpawnDepth = priorDepth + 1
+        local ok, result = pcall(base, eventSource, args)
+        nemesisRandomEventSpawnDepth = priorDepth
+        if not ok then error(result, 0) end
+        return result
+    end)
+    moduleRef.hooks.wrap("CheckAvailableTextLines", "execution-nemesis-event-family", function(_, runtime, base, source, args)
+        if nemesisRandomEventSpawnDepth == 0 then return base(source, args) end
         local state = data.session.get(runtime)
-        local filtered = data.session.nemesisTextLines(state, source, textLineSets)
-        local result = base(source, filtered, prioritiesName, args)
+        local original = type(source) == "table" and source.InteractTextLineSets or nil
+        local filtered = data.session.nemesisInteractTextLineSets(state, source, original)
+        if filtered == original then
+            local result = base(source, args)
+            if state ~= nil and state.state == "desynchronized" then writeStatus(runtime, state) end
+            return result
+        end
+        source.InteractTextLineSets = filtered
+        local ok, result = pcall(base, source, args)
+        source.InteractTextLineSets = original
+        if not ok then error(result, 0) end
         writeStatus(runtime, state)
         return result
     end)
@@ -486,24 +624,14 @@ function logic.attach(moduleRef, data)
         if type(screen) == "table" and screen.LastTrait ~= key then
             local state = data.session.get(runtime)
             data.session.beginKeepsakeRackChange(state, key)
-            rackSelection = data.session.beginRackEquipResult(state)
         end
         local ok, result = pcall(base, screen, button)
-        rackSelection = nil
         if not ok then error(result, 0) end
         data.session.verifyKeepsakeRackChange(
             data.session.get(runtime),
-            _G.GameState and _G.GameState.LastAwardTrait or nil,
-            _G.CurrentRun and _G.CurrentRun.Hero or nil
+            _G.GameState and _G.GameState.LastAwardTrait or nil
         )
         writeStatus(runtime, data.session.get(runtime))
-        return result
-    end)
-    moduleRef.hooks.wrap("AddTraitToHero", "execution-keepsake-equip-result", function(_, runtime, base, args)
-        local state = data.session.get(runtime)
-        local result = base(args)
-        data.session.verifyRackEquipResult(state, result)
-        writeStatus(runtime, state)
         return result
     end)
     moduleRef.hooks.wrap("UseHealthFountain", "execution-observe-fountain", function(_, runtime, base, source, args)
@@ -515,6 +643,19 @@ function logic.attach(moduleRef, data)
         if state.pendingPhialTarget == nil then data.session.completeFountainUse(state) end
         writeStatus(runtime, state)
         return result
+    end)
+    -- TrialUpgrade has now generated all three native pairs. Reserve the
+    -- authored selected blessing before any choice is presented.
+    moduleRef.hooks.wrap("SetTransformingTraitsOnLoot", "execution-chaos-blessing-reservation", function(_, runtime, base, lootData, upgradeChoiceData)
+        local result = base(lootData, upgradeChoiceData)
+        local prepared = data.session.reserveChaosSelectedBlessing(data.session.get(runtime), lootData)
+        if prepared.kind == "failed" then writeStatus(runtime, data.session.get(runtime)) end
+        return result
+    end)
+    moduleRef.hooks.wrap("CreateBoonLootButtons", "execution-trait-offer-screen", function(_, runtime, base, screen, lootData, reroll, args)
+        local state = data.session.get(runtime)
+        data.session.prepareTraitOfferScreen(state, lootData)
+        return base(screen, lootData, reroll, args)
     end)
     -- Each generated choice reaches this final pre-presentation seam.  Some
     -- screens bypass SetTraitsOnLoot, so this is the complete contact.
@@ -560,6 +701,23 @@ function logic.attach(moduleRef, data)
             else data.session.verifyTraitAcquisition(state, type(hero) == "table" and hero.Traits or nil) end
         end
         if seaStar then data.session.finishSeaStarDuplicate(state, screen.Source) end
+        writeStatus(runtime, state)
+        return result
+    end)
+    -- Native opening encounters wait for the upgrade screen to close before
+    -- starting combat. At this boundary the selected trait has already been
+    -- granted, but CloseUpgradeChoiceScreen has not yet notified that waiter.
+    -- Verify and advance here so the encounter-start contact cannot overtake
+    -- the acquisition trace row.
+    moduleRef.hooks.wrap("CloseUpgradeChoiceScreen", "execution-verify-trait-acquisition", function(_, runtime, base, screen, button)
+        local state = data.session.get(runtime)
+        local hero = _G.CurrentRun and (_G.CurrentRun.Hero or _G.CurrentRun.HeroTraits) or nil
+        if state.pendingPom ~= nil then
+            data.session.verifyPomResolution(state, type(hero) == "table" and hero.Traits or nil)
+        else
+            data.session.verifyTraitAcquisition(state, type(hero) == "table" and hero.Traits or nil)
+        end
+        local result = base(screen, button)
         writeStatus(runtime, state)
         return result
     end)
@@ -638,11 +796,11 @@ function logic.attach(moduleRef, data)
         if resourceElementGrant ~= nil then return true end
         return base(chance, rng)
     end)
-    moduleRef.hooks.wrap("GetRandomArrayValue", "execution-embryo-choice", function(_, runtime, base, values, rng)
-        -- This is deliberately scoped by AddRandomChaosBlessing's synchronous
-        -- call. Other random arrays remain entirely vanilla-owned.
-        if rackSelection ~= nil then
-            local selected = data.session.selectRackEquipResult(data.session.get(runtime), values)
+    moduleRef.hooks.wrap("GetRandomArrayValue", "execution-exact-array-choice", function(_, runtime, base, values, rng)
+        -- Keepsake equip results are armed by EquipKeepsake and exposed only
+        -- while the matching native acquire callback is selecting its result.
+        if keepsakeAcquireSelection ~= nil then
+            local selected = data.session.selectKeepsakeEquipResult(data.session.get(runtime), values)
             if selected ~= nil then return selected end
         end
         if embryoSelection ~= nil and type(values) == "table" then
