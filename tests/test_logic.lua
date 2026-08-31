@@ -10,6 +10,21 @@ local function fixturePlan()
     return assert(protocol.decode(fixtures.decode()))
 end
 
+local function checkpointSnapshot(plan, target)
+    local snapshot = {}
+    for _, room in ipairs(plan.rooms) do
+        for _, step in ipairs(room.trace) do
+            if step.frame ~= nil then
+                for section, value in pairs(step.replace) do
+                    if section == "artificer" then snapshot.artificer = value.value else snapshot[section] = value end
+                end
+                if step == target then return snapshot end
+            end
+        end
+    end
+    error("target checkpoint frame not found")
+end
+
 local function withoutOpeningAcquisition(plan)
     table.remove(plan.rooms[1].trace, 2)
     return plan
@@ -131,7 +146,7 @@ function TestLogic.testGateBHooksRealizeBatchAndObserveSelectedRoom()
         { isEnabled = function() return true end }, runtime,
         function(previousRun)
             currentRun = { CurrentRoom = { RoomSetName = "F" }, RewardPriorities = { "Other" }, previous = previousRun }
-            applyRunState(currentRun, plan.rooms[1].trace[1].runState)
+            applyRunState(currentRun, checkpointSnapshot(plan, plan.rooms[1].trace[1]))
             currentRun.StartingRoom = wrapped.ChooseStartingRoom(nil, runtime, function() return { Name = "vanilla" } end, currentRun, args)
             return currentRun
         end, nil, args)
@@ -165,7 +180,7 @@ function TestLogic.testGateBHooksRealizeBatchAndObserveSelectedRoom()
     lu.assertEquals(targetData.__runPlannerExecutionExitIndex, 1)
     doors[1].Room = targetData
     wrapped.DoUnlockRoomExits(nil, runtime, function(run, room) return room end, result, currentRun.StartingRoom)
-    applyRunState(currentRun, plan.rooms[1].trace[#plan.rooms[1].trace].runState)
+    applyRunState(currentRun, checkpointSnapshot(plan, plan.rooms[1].trace[#plan.rooms[1].trace]))
     local observedSourceAtCommit = false
     local destinationCommittedBeforeLeaveReturns = false
     local updated = wrapped.LeaveRoom(nil, runtime, function(run, door)
@@ -182,7 +197,7 @@ function TestLogic.testGateBHooksRealizeBatchAndObserveSelectedRoom()
     lu.assertTrue(state.diagnostics.beforeRoomExit)
     for _, room in ipairs(plan.rooms) do
         if room.id == targetData.__runPlannerExecutionRoomId then
-            applyRunState(currentRun, room.trace[1].runState)
+            applyRunState(currentRun, checkpointSnapshot(plan, room.trace[1]))
             break
         end
     end

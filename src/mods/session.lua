@@ -21,6 +21,8 @@ local function newState()
         plan = nil, roomsById = {}, currentRoomId = nil, generation = nil,
         firstMismatch = nil, roomObserved = false, rewardObserved = false,
         diagnostics = {}, pendingExit = nil,
+        expectedRunState = nil, expectedRunStateFrame = nil,
+        expectedRunStateCheckpoint = nil,
         encounterPhase = nil,
         -- The frozen trace is ordered data.  Keep one cursor instead of
         -- rediscovering the next lifecycle action from the live room.
@@ -935,7 +937,7 @@ function session.beginEncounterTraitOffer(state)
     if offer.giver == "Narcissus" then
         confirmAction(state, "encounterInteraction", interaction.phaseKey)
         if not consumeTraceStep(state, "encounterInteraction") then return nil end
-        state.encounterInteractionConsumed = { id = interaction.id, roomId = state.currentRoomId }
+        state.encounterInteractionConsumed = { owner = interaction.owner, roomId = state.currentRoomId }
         state.pendingNarcissusOffer = offer
         return { kind = "narcissus", offer = offer }
     end
@@ -943,7 +945,7 @@ function session.beginEncounterTraitOffer(state)
     if acquisition == nil then return nil end
     confirmAction(state, "encounterInteraction", interaction.phaseKey)
     if not consumeTraceStep(state, "encounterInteraction") then return nil end
-    state.encounterInteractionConsumed = { id = interaction.id, roomId = state.currentRoomId }
+    state.encounterInteractionConsumed = { owner = interaction.owner, roomId = state.currentRoomId }
     return { kind = "followingAcquisition", action = acquisition, role = role }
 end
 
@@ -1849,93 +1851,110 @@ function session.observeRunState(state, currentRun, checkpoint)
     if state.state ~= "synchronized" then return false end
     local expected = expectedRoom(state)
     if expected == nil then return false end
-    for _, step in ipairs(expected.trace or {}) do
-        if step.checkpoint == checkpoint and step.runState ~= nil then
-            local diagnostic = step.runState
-            for field, expectedValue in pairs(diagnostic.counters) do
-                local observed = liveCounter(currentRun, field)
-                if observed == nil or observed ~= expectedValue then
-                    mismatch(state, checkpoint, { kind = field, key = expectedValue }, { kind = field, key = observed }, false)
-                    return false
-                end
-            end
-            for _, bag in ipairs(diagnostic.bags or {}) do
-                local observed = liveBag(currentRun, bag.storeKey)
-                if observed == nil or not countInRange(bag.remaining, observed) then
-                    mismatch(state, checkpoint, { kind = "bag", key = bag.storeKey }, { kind = "bag", key = observed }, false)
-                    return false
-                end
-            end
-            if not sameArray(diagnostic.rewardPriorities, currentRun.RewardPriorities, tostring) then
-                mismatch(state, checkpoint, { kind = "rewardPriorities", key = diagnostic.rewardPriorities },
-                    { kind = "rewardPriorities", key = currentRun.RewardPriorities }, false)
+    local diagnostic = state.expectedRunState
+    if diagnostic ~= nil and state.expectedRunStateCheckpoint == checkpoint then
+        for field, expectedValue in pairs(diagnostic.counters) do
+            local observed = liveCounter(currentRun, field)
+            if observed == nil or observed ~= expectedValue then
+                mismatch(state, checkpoint, { kind = field, key = expectedValue }, { kind = field, key = observed }, false)
                 return false
             end
-            local gateD = liveGateDDiagnostic(currentRun, diagnostic)
-            if gateD == nil
-                or gateD.keepsakes.currentKey ~= diagnostic.keepsakes.currentKey
-                or not sameArray(diagnostic.keepsakes.usedKeys, gateD.keepsakes.usedKeys, tostring)
-                or not sameArray(diagnostic.keepsakes.blockedKeys, gateD.keepsakes.blockedKeys, tostring)
-                or gateD.keepsakes.fatedStatus ~= diagnostic.keepsakes.fatedStatus
-                or gateD.hexProgress.spellTraitKey ~= diagnostic.hexProgress.spellTraitKey
-                or gateD.hexProgress.layoutKey ~= diagnostic.hexProgress.layoutKey
-                or not sameStringSet(diagnostic.hexProgress.talentKeys, gateD.hexProgress.talentKeys)
-                or gateD.hexProgress.closed ~= diagnostic.hexProgress.closed
-                or gateD.hexProgress.bankedPathPoints ~= diagnostic.hexProgress.bankedPathPoints
-                or gateD.hexProgress.investedPathPoints ~= diagnostic.hexProgress.investedPathPoints
-                or ((diagnostic.artificer == nil) ~= (gateD and gateD.artificer == nil))
-                or (diagnostic.artificer ~= nil and (gateD.artificer.usedCount ~= diagnostic.artificer.usedCount
-                    or gateD.artificer.remainingCount ~= diagnostic.artificer.remainingCount)) then
-                mismatch(state, checkpoint, { kind = "gateD-run-state", key = diagnostic },
-                    { kind = "gateD-run-state", key = gateD }, false)
-                return false
-            end
-            local live = liveDiagnostic(currentRun, diagnostic)
-            if live == nil then
-                mismatch(state, checkpoint, { kind = "runStateObserver", key = "complete-v5" }, { kind = "runStateObserver", key = nil }, false)
-                return false
-            end
-            if not sameArray(diagnostic.chaos.active, live.chaos.active, activeChaosKey)
-                or not sameArray(diagnostic.chaos.matured, live.chaos.matured, maturedChaosKey) then
-                mismatch(state, checkpoint, { kind = "chaos", key = diagnostic.chaos }, { kind = "chaos", key = live.chaos }, false)
-                return false
-            end
-            if not sameArray(diagnostic.godPool.acquiredSourceKeys, live.godPool.acquiredSourceKeys, tostring)
-                or not sameArray(diagnostic.godPool.effectiveSourceKeys, live.godPool.effectiveSourceKeys, tostring)
-                or live.godPool.capNarrowed ~= diagnostic.godPool.capNarrowed then
-                mismatch(state, checkpoint, { kind = "godPool", key = diagnostic.godPool }, { kind = "godPool", key = live.godPool }, false)
-                return false
-            end
-            for _, expectedTrait in ipairs(diagnostic.traits.equipped) do
-                local actual
-                for _, candidate in ipairs(live.traits.equipped) do if candidate.traitKey == expectedTrait.traitKey then actual = candidate; break end end
-                if not traitMatches(expectedTrait, actual) then
-                    mismatch(state, checkpoint, { kind = "trait:" .. expectedTrait.traitKey, key = expectedTrait }, { kind = "trait:" .. expectedTrait.traitKey, key = actual }, false)
-                    return false
-                end
-            end
-            if #diagnostic.traits.equipped ~= #live.traits.equipped or not sameArray(diagnostic.traits.slots, live.traits.slots, function(value) return value.slot .. "=" .. tostring(value.traitKey) end)
-                or not equalMap(diagnostic.traits.elements, live.traits.elements)
-                or not equalMap(diagnostic.traits.godRarityCounts, live.traits.godRarityCounts)
-                or diagnostic.traits.upgradableCount ~= live.traits.upgradableCount
-                or not sameArray(diagnostic.traits.bannedTraitKeys, live.traits.bannedTraitKeys, tostring) then
-                mismatch(state, checkpoint, { kind = "traits", key = diagnostic.traits }, { kind = "traits", key = live.traits }, false)
-                return false
-            end
-            if not sameArray(diagnostic.arcana.active, live.arcana.active, function(value)
-                return tostring(value.key or value.Name) .. "|" .. tostring(value.origin or value.Origin) .. "|" .. tostring(value.rarity or value.Rarity)
-            end) or not equalMap(diagnostic.vows.configuredRanks, live.vows.configuredRanks)
-                or not equalMap(diagnostic.vows.effectiveRanks, live.vows.effectiveRanks)
-                or not sameArray(diagnostic.vows.disabledKeys, live.vows.disabledKeys, tostring)
-                or diagnostic.forfeit ~= live.forfeit then
-                mismatch(state, checkpoint, { kind = "retained-state", key = diagnostic.forfeit }, { kind = "retained-state", key = live.forfeit }, false)
-                return false
-            end
-            state.diagnostics[checkpoint] = true
-            return true
         end
+        for _, bag in ipairs(diagnostic.bags or {}) do
+            local observed = liveBag(currentRun, bag.storeKey)
+            if observed == nil or not countInRange(bag.remaining, observed) then
+                mismatch(state, checkpoint, { kind = "bag", key = bag.storeKey }, { kind = "bag", key = observed }, false)
+                return false
+            end
+        end
+        if not sameArray(diagnostic.rewardPriorities, currentRun.RewardPriorities, tostring) then
+            mismatch(state, checkpoint, { kind = "rewardPriorities", key = diagnostic.rewardPriorities },
+                { kind = "rewardPriorities", key = currentRun.RewardPriorities }, false)
+            return false
+        end
+        local gateD = liveGateDDiagnostic(currentRun, diagnostic)
+        if gateD == nil
+            or gateD.keepsakes.currentKey ~= diagnostic.keepsakes.currentKey
+            or not sameArray(diagnostic.keepsakes.usedKeys, gateD.keepsakes.usedKeys, tostring)
+            or not sameArray(diagnostic.keepsakes.blockedKeys, gateD.keepsakes.blockedKeys, tostring)
+            or gateD.keepsakes.fatedStatus ~= diagnostic.keepsakes.fatedStatus
+            or gateD.hexProgress.spellTraitKey ~= diagnostic.hexProgress.spellTraitKey
+            or gateD.hexProgress.layoutKey ~= diagnostic.hexProgress.layoutKey
+            or not sameStringSet(diagnostic.hexProgress.talentKeys, gateD.hexProgress.talentKeys)
+            or gateD.hexProgress.closed ~= diagnostic.hexProgress.closed
+            or gateD.hexProgress.bankedPathPoints ~= diagnostic.hexProgress.bankedPathPoints
+            or gateD.hexProgress.investedPathPoints ~= diagnostic.hexProgress.investedPathPoints
+            or ((diagnostic.artificer == nil) ~= (gateD and gateD.artificer == nil))
+            or (diagnostic.artificer ~= nil and (gateD.artificer.usedCount ~= diagnostic.artificer.usedCount
+                or gateD.artificer.remainingCount ~= diagnostic.artificer.remainingCount)) then
+            mismatch(state, checkpoint, { kind = "gateD-run-state", key = diagnostic },
+                { kind = "gateD-run-state", key = gateD }, false)
+            return false
+        end
+        local live = liveDiagnostic(currentRun, diagnostic)
+        if live == nil then
+            mismatch(state, checkpoint, { kind = "runStateObserver", key = "complete-v5" }, { kind = "runStateObserver", key = nil }, false)
+            return false
+        end
+        if not sameArray(diagnostic.chaos.active, live.chaos.active, activeChaosKey)
+            or not sameArray(diagnostic.chaos.matured, live.chaos.matured, maturedChaosKey) then
+            mismatch(state, checkpoint, { kind = "chaos", key = diagnostic.chaos }, { kind = "chaos", key = live.chaos }, false)
+            return false
+        end
+        if not sameArray(diagnostic.godPool.acquiredSourceKeys, live.godPool.acquiredSourceKeys, tostring)
+            or not sameArray(diagnostic.godPool.effectiveSourceKeys, live.godPool.effectiveSourceKeys, tostring)
+            or live.godPool.capNarrowed ~= diagnostic.godPool.capNarrowed then
+            mismatch(state, checkpoint, { kind = "godPool", key = diagnostic.godPool }, { kind = "godPool", key = live.godPool }, false)
+            return false
+        end
+        for _, expectedTrait in ipairs(diagnostic.traits.equipped) do
+            local actual
+            for _, candidate in ipairs(live.traits.equipped) do if candidate.traitKey == expectedTrait.traitKey then actual = candidate; break end end
+            if not traitMatches(expectedTrait, actual) then
+                mismatch(state, checkpoint, { kind = "trait:" .. expectedTrait.traitKey, key = expectedTrait }, { kind = "trait:" .. expectedTrait.traitKey, key = actual }, false)
+                return false
+            end
+        end
+        if #diagnostic.traits.equipped ~= #live.traits.equipped or not sameArray(diagnostic.traits.slots, live.traits.slots, function(value) return value.slot .. "=" .. tostring(value.traitKey) end)
+            or not equalMap(diagnostic.traits.elements, live.traits.elements)
+            or not equalMap(diagnostic.traits.godRarityCounts, live.traits.godRarityCounts)
+            or diagnostic.traits.upgradableCount ~= live.traits.upgradableCount
+            or not sameArray(diagnostic.traits.bannedTraitKeys, live.traits.bannedTraitKeys, tostring) then
+            mismatch(state, checkpoint, { kind = "traits", key = diagnostic.traits }, { kind = "traits", key = live.traits }, false)
+            return false
+        end
+        if not sameArray(diagnostic.arcana.active, live.arcana.active, function(value)
+            return tostring(value.key or value.Name) .. "|" .. tostring(value.origin or value.Origin) .. "|" .. tostring(value.rarity or value.Rarity)
+        end) or not equalMap(diagnostic.vows.configuredRanks, live.vows.configuredRanks)
+            or not equalMap(diagnostic.vows.effectiveRanks, live.vows.effectiveRanks)
+            or not sameArray(diagnostic.vows.disabledKeys, live.vows.disabledKeys, tostring)
+            or diagnostic.forfeit ~= live.forfeit then
+            mismatch(state, checkpoint, { kind = "retained-state", key = diagnostic.forfeit }, { kind = "retained-state", key = live.forfeit }, false)
+            return false
+        end
+        state.diagnostics[checkpoint] = true
+        return true
     end
     return false
+end
+
+local function applyExpectedRunStateFrame(state, step)
+    if step == nil or step.frame == nil then return end
+    local expectedFrame = state.expectedRunStateFrame == nil and 0 or state.expectedRunStateFrame + 1
+    if step.frame ~= expectedFrame then
+        mismatch(state, "run-state-frame", { kind = "frame", key = expectedFrame }, { kind = "frame", key = step.frame }, false)
+        return
+    end
+    local diagnostic = state.expectedRunState or {}
+    for section, value in pairs(step.replace or {}) do
+        if section == "artificer" then
+            diagnostic.artificer = value.value
+        else
+            diagnostic[section] = value
+        end
+    end
+    state.expectedRunState, state.expectedRunStateFrame = diagnostic, step.frame
+    state.expectedRunStateCheckpoint = step.checkpoint
 end
 
 consumeTraceStep = function(state, kind)
@@ -1947,10 +1966,10 @@ consumeTraceStep = function(state, kind)
         mismatch(state, "trace-cursor",
             { kind = "traceStep", key = step and step.kind or nil },
             { kind = "traceStep", key = kind }, false)
-        return false
+        return nil
     end
     state.traceCursor = index + 1
-    return true
+    return step
 end
 
 function session.observeRoom(state, currentRun, room)
@@ -1960,10 +1979,13 @@ function session.observeRoom(state, currentRun, room)
         mismatch(state, "room-entered", { kind = "room", key = expected and expected.id }, { kind = "room", key = roomName(observed) })
         return
     end
+    if state.roomObserved then return end
     state.roomObserved, state.rewardObserved, state.generation, state.encounterPhase = true, false, nil, nil
     state.traceCursor = 1
     state.reason = "room-entry-observed"
-    if not consumeTraceStep(state, "roomEntered") then return end
+    local step = consumeTraceStep(state, "roomEntered")
+    if not step then return end
+    applyExpectedRunStateFrame(state, step)
     session.observeRunState(state, currentRun, "roomEntered")
 end
 
@@ -2271,9 +2293,9 @@ function session.observeBeforeRoomExit(state, currentRun)
     -- observable makes repeated diagnostic calls harmless (and does not
     -- advance or search the trace); only an attempt to skip its predecessor
     -- is a cursor violation.
-    local expected = expectedRoom(state)
-    local step = expected and expected.trace and expected.trace[state.traceCursor or 1] or nil
-    if not consumeTraceStep(state, "beforeRoomExit") then return false end
+    local step = consumeTraceStep(state, "beforeRoomExit")
+    if not step then return false end
+    applyExpectedRunStateFrame(state, step)
     return session.observeRunState(state, currentRun, "beforeRoomExit")
 end
 
@@ -2286,7 +2308,7 @@ function session.observeCleanup(state, currentRun)
         local required = false
         for _, role in ipairs(step.roles or {}) do if role.settlement ~= nil then required = true end end
         if required then
-            mismatch(state, "acquisition-window-close", { kind = "requiredPickup", key = step.id }, { kind = "pickup", key = nil }, false, "playerDivergence", "player")
+            mismatch(state, "acquisition-window-close", { kind = "requiredPickup", key = step.owner }, { kind = "pickup", key = nil }, false, "playerDivergence", "player")
             return
         end
         consumeTraceStep(state, "acquireReward")

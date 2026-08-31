@@ -5,7 +5,7 @@ local json = require("mods/json")
 local protocol = {}
 
 protocol.FORMAT = "run-planner-execution"
-protocol.VERSION = 6
+protocol.VERSION = 7
 protocol.CATALOG_VERSION = "0.52.0-boss-preboss-variants"
 protocol.MAX_STRING = 512
 protocol.MAX_ROOMS = 256
@@ -444,6 +444,57 @@ local function parseDiagnostic(value, label)
     return result
 end
 
+local diagnosticSections = {
+    "counters", "bags", "godPool", "traits", "arcana", "vows", "forfeit",
+    "chaos", "keepsakes", "rewardPriorities", "hexProgress", "artificer",
+}
+
+local function parseFrame(step, context, label, framing)
+    local frameStep, frameError = keys(step, { "frame", "owner", "checkpoint", "replace" }, nil, label)
+    if not frameStep then return nil, frameError end
+    local frame, frameNumberError = integer(frameStep.frame, label .. ".frame")
+    if not frame then return nil, frameNumberError end
+    if frame ~= framing.nextFrame then return fail(label .. ".frame is not sequential") end
+    if frameStep.checkpoint ~= "roomEntered" and frameStep.checkpoint ~= "beforeRoomExit" then
+        return fail(label .. ".checkpoint unsupported")
+    end
+    local owner, ownerError = stringValue(frameStep.owner, label .. ".owner")
+    if not owner then return nil, ownerError end
+    local expectedOwner = '["roomRunStateCheckpoint","Underworld","' .. context.biomeKey .. '","' .. context.roomId .. '","' .. frameStep.checkpoint .. '"]'
+    if owner ~= expectedOwner then return fail(label .. ".owner does not close this checkpoint") end
+    local replace, replaceError = keys(frameStep.replace, {}, diagnosticSections, label .. ".replace")
+    if not replace then return nil, replaceError end
+    local count = 0
+    local complete = setmetatable({ owner = owner, checkpoint = frameStep.checkpoint }, { __json_object = true })
+    for _, section in ipairs(diagnosticSections) do
+        if replace[section] ~= nil then
+            framing.rawSections[section] = replace[section]
+            count = count + 1
+        end
+        complete[section] = framing.rawSections[section]
+    end
+    if frame == 0 and count ~= #diagnosticSections then return fail(label .. ".replace must include every section for frame zero") end
+    for _, section in ipairs(diagnosticSections) do
+        if complete[section] == nil then return fail(label .. ".replace is incomplete before frame zero") end
+    end
+    local diagnostic, diagnosticError = parseDiagnostic(complete, label .. ".replace")
+    if not diagnostic then return nil, diagnosticError end
+    local parsed = { kind = frameStep.checkpoint, owner = owner, checkpoint = frameStep.checkpoint, frame = frame, replace = {} }
+    for _, section in ipairs(diagnosticSections) do
+        if replace[section] ~= nil then
+            if section == "artificer" then
+                -- Lua nil cannot retain an explicit JSON null. Keep presence and
+                -- clear/value distinction in the normalized wire frame.
+                parsed.replace.artificer = { present = true, value = diagnostic.artificer }
+            else
+                parsed.replace[section] = diagnostic[section]
+            end
+        end
+    end
+    framing.nextFrame = frame + 1
+    return parsed
+end
+
 local function parseTraitOffer(value, label)
     local offer, offerError = object(value, label)
     if not offer then return nil, offerError end
@@ -580,7 +631,7 @@ local function parseRole(value, label)
     return result
 end
 
-local function parseRoom(value, index)
+local function parseRoom(value, index, framing)
     local label = "rooms[" .. index .. "]"
     local room, errorMessage = keys(value, { "id", "owner", "biomeKey", "gameName", "kind", "entered", "contents", "trace", "outgoing" }, { "anomaly" }, label)
     if not room then return nil, errorMessage end
@@ -747,25 +798,21 @@ local function parseRoom(value, index)
     for traceIndex, valueStep in ipairs(trace) do
         local step, stepError = object(valueStep, label .. ".trace[" .. traceIndex .. "]")
         if not step then return nil, stepError end
-        local id, idError = stringValue(step.id, label .. ".trace[" .. traceIndex .. "].id")
+        if step.frame ~= nil then
+            local frame, frameError = parseFrame(step, context, label .. ".trace[" .. traceIndex .. "]", framing)
+            if not frame then return nil, frameError end
+            result.trace[traceIndex] = frame
+        else
         local owner, ownerError = stringValue(step.owner, label .. ".trace[" .. traceIndex .. "].owner")
-        if not id then return nil, idError end; if not owner then return nil, ownerError end
-        local parsed = { id = id, kind = step.kind, owner = owner }
+        if not owner then return nil, ownerError end
+        local parsed = { kind = step.kind, owner = owner }
         if step.kind == "roomEntered" or step.kind == "beforeRoomExit" then
-            local checked, checkedError = keys(step, { "id", "kind", "owner", "runState" }, nil, label .. ".trace[" .. traceIndex .. "]")
-            if not checked then return nil, checkedError end
-            if owner ~= result.owner then return fail(label .. ".trace owner mismatch") end
-            local state, stateError = parseDiagnostic(step.runState, label .. ".trace[" .. traceIndex .. "].runState")
-            if not state then return nil, stateError end
-            if state.checkpoint ~= step.kind then return fail(label .. ".trace runState checkpoint mismatch") end
-            local expectedOwner = '["roomRunStateCheckpoint","Underworld","' .. context.biomeKey .. '","' .. context.roomId .. '","' .. step.kind .. '"]'
-            if state.owner ~= expectedOwner then return fail(label .. ".trace runState owner mismatch") end
-            parsed.checkpoint, parsed.runState = step.kind, state
+            return fail(label .. ".trace checkpoint must use a frame")
         elseif step.kind == "cleanup" then
-            local checked, checkedError = keys(step, { "id", "kind", "owner" }, nil, label .. ".trace[" .. traceIndex .. "]")
+            local checked, checkedError = keys(step, { "kind", "owner" }, nil, label .. ".trace[" .. traceIndex .. "]")
             if not checked then return nil, checkedError end; if owner ~= result.owner then return fail(label .. ".trace owner mismatch") end
         elseif step.kind == "encounterStart" then
-            local checked, checkedError = keys(step, { "id", "kind", "owner", "phase", "encounter", "encounterKind" }, nil, label .. ".trace[" .. traceIndex .. "]")
+            local checked, checkedError = keys(step, { "kind", "owner", "phase", "encounter", "encounterKind" }, nil, label .. ".trace[" .. traceIndex .. "]")
             if not checked then return nil, checkedError end
             local phase, phaseError = stringValue(step.phase, label .. ".trace phase")
             if not phase then return nil, phaseError end
@@ -773,12 +820,12 @@ local function parseRoom(value, index)
             if owner ~= result.owner or not declared or declared.encounterKey ~= step.encounter or declared.kind ~= step.encounterKind then return fail(label .. ".trace encounter phase mismatch") end
             parsed.phase, parsed.encounter, parsed.encounterKind = phase, step.encounter, step.encounterKind
         elseif step.kind == "encounterEnd" then
-            local checked, checkedError = keys(step, { "id", "kind", "owner", "phase", "endEffectsExpected" }, nil, label .. ".trace[" .. traceIndex .. "]")
+            local checked, checkedError = keys(step, { "kind", "owner", "phase", "endEffectsExpected" }, nil, label .. ".trace[" .. traceIndex .. "]")
             if not checked then return nil, checkedError end
             if owner ~= result.owner or not phasesByKey[step.phase] or type(step.endEffectsExpected) ~= "boolean" then return fail(label .. ".trace encounter end mismatch") end
             parsed.phase, parsed.endEffectsExpected = step.phase, step.endEffectsExpected
         elseif step.kind == "encounterInteraction" then
-            local checked, checkedError = keys(step, { "id", "kind", "owner", "phaseKey" }, { "resolution" }, label .. ".trace[" .. traceIndex .. "]")
+            local checked, checkedError = keys(step, { "kind", "owner", "phaseKey" }, { "resolution" }, label .. ".trace[" .. traceIndex .. "]")
             if not checked then return nil, checkedError end
             local phase, phaseError = stringValue(step.phaseKey, label .. ".trace phaseKey")
             if not phase then return nil, phaseError end
@@ -822,13 +869,13 @@ local function parseRoom(value, index)
                 else return fail(label .. ".trace resolution unsupported") end
             end
         elseif step.kind == "steadyGrowth" or step.kind == "transcendentEmbryo" then
-            local required = step.kind == "steadyGrowth" and { "id", "kind", "owner", "phase", "source", "target" } or { "id", "kind", "owner", "phase", "source", "target", "rarity" }
+            local required = step.kind == "steadyGrowth" and { "kind", "owner", "phase", "source", "target" } or { "kind", "owner", "phase", "source", "target", "rarity" }
             local checked, checkedError = keys(step, required, nil, label .. ".trace[" .. traceIndex .. "]")
             if not checked then return nil, checkedError end
             if owner ~= result.owner or not phasesByKey[step.phase] then return fail(label .. ".trace automatic phase mismatch") end
             for _, field in ipairs({ "phase", "source", "target", "rarity" }) do if step[field] ~= nil then local text, textError = stringValue(step[field], label .. ".trace " .. field); if not text then return nil, textError end; parsed[field] = text end end
         elseif step.kind == "stygianWellPurchase" then
-            local checked, checkedError = keys(step, { "id", "kind", "owner", "generationKey", "offerKey" }, { "twistResultKey" }, label .. ".trace[" .. traceIndex .. "]")
+            local checked, checkedError = keys(step, { "kind", "owner", "generationKey", "offerKey" }, { "twistResultKey" }, label .. ".trace[" .. traceIndex .. "]")
             if not checked then return nil, checkedError end
             local generationKey, generationError = stringValue(step.generationKey, label .. ".trace Well generationKey")
             if not generationKey then return nil, generationError end
@@ -846,7 +893,7 @@ local function parseRoom(value, index)
             parsed.generationKey, parsed.offerKey = generationKey, offerKey
             if step.twistResultKey ~= nil then local twist, twistError = stringValue(step.twistResultKey, label .. ".trace Well twistResultKey"); if not twist then return nil, twistError end; if found.twistResultKey ~= twist then return fail(label .. ".trace Well twist does not close inventory") end; parsed.twistResultKey = twist end
         elseif step.kind == "worldShopPurchase" then
-            local checked, checkedError = keys(step, { "id", "kind", "owner", "offerKey", "rewardType" }, nil, label .. ".trace[" .. traceIndex .. "]")
+            local checked, checkedError = keys(step, { "kind", "owner", "offerKey", "rewardType" }, nil, label .. ".trace[" .. traceIndex .. "]")
             if not checked then return nil, checkedError end
             local offerKey, offerError = stringValue(step.offerKey, label .. ".trace World Shop offerKey")
             local rewardType, rewardError = stringValue(step.rewardType, label .. ".trace World Shop rewardType")
@@ -859,7 +906,7 @@ local function parseRoom(value, index)
             if found == nil or found.rewardType ~= rewardType then return fail(label .. ".trace World Shop purchase does not close inventory") end
             parsed.offerKey, parsed.rewardType = offerKey, rewardType
         elseif step.kind == "purgingPoolSale" then
-            local checked, checkedError = keys(step, { "id", "kind", "owner", "slotKey", "traitKey" }, nil, label .. ".trace[" .. traceIndex .. "]")
+            local checked, checkedError = keys(step, { "kind", "owner", "slotKey", "traitKey" }, nil, label .. ".trace[" .. traceIndex .. "]")
             if not checked then return nil, checkedError end
             local traitKey, traitError = stringValue(step.traitKey, label .. ".trace Pool traitKey")
             if not traitKey then return nil, traitError end
@@ -872,7 +919,7 @@ local function parseRoom(value, index)
             if expected == nil or expected ~= traitKey then return fail(label .. ".trace Pool sale does not close inventory") end
             parsed.slotKey, parsed.traitKey = step.slotKey, traitKey
         elseif step.kind == "keepsakeRackChange" then
-            local checked, checkedError = keys(step, { "id", "kind", "owner", "keepsakeKey" }, { "equipResults" }, label .. ".trace[" .. traceIndex .. "]")
+            local checked, checkedError = keys(step, { "kind", "owner", "keepsakeKey" }, { "equipResults" }, label .. ".trace[" .. traceIndex .. "]")
             if not checked then return nil, checkedError end
             local key, keyError = stringValue(step.keepsakeKey, label .. ".trace keepsakeKey")
             if not key then return nil, keyError end
@@ -916,13 +963,13 @@ local function parseRoom(value, index)
                 end
             end
         elseif step.kind == "fountainUse" then
-            local checked, checkedError = keys(step, { "id", "kind", "owner" }, { "aromaticPhialTarget" }, label .. ".trace[" .. traceIndex .. "]")
+            local checked, checkedError = keys(step, { "kind", "owner" }, { "aromaticPhialTarget" }, label .. ".trace[" .. traceIndex .. "]")
             if not checked then return nil, checkedError end
             local valid, validError = validateRoomActionOwner(owner, context, '["useFountain"]', label .. ".trace owner")
             if not valid then return nil, validError end
             if step.aromaticPhialTarget ~= nil then local target, targetError = stringValue(step.aromaticPhialTarget, label .. ".trace fountain target"); if not target then return nil, targetError end; if result.contents.fountain == nil or result.contents.fountain.aromaticPhialTarget ~= target then return fail(label .. ".trace fountain target does not close contents") end; parsed.aromaticPhialTarget = target end
         elseif step.kind == "acquireReward" then
-            local checked, checkedError = keys(step, { "id", "kind", "owner", "sourceOwner", "reward", "producerLifecycleKey", "roles" }, nil, label .. ".trace[" .. traceIndex .. "]")
+            local checked, checkedError = keys(step, { "kind", "owner", "sourceOwner", "reward", "producerLifecycleKey", "roles" }, nil, label .. ".trace[" .. traceIndex .. "]")
             if not checked then return nil, checkedError end
             local reward, rewardError = parseReward(step.reward, label .. ".trace reward")
             local sourceOwner, sourceError = stringValue(step.sourceOwner, label .. ".trace sourceOwner")
@@ -962,6 +1009,7 @@ local function parseRoom(value, index)
             if not actionRoleFound then return fail(label .. ".trace acquisition owner role mismatch") end
         else return fail(label .. ".trace kind unsupported") end
         result.trace[traceIndex] = parsed
+        end
     end
     if room.entered and (result.trace[1].kind ~= "roomEntered" or result.trace[#result.trace].kind ~= "beforeRoomExit") then return fail(label .. ".trace boundary order invalid") end
     local outgoing, outgoingError = keys(room.outgoing, { "owner", "kind" }, { "targets", "additional", "selectedExitKey", "selectedAdditionalKey", "target", "resolvedSharedRewardStoreKey" }, label .. ".outgoing")
@@ -1093,9 +1141,10 @@ function protocol.decode(value)
     local rooms, roomsError = array(record.rooms, "rooms", protocol.MAX_ROOMS)
     if not rooms then return nil, roomsError end
     if #rooms == 0 then return fail("execution plan requires rooms") end
+    local framing = { nextFrame = 0, rawSections = {} }
     local resultRooms, ids = {}, {}
     for index, valueRoom in ipairs(rooms) do
-        local room, roomError = parseRoom(valueRoom, index)
+        local room, roomError = parseRoom(valueRoom, index, framing)
         if not room then return nil, roomError end
         if ids[room.id] then return fail("execution plan has duplicate room ids") end
         ids[room.id] = true

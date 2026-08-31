@@ -17,6 +17,21 @@ local function fixturePlan(name)
     return assert(protocol.decode(value))
 end
 
+local function checkpointSnapshot(plan, target)
+    local snapshot = {}
+    for _, room in ipairs(plan.rooms) do
+        for _, step in ipairs(room.trace) do
+            if step.frame ~= nil then
+                for section, value in pairs(step.replace) do
+                    if section == "artificer" then snapshot.artificer = value.value else snapshot[section] = value end
+                end
+                if step == target then return snapshot end
+            end
+        end
+    end
+    error("target checkpoint frame not found")
+end
+
 local function withoutOpeningAcquisition(plan)
     table.remove(plan.rooms[1].trace, 2)
     return plan
@@ -187,7 +202,7 @@ end
 function TestSession.testTwoDoorGenerationPreservesPhysicalOrderAndSelectedBranch()
     local plan = fixturePlan()
     local state, currentRun, game = start(plan)
-    applyRunState(currentRun, plan.rooms[1].trace[1].runState)
+    applyRunState(currentRun, checkpointSnapshot(plan, plan.rooms[1].trace[1]))
     local opening = session.chooseStartingRoom(state, currentRun, {}, game)
     currentRun.CurrentRoom = opening
     session.observeRoom(state, currentRun, opening)
@@ -331,8 +346,8 @@ end
 
 function TestSession.testRunStateDiagnosticsCompareExactCountersAndBags()
     local plan = openingCheckpointsOnly(fixturePlan())
-    local first = plan.rooms[1].trace[1].runState
-    local exit = plan.rooms[1].trace[#plan.rooms[1].trace].runState
+    local first = checkpointSnapshot(plan, plan.rooms[1].trace[1])
+    local exit = checkpointSnapshot(plan, plan.rooms[1].trace[#plan.rooms[1].trace])
     local run = { CurrentRoom = { RoomSetName = "F" } }
     applyRunState(run, first)
     local state = start(plan, run)
@@ -354,9 +369,66 @@ function TestSession.testRunStateDiagnosticsCompareExactCountersAndBags()
     lu.assertEquals(state.firstMismatch.checkpoint, "trace-cursor")
 end
 
+function TestSession.testCheckpointFramesApplyOnlyWhenTheirTraceStepIsConsumed()
+    local plan = openingCheckpointsOnly(fixturePlan())
+    local first = checkpointSnapshot(plan, plan.rooms[1].trace[1])
+    local exit = checkpointSnapshot(plan, plan.rooms[1].trace[2])
+    local run = { CurrentRoom = { RoomSetName = "F" } }
+    applyRunState(run, first)
+    local state = start(plan, run)
+    local room = { Name = plan.rooms[1].gameName, RoomSetName = "F", __runPlannerExecutionRoomId = plan.rooms[1].id }
+    run.CurrentRoom = room
+    session.observeRoom(state, run, room)
+    lu.assertEquals(state.expectedRunStateFrame, 0)
+    lu.assertFalse(session.observeRunState(state, run, "beforeRoomExit"))
+    lu.assertEquals(state.expectedRunStateFrame, 0)
+    state.pendingExit = { sourceId = plan.rooms[1].id, destinationId = plan.rooms[1].outgoing.targets[1].room.id }
+    applyRunState(run, exit)
+    lu.assertTrue(session.observeBeforeRoomExit(state, run))
+    lu.assertEquals(state.expectedRunStateFrame, 1)
+    session.observeBeforeRoomExit(state, run)
+    lu.assertEquals(state.expectedRunStateFrame, 1)
+    lu.assertEquals(state.firstMismatch.checkpoint, "trace-cursor")
+end
+
+function TestSession.testRepeatedRoomEntryContactDoesNotReapplyTheOpeningFrame()
+    local plan = openingCheckpointsOnly(fixturePlan())
+    local snapshot = checkpointSnapshot(plan, plan.rooms[1].trace[1])
+    local run = { CurrentRoom = { RoomSetName = "F" } }
+    applyRunState(run, snapshot)
+    local state = start(plan, run)
+    local room = { Name = plan.rooms[1].gameName, RoomSetName = "F", __runPlannerExecutionRoomId = plan.rooms[1].id }
+    run.CurrentRoom = room
+    session.observeRoom(state, run, room)
+    local cursor = state.traceCursor
+    session.observeRoom(state, run, room)
+    lu.assertEquals(state.state, "synchronized")
+    lu.assertEquals(state.expectedRunStateFrame, 0)
+    lu.assertEquals(state.traceCursor, cursor)
+    lu.assertNil(state.firstMismatch)
+end
+
+function TestSession.testEmptyCheckpointReplacementRetainsTheSessionExpectedState()
+    local plan = fixturePlan()
+    local firstRoom, secondRoom = plan.rooms[1], plan.rooms[2]
+    local beforeEmpty = checkpointSnapshot(plan, firstRoom.trace[#firstRoom.trace])
+    local empty = secondRoom.trace[1]
+    lu.assertEquals(empty.frame, 2)
+    lu.assertEquals(next(empty.replace), nil)
+    local run = { CurrentRoom = { Name = secondRoom.gameName, RoomSetName = secondRoom.biomeKey, __runPlannerExecutionRoomId = secondRoom.id } }
+    applyRunState(run, checkpointSnapshot(plan, empty))
+    local state = start(plan, run)
+    state.currentRoomId, state.traceCursor = secondRoom.id, nil
+    state.expectedRunState, state.expectedRunStateFrame = beforeEmpty, 1
+    session.observeRoom(state, run, run.CurrentRoom)
+    lu.assertEquals(state.state, "synchronized")
+    lu.assertEquals(state.expectedRunStateFrame, 2)
+    lu.assertEquals(state.expectedRunState.counters.routeEncounterDepth, beforeEmpty.counters.routeEncounterDepth)
+end
+
 function TestSession.testRunStateArcanaAutomaticOriginUsesCardDeclaration()
     local plan = openingCheckpointsOnly(fixturePlan())
-    local snapshot = plan.rooms[1].trace[1].runState
+    local snapshot = checkpointSnapshot(plan, plan.rooms[1].trace[1])
     snapshot.arcana.active = { { key = "AutoCard", origin = "automatic", rarity = "Common" } }
     local run = { CurrentRoom = { RoomSetName = "F" } }
     applyRunState(run, snapshot)
@@ -383,7 +455,7 @@ end
 
 function TestSession.testMissingRunStateValueIsAConformanceMismatch()
     local plan = fixturePlan()
-    local snapshot = plan.rooms[1].trace[1].runState
+    local snapshot = checkpointSnapshot(plan, plan.rooms[1].trace[1])
     local run = { CurrentRoom = { RoomSetName = "F" } }
     applyRunState(run, snapshot)
     run.EncounterDepth = nil
@@ -405,7 +477,7 @@ end
 
 function TestSession.testOpeningWithoutHexUsesNativeAbsentHexDefaults()
     local plan = fixturePlan()
-    local snapshot = plan.rooms[1].trace[1].runState
+    local snapshot = checkpointSnapshot(plan, plan.rooms[1].trace[1])
     local run = { CurrentRoom = { RoomSetName = "F" } }
     applyRunState(run, snapshot)
     run.Hero.SlottedSpell = nil
@@ -434,7 +506,7 @@ function TestSession.testEncounterPhasesAreObservedInDeclaredOrder()
     local state, run = start(plan)
     local opening = plan.rooms[1]
     local room = { Name = opening.gameName, RoomSetName = "F", __runPlannerExecutionRoomId = opening.id }
-    applyRunState(run, opening.trace[1].runState)
+    applyRunState(run, checkpointSnapshot(plan, opening.trace[1]))
     run.CurrentRoom = room
     session.observeRoom(state, run, room)
     session.observeEncounterStart(state, run, room, { Name = opening.contents.encounterPhases[1].encounterKey })
@@ -455,7 +527,7 @@ function TestSession.testFGRoomDataSuppressesExcludedSpontaneousNpcFamiliesAndRe
     lu.assertEquals(generated.LegalEncounters[1], opening.contents.encounterPhases[1].encounterKey)
     local room = { Name = opening.gameName, RoomSetName = "F", __runPlannerExecutionRoomId = opening.id }
     run.CurrentRoom = room
-    applyRunState(run, opening.trace[1].runState)
+    applyRunState(run, checkpointSnapshot(plan, opening.trace[1]))
     session.observeRoom(state, run, room)
     session.observeEncounterStart(state, run, room, { Name = "NPC_Nemesis_01" })
     lu.assertEquals(state.state, "desynchronized")
@@ -858,7 +930,7 @@ end
 
 function TestSession.testRunStateHammerRanksUseLiveHammerRarity()
     local plan = openingCheckpointsOnly(fixturePlan())
-    local snapshot = plan.rooms[1].trace[1].runState
+    local snapshot = checkpointSnapshot(plan, plan.rooms[1].trace[1])
     snapshot.traits.equipped = {
         { traitKey = "HammerOne", rarity = "Common", hammerRank = "RankI" },
         { traitKey = "HammerTwo", rarity = "Legendary", hammerRank = "RankII" },
@@ -873,24 +945,27 @@ function TestSession.testRunStateHammerRanksUseLiveHammerRarity()
     local mismatch = session.newState()
     mismatch.state, mismatch.currentRoomId, mismatch.traceCursor = "synchronized", plan.rooms[1].id, 1
     mismatch.roomsById = { [plan.rooms[1].id] = plan.rooms[1] }
+    mismatch.expectedRunState, mismatch.expectedRunStateFrame, mismatch.expectedRunStateCheckpoint = snapshot, 0, "roomEntered"
     session.observeRunState(mismatch, run, "roomEntered")
     lu.assertEquals(mismatch.firstMismatch.checkpoint, "roomEntered")
 end
 
 function TestSession.testRunStateUsesDirectKeepsakeAndHexContacts()
     local plan = openingCheckpointsOnly(fixturePlan())
-    local snapshot = plan.rooms[1].trace[1].runState
+    local snapshot = checkpointSnapshot(plan, plan.rooms[1].trace[1])
     local run = { CurrentRoom = { RoomSetName = "F" } }
     applyRunState(run, snapshot)
     local state = session.newState()
     state.state, state.currentRoomId, state.traceCursor = "synchronized", plan.rooms[1].id, 1
     state.roomsById = { [plan.rooms[1].id] = plan.rooms[1] }
+    state.expectedRunState, state.expectedRunStateFrame, state.expectedRunStateCheckpoint = snapshot, 0, "roomEntered"
     session.observeRunState(state, run, "roomEntered")
     lu.assertEquals(state.state, "synchronized")
 
     local mismatch = session.newState()
     mismatch.state, mismatch.currentRoomId, mismatch.traceCursor = "synchronized", plan.rooms[1].id, 1
     mismatch.roomsById = { [plan.rooms[1].id] = plan.rooms[1] }
+    mismatch.expectedRunState, mismatch.expectedRunStateFrame, mismatch.expectedRunStateCheckpoint = snapshot, 0, "roomEntered"
     _G.GameState.FatedStatus = "Fated"
     session.observeRunState(mismatch, run, "roomEntered")
     lu.assertEquals(mismatch.firstMismatch.checkpoint, "roomEntered")
@@ -1045,7 +1120,7 @@ function TestSession.testSharedIxionChaosFixtureRunStateDetectsCounterRangeTrait
         if room.id == "golden-g-intro:chaos" then chaosRoom = room; break end
     end
     lu.assertNotNil(chaosRoom)
-    local snapshot = chaosRoom.trace[1].runState
+    local snapshot = checkpointSnapshot(plan, chaosRoom.trace[1])
     -- The comparison is bounded to the compiled diagnostic, so a test-only
     -- range proves acceptance within bounds without asking the module to
     -- reconstruct reward-bag policy.
@@ -1062,6 +1137,7 @@ function TestSession.testSharedIxionChaosFixtureRunStateDetectsCounterRangeTrait
         local state = session.newState()
         state.state, state.currentRoomId, state.traceCursor = "synchronized", chaosRoom.id, 1
         state.roomsById = { [chaosRoom.id] = chaosRoom }
+        state.expectedRunState, state.expectedRunStateFrame, state.expectedRunStateCheckpoint = snapshot, chaosRoom.trace[1].frame, "roomEntered"
         return state
     end
     local exact = stateForDiagnostic()
@@ -1094,7 +1170,7 @@ end
 
 function TestSession.testChaosRunStateComparesNativeActiveAndMaturedStatus()
     local plan = openingCheckpointsOnly(fixturePlan())
-    local snapshot = plan.rooms[1].trace[1].runState
+    local snapshot = checkpointSnapshot(plan, plan.rooms[1].trace[1])
     snapshot.chaos.active = {
         { curseKey = "ChaosDamageCurse", blessingKey = "ChaosExSpeedBlessing", rarity = "Rare", clock = "encounters", remaining = 2 },
     }

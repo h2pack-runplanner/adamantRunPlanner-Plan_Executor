@@ -14,6 +14,39 @@ function TestProtocol.testProducerFixtureDecodesToReadyFOpening()
     lu.assertEquals(plan.rooms[1].contents.incomingReward.source, "ApolloUpgrade")
     lu.assertEquals(plan.rooms[1].outgoing.targets[1].index, 1)
     lu.assertEquals(plan.rooms[1].outgoing.resolvedSharedRewardStoreKey, "MetaProgress")
+    local first = plan.rooms[1].trace[1]
+    lu.assertEquals(first.frame, 0)
+    lu.assertNil(first.id)
+    lu.assertNil(first.runState)
+    lu.assertTrue(first.replace.artificer.present)
+    lu.assertNil(first.replace.artificer.value)
+end
+
+function TestProtocol.testFramesAreClosedSequentialAndRetainExplicitArtificerClear()
+    local function rejected(mutate)
+        local value = fixtures.decode()
+        mutate(value)
+        lu.assertNil(protocol.decode(value))
+    end
+    rejected(function(value) value.rooms[1].trace[1].replace.counters = nil end)
+    rejected(function(value) value.rooms[1].trace[1].frame = 1 end)
+    rejected(function(value) value.rooms[1].trace[#value.rooms[1].trace].frame = 0 end)
+    rejected(function(value) value.rooms[1].trace[1].frame = 0.5 end)
+    rejected(function(value) value.rooms[1].trace[1].replace.unknown = {} end)
+    rejected(function(value) value.rooms[1].trace[1].replace.traits = {} end)
+
+    local value = fixtures.decode()
+    value.rooms[1].trace[#value.rooms[1].trace].replace.artificer = setmetatable(
+        { usedCount = 1, remainingCount = 2 }, { __json_object = true })
+    value.rooms[2].trace[1].replace.artificer = json.null
+    local plan, errorMessage = protocol.decode(value)
+    lu.assertNotNil(plan, errorMessage)
+    local introduced = plan.rooms[1].trace[#plan.rooms[1].trace]
+    local cleared = plan.rooms[2].trace[1]
+    lu.assertEquals(introduced.replace.artificer.value.remainingCount, 2)
+    lu.assertTrue(cleared.replace.artificer.present)
+    lu.assertNil(cleared.replace.artificer.value)
+    lu.assertNotNil(plan.rooms[2].trace[1].replace)
 end
 
 function TestProtocol.testIncomingRewardAcquisitionDispositionIsDecodedExactly()
@@ -108,7 +141,7 @@ function TestProtocol.testClosedShapeRejectsUnsupportedAndCoercedValues()
     mutationRejected(function(value) value.rooms[1].outgoing.selectedExitKey = "missing" end)
     mutationRejected(function(value) value.rooms[1].outgoing.targets[1].picked = false end)
     mutationRejected(function(value) value.rooms[1].trace = {} end)
-    mutationRejected(function(value) value.rooms[1].trace[1].runState = nil end)
+    mutationRejected(function(value) value.rooms[1].trace[1].replace = nil end)
     mutationRejected(function(value) value.rooms[1].trace[1].owner = "another-owner" end)
 end
 
@@ -193,7 +226,7 @@ end
 
 function TestProtocol.testMalformedRunStateMapsReturnDecodeErrorsInsteadOfAsserting()
     local value = fixtures.decode()
-    value.rooms[1].trace[1].runState.traits.elements = { bad = "not-a-number" }
+    value.rooms[1].trace[1].replace.traits.elements = { bad = "not-a-number" }
     local plan, errorMessage = protocol.decode(value)
     lu.assertNil(plan)
     lu.assertNotNil(errorMessage)
@@ -201,13 +234,13 @@ end
 
 function TestProtocol.testRewardPrioritiesRetainDuplicateOrder()
     local value = fixtures.decode()
-    value.rooms[1].trace[1].runState.rewardPriorities = setmetatable(
+    value.rooms[1].trace[1].replace.rewardPriorities = setmetatable(
         { "Boon", "Boon" },
         { __json_array = true }
     )
     local plan, errorMessage = protocol.decode(value)
     lu.assertNotNil(plan, errorMessage)
-    lu.assertEquals(plan.rooms[1].trace[1].runState.rewardPriorities, { "Boon", "Boon" })
+    lu.assertEquals(plan.rooms[1].trace[1].replace.rewardPriorities, { "Boon", "Boon" })
 end
 
 function TestProtocol.testTraceBoundMatchesTheProducerDecoder()
