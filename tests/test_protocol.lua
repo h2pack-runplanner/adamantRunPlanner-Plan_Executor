@@ -243,6 +243,28 @@ function TestProtocol.testShopTravelDealAndObjectTraceClosureMatchTheTypeScriptD
     lu.assertNil(protocol.decode(value))
 end
 
+function TestProtocol.testWellGenerationKeyTypeErrorsAreReturnedWithoutThrowing()
+    local function malformedGenerationKey(value)
+        local candidate = decodeFixture("test/fixtures/execution-plan/fg-ixion-chaos.execution.json")
+        local purchase
+        for _, room in ipairs(candidate.rooms) do
+            for _, step in ipairs(room.trace) do
+                if step.kind == "stygianWellPurchase" then purchase = step; break end
+            end
+            if purchase then break end
+        end
+        lu.assertNotNil(purchase)
+        purchase.generationKey = value
+        local completed, plan, errorMessage = pcall(protocol.decode, candidate)
+        lu.assertTrue(completed)
+        lu.assertNil(plan)
+        lu.assertNotNil(errorMessage)
+    end
+
+    malformedGenerationKey(2)
+    malformedGenerationKey({ unexpected = true })
+end
+
 function TestProtocol.testObjectOwnersAndRackResultsUseCanonicalStrings()
     local value = fixtures.decode()
     local fountain

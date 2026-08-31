@@ -974,6 +974,124 @@ function TestSession.testChaosSelectionAndAcquisitionObserveTheNativePair()
     lu.assertEquals(state.firstMismatch.checkpoint, "chaos-selection")
 end
 
+function TestSession.testSharedIxionChaosFixtureGeneratesItsGatePairAndFixedReturn()
+    local plan = fixturePlan("test/fixtures/execution-plan/fg-ixion-chaos.execution.json")
+    local state, run, game = start(plan)
+    local intro = plan.roomsById and plan.roomsById["golden-g-intro"] or nil
+    -- The decoder exposes rooms as an array; select the compiled G entry by
+    -- its persisted occurrence identity rather than by its repeated game name.
+    if intro == nil then
+        for _, room in ipairs(plan.rooms) do
+            if room.id == "golden-g-intro" then intro = room; break end
+        end
+    end
+    lu.assertNotNil(intro)
+    state.currentRoomId = intro.id
+    run.CurrentRoom = { Name = intro.gameName, RoomSetName = intro.biomeKey, __runPlannerExecutionRoomId = intro.id }
+    local gate = session.chooseNextRoomData(state, run, { ForceNextRoomSet = "Chaos" }, nil, game)
+    lu.assertEquals(gate.kind, "handled")
+    lu.assertEquals(gate.roomData.__runPlannerExecutionRoomId, "golden-g-intro:chaos")
+    lu.assertEquals(gate.roomData.Name, "Chaos_01")
+
+    local chaosRoom = state.roomsById[gate.roomData.__runPlannerExecutionRoomId]
+    state.currentRoomId, state.traceCursor = chaosRoom.id, 2
+    run.CurrentRoom = gate.roomData
+    local first, second, third = {}, {}, {}
+    local firstPrepared = session.prepareTraitOfferOption(state, 1, first)
+    local secondPrepared = session.prepareTraitOfferOption(state, 2, second)
+    local thirdPrepared = session.prepareTraitOfferOption(state, 3, third)
+    lu.assertEquals(first.SecondaryItemName, "ChaosNoMoneyCurse")
+    lu.assertEquals(second.SecondaryItemName, "ChaosHealthCurse")
+    lu.assertEquals(third.SecondaryItemName, "ChaosDamageCurse")
+    lu.assertEquals(first.ItemName, "ChaosWeaponBlessing")
+    lu.assertNil(second.ItemName)
+    lu.assertNil(third.ItemName)
+    lu.assertNotNil(firstPrepared.chaos)
+    lu.assertNotNil(secondPrepared.chaos)
+    lu.assertNotNil(thirdPrepared.chaos)
+    local curse = {
+        Name = "ChaosNoMoneyCurse",
+        OnExpire = {
+            TraitData = {
+                Name = "ChaosWeaponBlessing",
+                Rarity = "Common",
+                AddOutgoingDamageModifiers = { ValidWeaponMultiplier = 1.2 },
+            },
+        },
+    }
+    session.applyProcessedChaosCurse(curse, firstPrepared.chaos)
+    session.observeTraitSelection(state, "ChaosNoMoneyCurse")
+    session.verifyTraitAcquisition(state, { curse })
+    lu.assertEquals(state.state, "synchronized")
+
+    local diverged = session.newState()
+    diverged.state, diverged.currentRoomId, diverged.traceCursor = "synchronized", chaosRoom.id, 2
+    diverged.roomsById = { [chaosRoom.id] = chaosRoom }
+    session.prepareTraitOfferOption(diverged, 2, {})
+    session.observeTraitSelection(diverged, "ChaosHealthCurse")
+    lu.assertEquals(diverged.firstMismatch.disposition, "playerDivergence")
+
+    state.currentRoomId, state.generation = chaosRoom.id, nil
+    local returned = session.chooseNextRoomData(state, run, {}, { { Name = "ChaosReturnExitDoor" } }, game)
+    lu.assertEquals(returned.kind, "handled")
+    lu.assertEquals(returned.roomData.__runPlannerExecutionRoomId, "golden-g-b2-e1")
+    lu.assertEquals(returned.roomData.Name, "G_Combat02")
+end
+
+function TestSession.testSharedIxionChaosFixtureRunStateDetectsCounterRangeTraitAndRetainedMismatches()
+    local plan = fixturePlan("test/fixtures/execution-plan/fg-ixion-chaos.execution.json")
+    local chaosRoom
+    for _, room in ipairs(plan.rooms) do
+        if room.id == "golden-g-intro:chaos" then chaosRoom = room; break end
+    end
+    lu.assertNotNil(chaosRoom)
+    local snapshot = chaosRoom.trace[1].runState
+    -- The comparison is bounded to the compiled diagnostic, so a test-only
+    -- range proves acceptance within bounds without asking the module to
+    -- reconstruct reward-bag policy.
+    snapshot.bags[1].remaining = { kind = "range", min = snapshot.bags[1].remaining.count - 1, max = snapshot.bags[1].remaining.count + 1 }
+    local run = { CurrentRoom = { Name = chaosRoom.gameName, RoomSetName = chaosRoom.biomeKey, __runPlannerExecutionRoomId = chaosRoom.id } }
+    local function applyRangeSnapshot()
+        local range = snapshot.bags[1].remaining
+        snapshot.bags[1].remaining = { kind = "exact", count = range.min }
+        applyRunState(run, snapshot)
+        snapshot.bags[1].remaining = range
+    end
+    applyRangeSnapshot()
+    local function stateForDiagnostic()
+        local state = session.newState()
+        state.state, state.currentRoomId, state.traceCursor = "synchronized", chaosRoom.id, 1
+        state.roomsById = { [chaosRoom.id] = chaosRoom }
+        return state
+    end
+    local exact = stateForDiagnostic()
+    session.observeRunState(exact, run, "roomEntered")
+    lu.assertEquals(exact.state, "synchronized")
+
+    local counter = stateForDiagnostic()
+    run.EncounterDepth = run.EncounterDepth + 1
+    session.observeRunState(counter, run, "roomEntered")
+    lu.assertEquals(counter.firstMismatch.disposition, "conformanceDiscrepancy")
+    applyRangeSnapshot()
+
+    local bag = stateForDiagnostic()
+    for index = 1, snapshot.bags[1].remaining.max + 1 do run.RewardStores[snapshot.bags[1].storeKey][index] = {} end
+    session.observeRunState(bag, run, "roomEntered")
+    lu.assertEquals(bag.firstMismatch.disposition, "conformanceDiscrepancy")
+    applyRangeSnapshot()
+
+    local trait = stateForDiagnostic()
+    run.Hero.Traits[1].Name = "WrongTrait"
+    session.observeRunState(trait, run, "roomEntered")
+    lu.assertEquals(trait.firstMismatch.disposition, "conformanceDiscrepancy")
+    applyRangeSnapshot()
+
+    local retained = stateForDiagnostic()
+    run.BannedTraits = { UnexpectedBan = true }
+    session.observeRunState(retained, run, "roomEntered")
+    lu.assertEquals(retained.firstMismatch.disposition, "conformanceDiscrepancy")
+end
+
 function TestSession.testChaosRunStateComparesNativeActiveAndMaturedStatus()
     local plan = openingCheckpointsOnly(fixturePlan())
     local snapshot = plan.rooms[1].trace[1].runState

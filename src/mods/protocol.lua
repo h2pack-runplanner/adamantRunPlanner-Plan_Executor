@@ -17,6 +17,16 @@ protocol.MAX_BAGS = 64
 
 local function fail(message) return nil, message end
 
+-- Room-action owners are semantic-address JSON arrays.  The decoder only
+-- needs their closed two-string form; keeping this local avoids giving the
+-- bounded decoder a general JSON encoder just to reconstruct an owner key.
+local function actionOwnerKey(action, argument)
+    local function quote(value)
+        return '"' .. value:gsub('\\', '\\\\'):gsub('"', '\\"') .. '"'
+    end
+    return "[" .. quote(action) .. "," .. quote(argument) .. "]"
+end
+
 local function object(value, label)
     if not json.isObject(value) then return fail(label .. " must be a JSON object") end
     return value
@@ -820,18 +830,20 @@ local function parseRoom(value, index)
         elseif step.kind == "stygianWellPurchase" then
             local checked, checkedError = keys(step, { "id", "kind", "owner", "generationKey", "offerKey" }, { "twistResultKey" }, label .. ".trace[" .. traceIndex .. "]")
             if not checked then return nil, checkedError end
-            local actionKey = json.encode({ "purchaseStygianWellOffer", step.generationKey })
+            local generationKey, generationError = stringValue(step.generationKey, label .. ".trace Well generationKey")
+            if not generationKey then return nil, generationError end
+            local actionKey = actionOwnerKey("purchaseStygianWellOffer", generationKey)
             local valid, validError = validateRoomActionOwner(owner, context, actionKey, label .. ".trace owner")
             if not valid then return nil, validError end
             local allowed = { ["initial:healing"] = true, ["initial:secondLeft"] = true, ["initial:secondRight"] = true, ["travelDealRefill"] = true }
-            if allowed[step.generationKey] ~= true then return fail(label .. ".trace Well generation unsupported") end
+            if allowed[generationKey] ~= true then return fail(label .. ".trace Well generation unsupported") end
             local offerKey, offerError = stringValue(step.offerKey, label .. ".trace Well offerKey")
             if not offerKey then return nil, offerError end
             local inventory = result.contents.stygianWell and result.contents.stygianWell.offers or {}
             local found
-            for _, offer in ipairs(inventory) do if offer.generationKey == step.generationKey then found = offer end end
+            for _, offer in ipairs(inventory) do if offer.generationKey == generationKey then found = offer end end
             if found == nil or found.offerKey ~= offerKey then return fail(label .. ".trace Well purchase does not close inventory") end
-            parsed.generationKey, parsed.offerKey = step.generationKey, offerKey
+            parsed.generationKey, parsed.offerKey = generationKey, offerKey
             if step.twistResultKey ~= nil then local twist, twistError = stringValue(step.twistResultKey, label .. ".trace Well twistResultKey"); if not twist then return nil, twistError end; if found.twistResultKey ~= twist then return fail(label .. ".trace Well twist does not close inventory") end; parsed.twistResultKey = twist end
         elseif step.kind == "worldShopPurchase" then
             local checked, checkedError = keys(step, { "id", "kind", "owner", "offerKey", "rewardType" }, nil, label .. ".trace[" .. traceIndex .. "]")
@@ -839,7 +851,7 @@ local function parseRoom(value, index)
             local offerKey, offerError = stringValue(step.offerKey, label .. ".trace World Shop offerKey")
             local rewardType, rewardError = stringValue(step.rewardType, label .. ".trace World Shop rewardType")
             if not offerKey then return nil, offerError end; if not rewardType then return nil, rewardError end
-            local actionKey = json.encode({ "interactShopOffer", offerKey })
+            local actionKey = actionOwnerKey("interactShopOffer", offerKey)
             local valid, validError = validateRoomActionOwner(owner, context, actionKey, label .. ".trace owner")
             if not valid then return nil, validError end
             local found
@@ -852,7 +864,7 @@ local function parseRoom(value, index)
             local traitKey, traitError = stringValue(step.traitKey, label .. ".trace Pool traitKey")
             if not traitKey then return nil, traitError end
             if step.slotKey ~= "left" and step.slotKey ~= "middle" and step.slotKey ~= "right" then return fail(label .. ".trace Pool slot unsupported") end
-            local actionKey = json.encode({ "sellPurgingPoolTrait", step.slotKey })
+            local actionKey = actionOwnerKey("sellPurgingPoolTrait", step.slotKey)
             local valid, validError = validateRoomActionOwner(owner, context, actionKey, label .. ".trace owner")
             if not valid then return nil, validError end
             local expected
