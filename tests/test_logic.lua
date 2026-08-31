@@ -292,6 +292,58 @@ function TestLogic.testAcquisitionHooksWireOrdinaryOfferAndPostBaseVerification(
     lu.assertEquals(state.traceCursor, 2)
 end
 
+function TestLogic.testChaosTrialUpgradeLeavesNativePairConstructionToPerOptionSeam()
+    local state = session.newState()
+    state.state, state.currentRoomId, state.traceCursor = "synchronized", "room", 1
+    local offer = {
+        kind = "chaos", giver = "Chaos", selected = "option2",
+        curseOptions = {
+            { curseKey = "ChaosDamageCurse", requirementCount = 2 },
+            { curseKey = "ChaosDamageCurse", requirementCount = 3 },
+            { curseKey = "ChaosSpeedCurse", requirementCount = 4 },
+        },
+        selectedCurseValues = { damageTaken = 0.4 },
+        blessingKey = "ChaosExSpeedBlessing", rarity = "Rare",
+        blessingValues = { propertySpeed = 0.6, weaponSpeed = 1.25 },
+    }
+    state.roomsById = { room = { trace = { { kind = "acquireReward", roles = {
+        { gameName = "TrialUpgrade", role = "source", settlement = { site = "s", entry = "e" }, traitOffer = offer },
+    } } } } }
+    local wrapped = {}
+    local api = setmetatable({ defineCache = function() end, get = function() return state end }, { __index = session })
+    logic.attach({ hooks = { wrap = function(name, _, callback) wrapped[name] = callback end } }, { inbox = {}, session = api })
+    local runtime = { status = { write = function() end } }
+    _G.CurrentRun = { Hero = { Traits = {} } }
+    local loot = { Name = "TrialUpgrade" }
+    wrapped.UseLoot(nil, runtime, function(usee)
+        -- Native TrialUpgrade remains responsible for building its three raw
+        -- transforming pairs; the executor must not access ordinary options.
+        lu.assertNil(usee.UpgradeOptions)
+        return true
+    end, loot, {}, {})
+    local selected = {}
+    for index = 1, 3 do
+        local item = {}
+        wrapped.CreateUpgradeChoiceButton(nil, runtime, function(_, _, _, data) return data end, {}, loot, index, item, {})
+        if index == 2 then selected = item end
+    end
+    lu.assertEquals(selected.SecondaryItemName, "ChaosDamageCurse")
+    lu.assertEquals(selected.ItemName, "ChaosExSpeedBlessing")
+    wrapped.HandleUpgradeChoiceSelection(nil, runtime, function(_, button)
+        local curse = { Name = button.Data.SecondaryItemName, PropertyChanges = { {} }, AddIncomingDamageModifiers = { ValidWeaponMultiplier = 1 } }
+        local blessing = { Name = "ChaosExSpeedBlessing", Rarity = button.Data.Rarity, PropertyChanges = { {} }, WeaponSpeedMultiplier = {} }
+        -- GetProcessedTraitData has already applied the selected-pair operands;
+        -- this witnesses only the native selected-pair result.
+        curse.RemainingUses, curse.AddIncomingDamageModifiers.ValidWeaponMultiplier = 3, 1.4
+        blessing.WeaponSpeedMultiplier.Value, blessing.PropertyChanges[1].ChangeValue = 1.25, 0.6
+        curse.OnExpire = { TraitData = blessing }
+        _G.CurrentRun.Hero.Traits = { curse }
+        return true
+    end, {}, { Data = { Name = "ChaosDamageCurse", SecondaryItemName = "ChaosDamageCurse", Rarity = "Rare" } }, {})
+    lu.assertEquals(state.state, "synchronized")
+    lu.assertEquals(state.traceCursor, 2)
+end
+
 function TestLogic.testSimpleLootHookRequiresNestedPickupContact()
     local state = session.newState()
     state.state, state.currentRoomId, state.traceCursor = "synchronized", "room", 1
@@ -315,6 +367,62 @@ local function hookedTrace(step)
     local api = setmetatable({ defineCache = function() end, get = function() return state end }, { __index = session })
     logic.attach({ hooks = { wrap = function(name, _, callback) wrapped[name] = callback end } }, { inbox = {}, session = api })
     return state, wrapped, { status = { write = function() end } }
+end
+
+function TestLogic.testChaosAndContractNativeGenerationSeamsOnlyScopeCompiledAdditionalTargets()
+    local state, wrapped = session.newState(), {}
+    local source = {
+        id = "source", owner = "source-owner", gameName = "F_Test", biomeKey = "F",
+        outgoing = { kind = "batch", owner = "outgoing-owner", targets = {}, additional = {
+            { kind = "chaos", key = "chaos", owner = "chaos-owner", room = { id = "chaos", biomeKey = "F", gameName = "Chaos_01" }, picked = true },
+            { kind = "zagreusContract", key = "zagreusContract", owner = "contract-owner", room = { id = "contract", biomeKey = "F", gameName = "C_Boss01" }, picked = false },
+        } },
+    }
+    local chaos = { id = "chaos", owner = "chaos-owner", gameName = "Chaos_01", biomeKey = "F", outgoing = { kind = "terminal" } }
+    local contract = { id = "contract", owner = "contract-owner", gameName = "C_Boss01", biomeKey = "F", outgoing = { kind = "fixed", target = chaos } }
+    state.state, state.currentRoomId = "synchronized", source.id
+    state.plan = { planFingerprint = "test-plan" }
+    state.roomsById = { source = source, chaos = chaos, contract = contract }
+    local api = setmetatable({ defineCache = function() end, get = function() return state end }, { __index = session })
+    logic.attach({ hooks = { wrap = function(name, _, callback) wrapped[name] = callback end } }, { inbox = {}, session = api })
+    local runtime = { status = { write = function() end } }
+    _G.game = { RoomData = {
+        Chaos_01 = { Name = "Chaos_01", RoomSetName = "F" },
+        C_Boss01 = { Name = "C_Boss01", RoomSetName = "F" },
+    } }
+    local room = { Name = "F_Test", __runPlannerExecutionRoomId = "source", ForceSecretDoor = false, SecretChanceSuccess = false }
+    local run = { CurrentRoom = room }
+    local consumed = 0
+    wrapped.HandleSecretSpawns(nil, runtime, function(currentRun)
+        lu.assertTrue(wrapped.IsSecretDoorEligible(nil, runtime, function() return false end, currentRun, room))
+        -- Vanilla owns the ForceSecretDoor/Ixion trait consumption after its
+        -- eligibility result; the adapter merely supplies that result.
+        room.ForceSecretDoor = true
+        if room.ForceSecretDoor then consumed = consumed + 1; room.ForceSecretDoor = false end
+    end, run)
+    lu.assertEquals(consumed, 1)
+    lu.assertFalse(room.ForceSecretDoor)
+    lu.assertFalse(room.SecretChanceSuccess)
+
+    local created
+    wrapped.SpawnZagContract(nil, runtime, function(currentRoom, args)
+        lu.assertTrue(currentRoom.ZagreusContractSuccess)
+        created = wrapped.CreateRoom(nil, runtime, function(data)
+            return data
+        end, { Name = "C_Boss01" }, args)
+    end, room, { marker = "contract-args" })
+    lu.assertEquals(created.__runPlannerExecutionRoomId, "contract")
+    lu.assertEquals(created.__runPlannerExecutionAdditionalKey, "zagreusContract")
+    lu.assertNil(state.pendingAdditionalCreation)
+    lu.assertNil(room.ZagreusContractSuccess)
+
+    source.outgoing.additional = {}
+    room.ForceSecretDoor, room.SecretChanceSuccess = true, true
+    wrapped.HandleSecretSpawns(nil, runtime, function(currentRun)
+        lu.assertFalse(wrapped.IsSecretDoorEligible(nil, runtime, function() return true end, currentRun, room))
+    end, run)
+    lu.assertTrue(room.ForceSecretDoor)
+    lu.assertTrue(room.SecretChanceSuccess)
 end
 
 function TestLogic.testSharedTraitHooksCoverDevotionHammerAndSpell()

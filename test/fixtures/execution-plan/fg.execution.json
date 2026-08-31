@@ -1,6 +1,6 @@
 {
   "format": "run-planner-execution",
-  "protocolVersion": 4,
+  "protocolVersion": 5,
   "catalogVersion": "0.52.0-boss-preboss-variants",
   "projectId": "golden-fg",
   "routeKey": "Underworld",
@@ -198,6 +198,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -455,6 +459,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -488,6 +496,7 @@
             "picked": true
           }
         ],
+        "additional": [],
         "selectedExitKey": "exit1",
         "resolvedSharedRewardStoreKey": "MetaProgress"
       }
@@ -688,6 +697,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -922,6 +935,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -966,6 +983,7 @@
             "picked": false
           }
         ],
+        "additional": [],
         "selectedExitKey": "exit1",
         "resolvedSharedRewardStoreKey": "RunProgress"
       }
@@ -1167,6 +1185,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -1430,6 +1452,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -1474,6 +1500,7 @@
             "picked": false
           }
         ],
+        "additional": [],
         "selectedExitKey": "exit1",
         "resolvedSharedRewardStoreKey": "RunProgress"
       }
@@ -1708,6 +1735,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -1948,6 +1979,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -1992,6 +2027,7 @@
             "picked": false
           }
         ],
+        "additional": [],
         "selectedExitKey": "exit1",
         "resolvedSharedRewardStoreKey": "RunProgress"
       }
@@ -2226,6 +2262,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -2471,6 +2511,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -2515,6 +2559,7 @@
             "picked": false
           }
         ],
+        "additional": [],
         "selectedExitKey": "exit1",
         "resolvedSharedRewardStoreKey": "MetaProgress"
       }
@@ -2749,6 +2794,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -2989,6 +3038,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -3033,6 +3086,7 @@
             "picked": false
           }
         ],
+        "additional": [],
         "selectedExitKey": "exit1",
         "resolvedSharedRewardStoreKey": "RunProgress"
       }
@@ -3268,6 +3322,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -3537,6 +3595,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -3570,6 +3632,7 @@
             "picked": true
           }
         ],
+        "additional": [],
         "selectedExitKey": "exit1",
         "resolvedSharedRewardStoreKey": "RunProgress"
       }
@@ -3811,6 +3874,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -4057,6 +4124,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -4101,6 +4172,7 @@
             "picked": false
           }
         ],
+        "additional": [],
         "selectedExitKey": "exit1",
         "resolvedSharedRewardStoreKey": "RunProgress"
       }
@@ -4313,6 +4385,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -4579,6 +4655,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -4623,6 +4703,7 @@
             "picked": false
           }
         ],
+        "additional": [],
         "selectedExitKey": "exit1",
         "resolvedSharedRewardStoreKey": "MetaProgress"
       }
@@ -4867,6 +4948,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -5117,6 +5202,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -5161,6 +5250,7 @@
             "picked": false
           }
         ],
+        "additional": [],
         "selectedExitKey": "exit1",
         "resolvedSharedRewardStoreKey": "RunProgress"
       }
@@ -5405,6 +5495,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -5655,6 +5749,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -5699,6 +5797,7 @@
             "picked": false
           }
         ],
+        "additional": [],
         "selectedExitKey": "exit1",
         "resolvedSharedRewardStoreKey": "RunProgress"
       }
@@ -5757,19 +5856,19 @@
           "offers": [
             {
               "offerKey": "Boon",
+              "optionKey": "RandomLoot",
               "rewardType": "RandomLoot",
-              "source": "ApolloUpgrade",
-              "optionKey": "RandomLoot"
+              "source": "ApolloUpgrade"
             },
             {
               "offerKey": "MajorNonBoon",
-              "rewardType": "RoomRewardHealDrop",
-              "optionKey": "RoomRewardHealDrop"
+              "optionKey": "RoomRewardHealDrop",
+              "rewardType": "RoomRewardHealDrop"
             },
             {
               "offerKey": "Minor",
-              "rewardType": "MaxManaDrop",
-              "optionKey": "MaxManaDrop"
+              "optionKey": "MaxManaDrop",
+              "rewardType": "MaxManaDrop"
             }
           ]
         }
@@ -5964,6 +6063,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -6174,6 +6277,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -6436,6 +6543,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -6668,6 +6779,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -6902,6 +7017,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -7117,6 +7236,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -7345,6 +7468,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -7555,6 +7682,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -7588,6 +7719,7 @@
             "picked": true
           }
         ],
+        "additional": [],
         "selectedExitKey": "exit1",
         "resolvedSharedRewardStoreKey": "RunProgress"
       }
@@ -7805,6 +7937,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -8084,6 +8220,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -8128,6 +8268,7 @@
             "picked": false
           }
         ],
+        "additional": [],
         "selectedExitKey": "exit1",
         "resolvedSharedRewardStoreKey": "MetaProgress"
       }
@@ -8350,6 +8491,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -8606,6 +8751,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -8661,6 +8810,7 @@
             "picked": false
           }
         ],
+        "additional": [],
         "selectedExitKey": "exit1",
         "resolvedSharedRewardStoreKey": "RunProgress"
       }
@@ -8911,6 +9061,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -9136,6 +9290,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -9169,6 +9327,7 @@
             "picked": true
           }
         ],
+        "additional": [],
         "selectedExitKey": "exit1",
         "resolvedSharedRewardStoreKey": "MetaProgress"
       }
@@ -9450,6 +9609,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -9709,6 +9872,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -9753,6 +9920,7 @@
             "picked": false
           }
         ],
+        "additional": [],
         "selectedExitKey": "exit1",
         "resolvedSharedRewardStoreKey": "RunProgress"
       }
@@ -9783,19 +9951,19 @@
           "offers": [
             {
               "offerKey": "Boon",
+              "optionKey": "RandomLoot",
               "rewardType": "RandomLoot",
-              "source": "ApolloUpgrade",
-              "optionKey": "RandomLoot"
+              "source": "ApolloUpgrade"
             },
             {
               "offerKey": "MajorNonBoon",
-              "rewardType": "RoomRewardHealDrop",
-              "optionKey": "RoomRewardHealDrop"
+              "optionKey": "RoomRewardHealDrop",
+              "rewardType": "RoomRewardHealDrop"
             },
             {
               "offerKey": "Minor",
-              "rewardType": "MaxManaDrop",
-              "optionKey": "MaxManaDrop"
+              "optionKey": "MaxManaDrop",
+              "rewardType": "MaxManaDrop"
             }
           ]
         }
@@ -9999,6 +10167,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -10218,6 +10390,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -10262,6 +10438,7 @@
             "picked": false
           }
         ],
+        "additional": [],
         "selectedExitKey": "exit1",
         "resolvedSharedRewardStoreKey": "RunProgress"
       }
@@ -10516,6 +10693,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -10804,6 +10985,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -10848,6 +11033,7 @@
             "picked": false
           }
         ],
+        "additional": [],
         "selectedExitKey": "exit1",
         "resolvedSharedRewardStoreKey": "RunProgress"
       }
@@ -11109,6 +11295,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -11402,6 +11592,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -11446,6 +11640,7 @@
             "picked": false
           }
         ],
+        "additional": [],
         "selectedExitKey": "exit1",
         "resolvedSharedRewardStoreKey": "RunProgress"
       }
@@ -11504,19 +11699,19 @@
           "offers": [
             {
               "offerKey": "Boon",
+              "optionKey": "RandomLoot",
               "rewardType": "RandomLoot",
-              "source": "ApolloUpgrade",
-              "optionKey": "RandomLoot"
+              "source": "ApolloUpgrade"
             },
             {
               "offerKey": "MajorNonBoon",
-              "rewardType": "RoomRewardHealDrop",
-              "optionKey": "RoomRewardHealDrop"
+              "optionKey": "RoomRewardHealDrop",
+              "rewardType": "RoomRewardHealDrop"
             },
             {
               "offerKey": "Minor",
-              "rewardType": "MaxManaDrop",
-              "optionKey": "MaxManaDrop"
+              "optionKey": "MaxManaDrop",
+              "rewardType": "MaxManaDrop"
             }
           ]
         }
@@ -11731,6 +11926,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -11961,6 +12160,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -12243,6 +12446,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -12495,6 +12702,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -12749,6 +12960,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -12984,6 +13199,10 @@
               "disabledKeys": []
             },
             "forfeit": "inactive",
+            "chaos": {
+              "active": [],
+              "matured": []
+            },
             "keepsakes": {
               "currentKey": "ManaOverTimeRefundKeepsake",
               "usedKeys": ["ManaOverTimeRefundKeepsake"],
@@ -13007,5 +13226,5 @@
       }
     }
   ],
-  "planFingerprint": "5f1b4416"
+  "planFingerprint": "7c47e0b8"
 }

@@ -5,7 +5,7 @@ local json = require("mods/json")
 local protocol = {}
 
 protocol.FORMAT = "run-planner-execution"
-protocol.VERSION = 4
+protocol.VERSION = 5
 protocol.CATALOG_VERSION = "0.52.0-boss-preboss-variants"
 protocol.MAX_STRING = 512
 protocol.MAX_ROOMS = 256
@@ -70,6 +70,21 @@ local function mapNumbers(value, label)
         if not name then return nil, nameError end
         if not number then return nil, numberError end
         result[name] = number
+    end
+    return result
+end
+
+local function mapFiniteNumbers(value, label)
+    local record, errorMessage = object(value, label)
+    if not record then return nil, errorMessage end
+    local result = {}
+    for key, item in pairs(record) do
+        local name, nameError = stringValue(key, label .. " key")
+        if not name then return nil, nameError end
+        if type(item) ~= "number" or item ~= item or item == math.huge or item == -math.huge then
+            return fail(label .. "." .. tostring(key) .. " must be finite")
+        end
+        result[name] = item
     end
     return result
 end
@@ -242,7 +257,7 @@ local function parseReward(value, label)
 end
 
 local function parseDiagnostic(value, label)
-    local diagnostic, errorMessage = keys(value, { "owner", "checkpoint", "counters", "bags", "godPool", "traits", "arcana", "vows", "forfeit", "keepsakes", "rewardPriorities", "hexProgress", "artificer" }, nil, label)
+    local diagnostic, errorMessage = keys(value, { "owner", "checkpoint", "counters", "bags", "godPool", "traits", "arcana", "vows", "forfeit", "chaos", "keepsakes", "rewardPriorities", "hexProgress", "artificer" }, nil, label)
     if not diagnostic then return nil, errorMessage end
     if diagnostic.checkpoint ~= "roomEntered" and diagnostic.checkpoint ~= "beforeRoomExit" then return fail(label .. ".checkpoint unsupported") end
     local counters, countersError = keys(diagnostic.counters, { "biomeDepthCache", "biomeEncounterDepth", "routeEncounterDepth", "roomHistoryOrdinal" }, nil, label .. ".counters")
@@ -328,6 +343,33 @@ local function parseDiagnostic(value, label)
     local bannedTraitKeys, bannedTraitKeysError = strings(traits.bannedTraitKeys, label .. ".traits.bannedTraitKeys", 128)
     if not bannedTraitKeys then return nil, bannedTraitKeysError end
     result.traits.bannedTraitKeys = bannedTraitKeys
+    local chaos, chaosError = keys(diagnostic.chaos, { "active", "matured" }, nil, label .. ".chaos")
+    if not chaos then return nil, chaosError end
+    local activeChaos, activeChaosError = array(chaos.active, label .. ".chaos.active", 32)
+    local maturedChaos, maturedChaosError = array(chaos.matured, label .. ".chaos.matured", 32)
+    if not activeChaos then return nil, activeChaosError end
+    if not maturedChaos then return nil, maturedChaosError end
+    result.chaos = { active = {}, matured = {} }
+    for index, entry in ipairs(activeChaos) do
+        local item, itemError = keys(entry, { "curseKey", "blessingKey", "rarity", "clock", "remaining" }, nil, label .. ".chaos.active[" .. index .. "]")
+        if not item then return nil, itemError end
+        if item.clock ~= "encounters" and item.clock ~= "locations" and item.clock ~= "godBoonScreens" then return fail(label .. ".chaos.active clock unsupported") end
+        local remaining, remainingError = integer(item.remaining, label .. ".chaos.active remaining")
+        if not remaining then return nil, remainingError end
+        local curseKey, curseKeyError = stringValue(item.curseKey, label .. ".chaos.active curseKey")
+        local blessingKey, blessingKeyError = stringValue(item.blessingKey, label .. ".chaos.active blessingKey")
+        local rarity, rarityError = stringValue(item.rarity, label .. ".chaos.active rarity")
+        if not curseKey then return nil, curseKeyError end; if not blessingKey then return nil, blessingKeyError end; if not rarity then return nil, rarityError end
+        result.chaos.active[index] = { curseKey = curseKey, blessingKey = blessingKey, rarity = rarity, clock = item.clock, remaining = remaining }
+    end
+    for index, entry in ipairs(maturedChaos) do
+        local item, itemError = keys(entry, { "blessingKey", "rarity" }, nil, label .. ".chaos.matured[" .. index .. "]")
+        if not item then return nil, itemError end
+        local blessingKey, blessingKeyError = stringValue(item.blessingKey, label .. ".chaos.matured blessingKey")
+        local rarity, rarityError = stringValue(item.rarity, label .. ".chaos.matured rarity")
+        if not blessingKey then return nil, blessingKeyError end; if not rarity then return nil, rarityError end
+        result.chaos.matured[index] = { blessingKey = blessingKey, rarity = rarity }
+    end
     local arcana, arcanaError = keys(diagnostic.arcana, { "active" }, nil, label .. ".arcana")
     if not arcana then return nil, arcanaError end
     local active, activeError = array(arcana.active, label .. ".arcana.active", 32)
@@ -395,6 +437,38 @@ local function parseTraitOffer(value, label)
         local giver, giverError = stringValue(offer.giver, label .. ".giver")
         if not giver then return nil, giverError end
         return { kind = "fallbackGold", giver = giver }
+    end
+    if offer.kind == "chaos" then
+        local checked, checkedError = keys(offer, { "kind", "giver", "curseOptions", "selected", "selectedCurseValues", "blessingKey", "rarity", "blessingValues" }, nil, label)
+        if not checked then return nil, checkedError end
+        if offer.giver ~= "Chaos" then return fail(label .. ".giver must be Chaos") end
+        local options, optionsError = array(offer.curseOptions, label .. ".curseOptions", 3)
+        if not options then return nil, optionsError end
+        if #options ~= 3 then return fail(label .. ".curseOptions must contain three ordered curses") end
+        local result = { kind = "chaos", giver = "Chaos", curseOptions = {} }
+        for index, entry in ipairs(options) do
+            local option, optionError = keys(entry, { "curseKey", "requirementCount" }, nil, label .. ".curseOptions[" .. index .. "]")
+            if not option then return nil, optionError end
+            local curseKey, curseKeyError = stringValue(option.curseKey, label .. ".curseOptions curseKey")
+            local requirementCount, requirementCountError = integer(
+                option.requirementCount,
+                label .. ".curseOptions requirementCount",
+                1
+            )
+            if not curseKey then return nil, curseKeyError end; if not requirementCount then return nil, requirementCountError end
+            result.curseOptions[index] = { curseKey = curseKey, requirementCount = requirementCount }
+        end
+        local selected, selectedError = stringValue(offer.selected, label .. ".selected")
+        if not selected then return nil, selectedError end
+        if not selected:match("^option[1-3]$") then return fail(label .. ".selected invalid") end
+        local curseValues, curseValuesError = mapFiniteNumbers(offer.selectedCurseValues, label .. ".selectedCurseValues")
+        local blessingValues, blessingValuesError = mapFiniteNumbers(offer.blessingValues, label .. ".blessingValues")
+        local blessingKey, blessingKeyError = stringValue(offer.blessingKey, label .. ".blessingKey")
+        local rarity, rarityError = stringValue(offer.rarity, label .. ".rarity")
+        if not curseValues then return nil, curseValuesError end; if not blessingValues then return nil, blessingValuesError end
+        if not blessingKey then return nil, blessingKeyError end; if not rarity then return nil, rarityError end
+        result.selected, result.selectedCurseValues, result.blessingKey, result.rarity, result.blessingValues = selected, curseValues, blessingKey, rarity, blessingValues
+        return result
     end
     local checked, checkedError = keys(offer, { "kind", "giver", "options", "selected" }, { "rejected", "runtimeFallback" }, label)
     if not checked then return nil, checkedError end
@@ -829,25 +903,29 @@ local function parseRoom(value, index)
         result.trace[traceIndex] = parsed
     end
     if room.entered and (result.trace[1].kind ~= "roomEntered" or result.trace[#result.trace].kind ~= "beforeRoomExit") then return fail(label .. ".trace boundary order invalid") end
-    local outgoing, outgoingError = keys(room.outgoing, { "owner", "kind" }, { "targets", "selectedExitKey", "target", "resolvedSharedRewardStoreKey" }, label .. ".outgoing")
+    local outgoing, outgoingError = keys(room.outgoing, { "owner", "kind" }, { "targets", "additional", "selectedExitKey", "selectedAdditionalKey", "target", "resolvedSharedRewardStoreKey" }, label .. ".outgoing")
     if not outgoing then return nil, outgoingError end
     local outgoingOwner, outgoingOwnerError = stringValue(outgoing.owner, label .. ".outgoing.owner")
     if not outgoingOwner then return nil, outgoingOwnerError end
     if outgoing.kind == "batch" then
-        local checked, checkedError = keys(outgoing, { "owner", "kind", "targets", "selectedExitKey" }, { "resolvedSharedRewardStoreKey" }, label .. ".outgoing")
+        local checked, checkedError = keys(outgoing, { "owner", "kind", "targets", "additional" }, { "selectedExitKey", "selectedAdditionalKey", "resolvedSharedRewardStoreKey" }, label .. ".outgoing")
         if not checked then return nil, checkedError end
         local targets, targetsError = array(outgoing.targets, label .. ".outgoing.targets", protocol.MAX_TARGETS)
         if not targets then return nil, targetsError end
         if #targets == 0 then return fail(label .. ".outgoing.targets cannot be empty") end
-        local selectedExit, selectedError = stringValue(outgoing.selectedExitKey, label .. ".outgoing.selectedExitKey")
-        if not selectedExit then return nil, selectedError end
-        result.outgoing = { owner = outgoingOwner, kind = "batch", targets = {}, selectedExitKey = selectedExit }
+        local additional, additionalError = array(outgoing.additional, label .. ".outgoing.additional", 2)
+        if not additional then return nil, additionalError end
+        local selectedExit = outgoing.selectedExitKey ~= nil and stringValue(outgoing.selectedExitKey, label .. ".outgoing.selectedExitKey") or nil
+        local selectedAdditional = outgoing.selectedAdditionalKey ~= nil and stringValue(outgoing.selectedAdditionalKey, label .. ".outgoing.selectedAdditionalKey") or nil
+        if (selectedExit == nil and selectedAdditional == nil) or (selectedExit ~= nil and selectedAdditional ~= nil) then return fail(label .. ".outgoing must select one continuation") end
+        result.outgoing = { owner = outgoingOwner, kind = "batch", targets = {}, additional = {} }
+        if selectedExit ~= nil then result.outgoing.selectedExitKey = selectedExit else result.outgoing.selectedAdditionalKey = selectedAdditional end
         if outgoing.resolvedSharedRewardStoreKey ~= nil then
             local store, storeError = stringValue(outgoing.resolvedSharedRewardStoreKey, label .. ".outgoing.resolvedSharedRewardStoreKey")
             if not store then return nil, storeError end
             result.outgoing.resolvedSharedRewardStoreKey = store
         end
-        local exits, indices, picked = {}, {}, 0
+        local exits, indices, additionalKeys, additionalOwners, picked = {}, {}, {}, {}, 0
         for targetIndex, valueTarget in ipairs(targets) do
             local target, targetError = keys(valueTarget, { "exitKey", "index", "type", "room", "picked" }, nil, label .. ".outgoing.targets[" .. targetIndex .. "]")
             if not target then return nil, targetError end
@@ -873,7 +951,49 @@ local function parseRoom(value, index)
             result.outgoing.targets[targetIndex] = { exitKey = exitKey, index = exitIndex, type = exitType, room = { id = targetId, biomeKey = targetBiome, gameName = targetName }, picked = target.picked }
             if target.picked and selectedExit ~= exitKey then return fail(label .. ".outgoing selected target mismatch") end
         end
-        if picked ~= 1 then return fail(label .. ".outgoing must select exactly one picked target") end
+        for additionalIndex, valueAdditional in ipairs(additional) do
+            local item, itemError = keys(valueAdditional, { "kind", "key", "owner", "room", "picked" }, { "ixionOrigin" }, label .. ".outgoing.additional[" .. additionalIndex .. "]")
+            if not item then return nil, itemError end
+            if (item.kind ~= "chaos" and item.kind ~= "zagreusContract") or item.key ~= item.kind then return fail(label .. ".outgoing additional identity invalid") end
+            local key, keyError = stringValue(item.key, label .. ".outgoing.additional key")
+            local owner, ownerError = stringValue(item.owner, label .. ".outgoing.additional owner")
+            if not key then return nil, keyError end; if not owner then return nil, ownerError end
+            local ownerParts, ownerPartsError = addressParts(owner, label .. ".outgoing.additional owner")
+            if not ownerParts then return nil, ownerPartsError end
+            local ownerBase, ownerBaseError = exactAddressBase(
+                ownerParts, "additionalExit", 5, context, label .. ".outgoing.additional owner")
+            if not ownerBase then return nil, ownerBaseError end
+            if ownerParts[4] ~= context.roomId or ownerParts[5] ~= key then
+                return fail(label .. ".outgoing additional owner mismatch")
+            end
+            if additionalKeys[key] or additionalOwners[owner] then return fail(label .. ".outgoing additional duplicate") end
+            additionalKeys[key], additionalOwners[owner] = true, true
+            local targetRoom, targetRoomError = keys(item.room, { "id", "biomeKey", "gameName" }, nil, label .. ".outgoing.additional room")
+            if not targetRoom then return nil, targetRoomError end
+            if type(item.picked) ~= "boolean" then return fail(label .. ".outgoing additional picked invalid") end
+            if item.picked then picked = picked + 1; if selectedAdditional ~= key then return fail(label .. ".outgoing selected additional mismatch") end end
+            local roomId, roomIdError = stringValue(targetRoom.id, label .. ".outgoing.additional room.id")
+            local roomBiome, roomBiomeError = stringValue(targetRoom.biomeKey, label .. ".outgoing.additional room.biomeKey")
+            local roomName, roomNameError = stringValue(targetRoom.gameName, label .. ".outgoing.additional room.gameName")
+            if not roomId then return nil, roomIdError end
+            if not roomBiome then return nil, roomBiomeError end
+            if not roomName then return nil, roomNameError end
+            local parsed = { kind = item.kind, key = key, owner = owner, room = { id = roomId, biomeKey = roomBiome, gameName = roomName }, picked = item.picked }
+            if item.ixionOrigin ~= nil then
+                if item.kind ~= "chaos" then return fail(label .. ".outgoing Ixion origin requires Chaos") end
+                local origin, originError = keys(item.ixionOrigin, { "sourceBiomeKey", "sourceOccurrenceId", "generationKey" }, nil, label .. ".outgoing.additional ixionOrigin")
+                if not origin then return nil, originError end
+                local sourceBiome, sourceBiomeError = stringValue(origin.sourceBiomeKey, label .. ".outgoing.additional ixion sourceBiomeKey")
+                local sourceOccurrence, sourceOccurrenceError = stringValue(origin.sourceOccurrenceId, label .. ".outgoing.additional ixion sourceOccurrenceId")
+                local generationKey, generationKeyError = stringValue(origin.generationKey, label .. ".outgoing.additional ixion generationKey")
+                if not sourceBiome then return nil, sourceBiomeError end
+                if not sourceOccurrence then return nil, sourceOccurrenceError end
+                if not generationKey then return nil, generationKeyError end
+                parsed.ixionOrigin = { sourceBiomeKey = sourceBiome, sourceOccurrenceId = sourceOccurrence, generationKey = generationKey }
+            end
+            result.outgoing.additional[additionalIndex] = parsed
+        end
+        if picked ~= 1 then return fail(label .. ".outgoing must select exactly one continuation") end
     elseif outgoing.kind == "fixed" then
         local checked, checkedError = keys(outgoing, { "owner", "kind", "target" }, nil, label .. ".outgoing")
         if not checked then return nil, checkedError end
@@ -931,6 +1051,36 @@ function protocol.decode(value)
                 if not referenced then return fail("outgoing target references unknown room") end
                 if referenced.biomeKey ~= target.room.biomeKey or referenced.gameName ~= target.room.gameName then
                     return fail("outgoing target room identity mismatch")
+                end
+            end
+            for _, additional in ipairs(room.outgoing.additional) do
+                local referenced = roomsById[additional.room.id]
+                if not referenced then return fail("additional exit references unknown room") end
+                if referenced.biomeKey ~= additional.room.biomeKey
+                    or referenced.gameName ~= additional.room.gameName then
+                    return fail("additional exit room identity mismatch")
+                end
+                if (additional.kind == "chaos" and not additional.room.gameName:match("^Chaos_"))
+                    or (additional.kind == "zagreusContract"
+                        and additional.room.gameName ~= "C_Boss01") then
+                    return fail("additional exit target mismatch")
+                end
+                if additional.ixionOrigin ~= nil then
+                    local source = roomsById[additional.ixionOrigin.sourceOccurrenceId]
+                    local purchaseFound = false
+                    for _, step in ipairs(source and source.trace or {}) do
+                        if step.kind == "stygianWellPurchase"
+                            and step.generationKey == additional.ixionOrigin.generationKey
+                            and step.offerKey == "TemporaryForcedSecretDoorTrait" then
+                            purchaseFound = true
+                            break
+                        end
+                    end
+                    if source == nil
+                        or source.biomeKey ~= additional.ixionOrigin.sourceBiomeKey
+                        or not purchaseFound then
+                        return fail("Ixion origin mismatch")
+                    end
                 end
             end
         elseif room.outgoing.kind == "fixed" then

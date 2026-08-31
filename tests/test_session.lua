@@ -636,6 +636,115 @@ function TestSession.testRunStateUsesDirectKeepsakeAndHexContacts()
     lu.assertEquals(mismatch.firstMismatch.checkpoint, "roomEntered")
 end
 
+local function chaosTraceState()
+    local state = session.newState()
+    state.state, state.currentRoomId, state.traceCursor = "synchronized", "chaos", 1
+    state.roomsById = { chaos = { trace = {
+        { kind = "acquireReward", roles = {
+            {
+                gameName = "TrialUpgrade", role = "source", settlement = { site = "s", entry = "e" },
+                traitOffer = {
+                    kind = "chaos", giver = "Chaos",
+                    curseOptions = {
+                        { curseKey = "ChaosDamageCurse", requirementCount = 2 },
+                        { curseKey = "ChaosDamageCurse", requirementCount = 3 },
+                        { curseKey = "ChaosSpeedCurse", requirementCount = 4 },
+                    },
+                    selected = "option2", selectedCurseValues = { damageTaken = 0.4 },
+                    blessingKey = "ChaosExSpeedBlessing", rarity = "Rare",
+                    blessingValues = { propertySpeed = 0.6, weaponSpeed = 1.25 },
+                },
+            },
+        } },
+    } } }
+    return state
+end
+
+function TestSession.testChaosOfferKeepsThreeRawPairsAndScopesSelectedPairOperands()
+    local state = chaosTraceState()
+    local first, selected, third = {}, {}, {}
+    local firstPrepared = session.prepareTraitOfferOption(state, 1, first)
+    lu.assertEquals(firstPrepared.kind, "handled")
+    local prepared = session.prepareTraitOfferOption(state, 2, selected)
+    local thirdPrepared = session.prepareTraitOfferOption(state, 3, third)
+    lu.assertEquals(thirdPrepared.kind, "handled")
+    lu.assertEquals(first.SecondaryItemName, "ChaosDamageCurse")
+    lu.assertNil(first.ItemName)
+    lu.assertEquals(selected.SecondaryItemName, "ChaosDamageCurse")
+    lu.assertEquals(selected.ItemName, "ChaosExSpeedBlessing")
+    lu.assertEquals(third.SecondaryItemName, "ChaosSpeedCurse")
+    lu.assertNotNil(prepared.chaos)
+
+    local firstCurse = { PropertyChanges = { {} }, AddIncomingDamageModifiers = { ValidWeaponMultiplier = 1 } }
+    session.applyProcessedChaosCurse(firstCurse, firstPrepared.chaos)
+    lu.assertEquals(firstCurse.RemainingUses, 2)
+    lu.assertEquals(firstCurse.AddIncomingDamageModifiers.ValidWeaponMultiplier, 1)
+    local curse = { PropertyChanges = { {} }, AddIncomingDamageModifiers = { ValidWeaponMultiplier = 1 } }
+    session.applyProcessedChaosCurse(curse, prepared.chaos)
+    lu.assertEquals(curse.RemainingUses, 3)
+    lu.assertEquals(curse.AddIncomingDamageModifiers.ValidWeaponMultiplier, 1.4)
+    local thirdCurse = { PropertyChanges = { {}, {} } }
+    session.applyProcessedChaosCurse(thirdCurse, thirdPrepared.chaos)
+    lu.assertEquals(thirdCurse.RemainingUses, 4)
+    lu.assertNil(thirdCurse.PropertyChanges[2].ChangeValue)
+    local blessing = { PropertyChanges = { {} }, WeaponSpeedMultiplier = {} }
+    session.applyProcessedChaosBlessing(blessing, prepared.chaos)
+    lu.assertEquals(blessing.Rarity, "Rare")
+    lu.assertEquals(blessing.PropertyChanges[1].ChangeValue, 0.6)
+    lu.assertEquals(blessing.WeaponSpeedMultiplier.Value, 1.25)
+end
+
+function TestSession.testChaosSelectionAndAcquisitionObserveTheNativePair()
+    local state = chaosTraceState()
+    local prepared = session.prepareTraitOfferOption(state, 2, {})
+    local curse = { Name = "ChaosDamageCurse", PropertyChanges = { {} }, AddIncomingDamageModifiers = { ValidWeaponMultiplier = 1 } }
+    local blessing = { Name = "ChaosExSpeedBlessing", PropertyChanges = { {} }, WeaponSpeedMultiplier = {} }
+    session.applyProcessedChaosCurse(curse, prepared.chaos)
+    session.applyProcessedChaosBlessing(blessing, prepared.chaos)
+    curse.OnExpire = { TraitData = blessing }
+    session.observeTraitSelection(state, "ChaosDamageCurse")
+    session.verifyTraitAcquisition(state, { curse })
+    lu.assertEquals(state.state, "synchronized")
+    lu.assertEquals(state.traceCursor, 2)
+
+    state = chaosTraceState()
+    session.prepareTraitOfferOption(state, 2, {})
+    session.observeTraitSelection(state, "ChaosSpeedCurse")
+    lu.assertEquals(state.state, "desynchronized")
+    lu.assertEquals(state.firstMismatch.checkpoint, "chaos-selection")
+end
+
+function TestSession.testChaosRunStateComparesNativeActiveAndMaturedStatus()
+    local plan = openingCheckpointsOnly(fixturePlan())
+    local snapshot = plan.rooms[1].trace[1].runState
+    snapshot.chaos.active = {
+        { curseKey = "ChaosDamageCurse", blessingKey = "ChaosExSpeedBlessing", rarity = "Rare", clock = "encounters", remaining = 2 },
+    }
+    snapshot.chaos.matured = {}
+    local run = { CurrentRoom = { RoomSetName = "F" } }
+    applyRunState(run, snapshot)
+    -- Chaos traits are intentionally absent from ordinary equipped-trait
+    -- diagnostics; their status is compared only through diagnostic.chaos.
+    local curse = { Name = "ChaosDamageCurse", Rarity = "Common" }
+    table.insert(run.Hero.Traits, curse)
+    curse.UsesAsEncounters, curse.RemainingUses = true, 2
+    curse.OnExpire = { TraitData = { Name = "ChaosExSpeedBlessing", Rarity = "Rare" } }
+    local state = session.newState()
+    state.state, state.currentRoomId, state.traceCursor = "synchronized", plan.rooms[1].id, 1
+    state.roomsById = { [plan.rooms[1].id] = plan.rooms[1] }
+    session.observeRunState(state, run, "roomEntered")
+    lu.assertEquals(state.state, "synchronized")
+
+    snapshot.chaos.active = {}
+    snapshot.chaos.matured = { { blessingKey = "ChaosExSpeedBlessing", rarity = "Rare" } }
+    run.Hero.Traits[#run.Hero.Traits] = { Name = "ChaosExSpeedBlessing", Rarity = "Rare" }
+    state = session.newState()
+    state.state, state.currentRoomId, state.traceCursor = "synchronized", plan.rooms[1].id, 1
+    state.roomsById = { [plan.rooms[1].id] = plan.rooms[1] }
+    session.observeRunState(state, run, "roomEntered")
+    lu.assertEquals(state.state, "synchronized")
+end
+
 function TestSession.testFirstMismatchBlocksFurtherObservation()
     local state = start(fixturePlan())
     session.observeRoom(state, {}, { Name = "WrongRoom", RoomSetName = "F" })

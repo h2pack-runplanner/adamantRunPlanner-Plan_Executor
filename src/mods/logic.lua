@@ -31,6 +31,8 @@ function logic.attach(moduleRef, data)
     local rackSelection = nil
     local echoLastRewardDepth = 0
     local lootUseDepth, consumableUseDepth = 0, 0
+    local chaosTraitProcessing = nil
+    local chaosGeneration = nil
     local function writeStatus(runtime, state)
         if runtime.status and type(runtime.status.write) == "function" then
             local status = data.session.status(state)
@@ -92,9 +94,40 @@ function logic.attach(moduleRef, data)
         return base(args)
     end)
     moduleRef.hooks.wrap("CreateRoom", "execution-resource-success", function(_, runtime, base, roomData, args)
-        local room = base(roomData, args)
+        local state = data.session.get(runtime)
+        local prepared = data.session.prepareAdditionalRoomCreation(state, roomData, _G.game or game)
+        local room = base(prepared, args)
         data.session.applyResourceSuccesses(data.session.get(runtime), room)
         return room
+    end)
+    moduleRef.hooks.wrap("HandleSecretSpawns", "execution-chaos-gate", function(_, runtime, base, currentRun)
+        local state = data.session.get(runtime)
+        local room = type(currentRun) == "table" and currentRun.CurrentRoom or nil
+        local scope = data.session.beginChaosGeneration(state, room)
+        local prior = chaosGeneration
+        chaosGeneration = scope
+        local ok, result = pcall(base, currentRun)
+        chaosGeneration = prior
+        data.session.applyChaosGeneration(scope, room)
+        if not ok then error(result, 0) end
+        return result
+    end)
+    moduleRef.hooks.wrap(
+        "IsSecretDoorEligible",
+        "execution-chaos-gate-eligibility",
+        function(_, _, base, currentRun, currentRoom)
+            if chaosGeneration ~= nil then return chaosGeneration.force end
+            return base(currentRun, currentRoom)
+        end
+    )
+    moduleRef.hooks.wrap("SpawnZagContract", "execution-zagreus-contract", function(_, runtime, base, room, args)
+        local state = data.session.get(runtime)
+        local scope = data.session.beginZagreusGeneration(state, room)
+        if scope ~= nil and type(room) == "table" then room.ZagreusContractSuccess = scope.target ~= nil end
+        local ok, result = pcall(base, room, args)
+        data.session.finishZagreusGeneration(state, scope, room)
+        if not ok then error(result, 0) end
+        return result
     end)
     moduleRef.hooks.wrap("SetupRoomMultipleEncountersData", "execution-resolve-encounter-assembly", function(_, runtime, base, room, args)
         local currentRun = _G.CurrentRun
@@ -428,7 +461,24 @@ function logic.attach(moduleRef, data)
         local state = data.session.get(runtime)
         local prepared = data.session.prepareTraitOfferOption(state, itemIndex, itemData)
         if prepared.kind == "failed" then writeStatus(runtime, state) end
-        return base(screen, lootData, itemIndex, itemData, args)
+        local prior = chaosTraitProcessing
+        chaosTraitProcessing = prepared.chaos
+        local ok, result = pcall(base, screen, lootData, itemIndex, itemData, args)
+        chaosTraitProcessing = prior
+        if not ok then error(result, 0) end
+        return result
+    end)
+    moduleRef.hooks.wrap("GetProcessedTraitData", "execution-chaos-trait-values", function(_, _, base, args)
+        local result = base(args)
+        local context = chaosTraitProcessing
+        if context == nil or type(args) ~= "table" or type(result) ~= "table" then return result end
+        if args.TraitName == context.curseKey then
+            return data.session.applyProcessedChaosCurse(result, context)
+        end
+        if args.TraitName == context.blessingKey then
+            return data.session.applyProcessedChaosBlessing(result, context)
+        end
+        return result
     end)
     moduleRef.hooks.wrap("HandleUpgradeChoiceSelection", "execution-observe-trait-selection", function(_, runtime, base, screen, button, args)
         local state = data.session.get(runtime)

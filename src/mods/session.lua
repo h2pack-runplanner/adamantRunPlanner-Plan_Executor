@@ -5,6 +5,7 @@
 -- their vanilla seams, then records the first mismatch without repairing the
 -- run or finding a replacement instruction.
 
+local chaosAdapter = require("mods/chaos")
 local session = {}
 session.CACHE_NAME = "ExecutionSession"
 session.BIOME_ROUTE = { F = "Underworld", G = "Underworld" }
@@ -646,10 +647,79 @@ local function selectedTarget(outgoing)
     return nil
 end
 
+local function selectedAdditional(outgoing)
+    if outgoing.kind ~= "batch" then return nil end
+    for _, additional in ipairs(outgoing.additional or {}) do
+        if additional.picked then return additional end
+    end
+    return nil
+end
+
+local function additionalForCurrentRoom(state, key)
+    local room = expectedRoom(state)
+    if room == nil or room.outgoing == nil or room.outgoing.kind ~= "batch" then return nil end
+    for _, additional in ipairs(room.outgoing.additional or {}) do
+        if additional.key == key then return additional end
+    end
+    return nil
+end
+
+function session.beginChaosGeneration(state, room)
+    if state.state ~= "synchronized" or not roomIsExpected(state, room) then return nil end
+    local additional = additionalForCurrentRoom(state, "chaos")
+    if additional == nil then return { ForceSecretDoor = room.ForceSecretDoor, SecretChanceSuccess = room.SecretChanceSuccess, force = false } end
+    return { ForceSecretDoor = room.ForceSecretDoor, SecretChanceSuccess = room.SecretChanceSuccess, force = true }
+end
+
+function session.applyChaosGeneration(scope, room)
+    if scope == nil or type(room) ~= "table" then return end
+    room.ForceSecretDoor, room.SecretChanceSuccess = scope.ForceSecretDoor, scope.SecretChanceSuccess
+end
+
+function session.beginZagreusGeneration(state, room)
+    if state.state ~= "synchronized" or not roomIsExpected(state, room) then return nil end
+    local additional = additionalForCurrentRoom(state, "zagreusContract")
+    if additional == nil then return { ZagreusContractSuccess = room.ZagreusContractSuccess, target = nil } end
+    state.pendingAdditionalCreation = additional
+    return { ZagreusContractSuccess = room.ZagreusContractSuccess, target = additional }
+end
+
+function session.finishZagreusGeneration(state, scope, room)
+    if scope == nil then return end
+    if type(room) == "table" then room.ZagreusContractSuccess = scope.ZagreusContractSuccess end
+    state.pendingAdditionalCreation = nil
+end
+
+function session.prepareAdditionalRoomCreation(state, roomData, game)
+    local additional = state.pendingAdditionalCreation
+    if state.state ~= "synchronized" or additional == nil or type(roomData) ~= "table" then return roomData end
+    if roomData.Name ~= "C_Boss01" and roomData.GenusName ~= "C_Boss01" then return roomData end
+    local target = state.roomsById[additional.room.id]
+    if target ~= nil then
+        local expected = expectedRoom(state)
+        local outgoing = expected and expected.outgoing
+        state.generation = state.generation or {
+            owner = outgoing and outgoing.owner,
+            generated = {},
+            additional = {},
+        }
+        state.generation.additional = state.generation.additional or {}
+        state.generation.additional[additional.key] = true
+    end
+    return target and markedRoomData(game, state, target, {
+        __runPlannerExecutionAdditionalOwner = additional.owner,
+        __runPlannerExecutionAdditionalKey = "zagreusContract",
+    }) or roomData
+end
+
 local function generatedAll(state, outgoing)
     if state.generation == nil or state.generation.owner ~= outgoing.owner then return false end
     for _, target in ipairs(outgoing.targets) do
         if not state.generation.generated[target.index] then return false end
+    end
+    for _, additional in ipairs(outgoing.additional or {}) do
+        if state.generation.additional == nil
+            or not state.generation.additional[additional.key] then return false end
     end
     return true
 end
@@ -684,7 +754,7 @@ local function currentRoomContact(state, currentRun, room)
     return roomIsExpected(state, observed), expected, observed
 end
 
-function session.chooseNextRoomData(state, currentRun, _args, otherDoors, game)
+function session.chooseNextRoomData(state, currentRun, args, otherDoors, game)
     if state.state ~= "synchronized" then return { kind = "passThrough" } end
     local matched, expected, observed = currentRoomContact(state, currentRun)
     if not matched then
@@ -693,6 +763,33 @@ function session.chooseNextRoomData(state, currentRun, _args, otherDoors, game)
         return { kind = "failed" }
     end
     local outgoing = expected.outgoing
+    -- HandleSecretSpawns already owns natural/Ixion eligibility and SecretDoor
+    -- construction. At its one room-selection call, translate only the
+    -- compiled sibling Chaos continuation; never search for a replacement.
+    if type(args) == "table" and args.ForceNextRoomSet == "Chaos" then
+        local chaos = nil
+        for _, additional in ipairs(outgoing.additional or {}) do
+            if additional.kind == "chaos" then chaos = additional; break end
+        end
+        if chaos == nil then return { kind = "passThrough" } end
+        local target = state.roomsById[chaos.room.id]
+        local data = target and markedRoomData(game, state, target, {
+            __runPlannerExecutionAdditionalOwner = chaos.owner,
+            __runPlannerExecutionAdditionalKey = "chaos",
+        }) or nil
+        if data == nil then
+            mismatch(state, "chaos-generation", { kind = "room", key = chaos.room.id }, { kind = "room", key = nil })
+            return { kind = "failed" }
+        end
+        state.generation = state.generation or {
+            owner = outgoing.owner,
+            generated = {},
+            additional = {},
+        }
+        state.generation.additional = state.generation.additional or {}
+        state.generation.additional[chaos.key] = true
+        return { kind = "handled", roomData = data }
+    end
     if outgoing.kind ~= "batch" then
         if outgoing.kind ~= "fixed" then return { kind = "passThrough" } end
         local target = state.roomsById[outgoing.target.id]
@@ -707,7 +804,8 @@ function session.chooseNextRoomData(state, currentRun, _args, otherDoors, game)
         mismatch(state, "door-generation", { kind = "targets", key = #outgoing.targets }, { kind = "targets", key = nil })
         return { kind = "failed" }
     end
-    state.generation = state.generation or { owner = outgoing.owner, generated = {} }
+    state.generation = state.generation
+        or { owner = outgoing.owner, generated = {}, additional = {} }
     if state.generation.owner ~= outgoing.owner then
         mismatch(state, "door-generation", { kind = "batch", key = outgoing.owner },
             { kind = "batch", key = state.generation.owner })
@@ -777,6 +875,35 @@ function session.prepareTraitOfferOption(state, itemIndex, itemData)
     local role
     for _, candidate in ipairs(action.roles or {}) do if candidate.traitOffer ~= nil then role = candidate; break end end
     if role == nil or role.traitOffer.kind == "fallbackGold" then return { kind = "passThrough" } end
+    if role.traitOffer.kind == "chaos" then
+        local offer = role.traitOffer
+        local option = offer.curseOptions[itemIndex]
+        if type(itemData) ~= "table" or option == nil then
+            mismatch(state, "chaos-offer", { kind = "option", key = itemIndex }, { kind = "option", key = nil })
+            return { kind = "failed" }
+        end
+        -- TrialUpgrade owns peer blessing rolls. The plan constrains only each
+        -- displayed curse and the selected pair's blessing/rarity.
+        itemData.SecondaryItemName = option.curseKey
+        local chaos = {
+            curseKey = option.curseKey,
+            requirementCount = option.requirementCount,
+        }
+        if itemIndex == tonumber(offer.selected:sub(7)) then
+            itemData.ItemName, itemData.Rarity = offer.blessingKey, offer.rarity
+            chaos = {
+                curseKey = chaos.curseKey,
+                blessingKey = offer.blessingKey,
+                rarity = offer.rarity,
+                requirementCount = chaos.requirementCount,
+                curseValues = offer.selectedCurseValues,
+                blessingValues = offer.blessingValues,
+            }
+        end
+        state.pendingAcquisition = state.pendingAcquisition
+            or { action = action, role = role, selected = offer.selected }
+        return { kind = "handled", chaos = chaos }
+    end
     local option = role.traitOffer.options[itemIndex]
     if type(itemData) ~= "table" or option == nil then
         mismatch(state, "trait-offer", { kind = "option", key = option and option.key }, { kind = "option", key = nil })
@@ -791,6 +918,22 @@ function session.prepareTraitOfferOption(state, itemIndex, itemData)
     return { kind = "handled" }
 end
 
+function session.applyProcessedChaosCurse(data, context)
+    data.RemainingUses = context.requirementCount
+    if context.curseValues == nil then return data end
+    return chaosAdapter.applyCurse(
+        data,
+        context.curseKey,
+        context.requirementCount,
+        context.curseValues
+    )
+end
+
+function session.applyProcessedChaosBlessing(data, context)
+    data.Rarity = context.rarity
+    return chaosAdapter.applyBlessing(data, context.blessingKey, context.blessingValues)
+end
+
 function session.observeTraitSelection(state, selectedTrait)
     if state.state ~= "synchronized" then return end
     local pending = state.pendingAcquisition
@@ -799,6 +942,16 @@ function session.observeTraitSelection(state, selectedTrait)
         return
     end
     local offer = pending.role.traitOffer
+    if offer.kind == "chaos" then
+        local expected = offer.curseOptions[tonumber(offer.selected:sub(7))]
+        if expected == nil or selectedTrait ~= expected.curseKey then
+            mismatch(state, "chaos-selection", { kind = "curse", key = expected and expected.curseKey }, { kind = "curse", key = selectedTrait }, true, "playerDivergence", "player")
+            return
+        end
+        pending.selectedTrait = selectedTrait
+        confirmAction(state, "chaosPair", selectedTrait)
+        return
+    end
     if offer.kind == "fallbackGold" then
         if selectedTrait ~= "FallbackGold" then
             mismatch(state, "trait-selection", { kind = "trait", key = "FallbackGold" }, { kind = "trait", key = selectedTrait }, true, "playerDivergence", "player")
@@ -820,6 +973,40 @@ end
 function session.verifyTraitAcquisition(state, heroTraits)
     if state.state ~= "synchronized" or state.pendingAcquisition == nil then return end
     local pending = state.pendingAcquisition
+    if pending.role.traitOffer.kind == "chaos" then
+        local offer = pending.role.traitOffer
+        local curse = nil
+        for _, trait in pairs(heroTraits or {}) do
+            if type(trait) == "table" and trait.Name == pending.selectedTrait then curse = trait end
+        end
+        local expected = offer.curseOptions[tonumber(offer.selected:sub(7))]
+        local blessing = curse and curse.OnExpire and curse.OnExpire.TraitData
+        if expected == nil
+            or not chaosAdapter.matchesCurse(
+                curse,
+                expected.curseKey,
+                expected.requirementCount,
+                offer.selectedCurseValues
+            )
+            or not chaosAdapter.matchesBlessing(
+                blessing,
+                offer.blessingKey,
+                offer.rarity,
+                offer.blessingValues
+            ) then
+            mismatch(
+                state,
+                "chaos-acquisition",
+                { kind = "pair", key = offer.blessingKey },
+                { kind = "pair", key = curse and curse.Name or nil },
+                false
+            )
+            return
+        end
+        state.pendingAcquisition = nil
+        consumeTraceStep(state, "acquireReward")
+        return
+    end
     if pending.role.traitOffer.kind == "fallbackGold" then
         if pending.selectedTrait ~= "FallbackGold" then
             mismatch(state, "trait-acquisition", { kind = "trait", key = "FallbackGold" }, { kind = "trait", key = pending.selectedTrait }, false)
@@ -878,6 +1065,11 @@ function session.prepareLootUse(state, usee)
         local offer = role.traitOffer
         if offer.kind == "fallbackGold" then
             usee.UpgradeOptions = { { ItemName = "FallbackGold", Rarity = "Common" } }
+        elseif offer.kind == "chaos" then
+            -- TrialUpgrade owns construction of all three transforming pairs.
+            -- Do not fabricate ordinary options here: each native pair reaches
+            -- CreateUpgradeChoiceButton and is constrained there.
+            usee.UpgradeOptions = nil
         else
             usee.UpgradeOptions = {}
             for index, option in ipairs(offer.options) do
@@ -1177,9 +1369,12 @@ local function liveDiagnostic(currentRun, diagnostic)
     if type(traits) ~= "table" then return nil end
     local equipped = {}
     for _, trait in pairs(traits) do
-        if type(trait) == "table" then
+        local key = type(trait) == "table" and traitKey(trait) or nil
+        local isChaosState = type(key) == "string"
+            and (key:match("^Chaos.*Curse$") or key:match("^Chaos.*Blessing$"))
+        if type(trait) == "table" and not isChaosState then
             equipped[#equipped + 1] = {
-                traitKey = traitKey(trait), rarity = trait.Rarity,
+                traitKey = key, rarity = trait.Rarity,
                 level = trait.StackNum,
             }
             if trait.IsHammerTrait == true then
@@ -1215,6 +1410,21 @@ local function liveDiagnostic(currentRun, diagnostic)
     local forfeitRank = callLive("GetNumShrineUpgrades", "BoonSkipShrineUpgrade")
     if type(forfeitRank) ~= "number" or type(currentRun.BiomeBoonSkipCount) ~= "number" then return nil end
     local forfeit = forfeitRank <= 0 and "inactive" or (currentRun.BiomeBoonSkipCount >= forfeitRank and "consumed" or "available")
+    local activeChaos, maturedChaos = {}, {}
+    for _, trait in pairs(traits) do
+        if type(trait) == "table" and type(trait.Name) == "string" then
+            if trait.Name:match("^Chaos.*Curse$") then
+                local pending = trait.OnExpire and trait.OnExpire.TraitData
+                if type(pending) ~= "table" or type(pending.Name) ~= "string" then return nil end
+                activeChaos[#activeChaos + 1] = {
+                    curseKey = trait.Name, blessingKey = pending.Name, rarity = pending.Rarity,
+                    clock = chaosAdapter.clock(trait), remaining = trait.RemainingUses,
+                }
+            elseif trait.Name:match("^Chaos.*Blessing$") then
+                maturedChaos[#maturedChaos + 1] = { blessingKey = trait.Name, rarity = trait.Rarity }
+            end
+        end
+    end
     return {
         godPool = {
             acquiredSourceKeys = acquired, effectiveSourceKeys = effective, capNarrowed = cap,
@@ -1231,6 +1441,7 @@ local function liveDiagnostic(currentRun, diagnostic)
             disabledKeys = keysOfEnabled(disabled),
         },
         forfeit = forfeit,
+        chaos = { active = activeChaos, matured = maturedChaos },
     }
 end
 
@@ -1321,6 +1532,20 @@ local function traitMatches(expected, observed)
     return true
 end
 
+local function activeChaosKey(value)
+    return table.concat({
+        tostring(value.curseKey),
+        tostring(value.blessingKey),
+        tostring(value.rarity),
+        tostring(value.clock),
+        tostring(value.remaining),
+    }, "\0")
+end
+
+local function maturedChaosKey(value)
+    return table.concat({ tostring(value.blessingKey), tostring(value.rarity) }, "\0")
+end
+
 function session.observeRunState(state, currentRun, checkpoint)
     if state.state ~= "synchronized" then return false end
     local expected = expectedRoom(state)
@@ -1368,7 +1593,12 @@ function session.observeRunState(state, currentRun, checkpoint)
             end
             local live = liveDiagnostic(currentRun, diagnostic)
             if live == nil then
-                mismatch(state, checkpoint, { kind = "runStateObserver", key = "complete-v4" }, { kind = "runStateObserver", key = nil }, false)
+                mismatch(state, checkpoint, { kind = "runStateObserver", key = "complete-v5" }, { kind = "runStateObserver", key = nil }, false)
+                return false
+            end
+            if not sameArray(diagnostic.chaos.active, live.chaos.active, activeChaosKey)
+                or not sameArray(diagnostic.chaos.matured, live.chaos.matured, maturedChaosKey) then
+                mismatch(state, checkpoint, { kind = "chaos", key = diagnostic.chaos }, { kind = "chaos", key = live.chaos }, false)
                 return false
             end
             if not sameArray(diagnostic.godPool.acquiredSourceKeys, live.godPool.acquiredSourceKeys, tostring)
@@ -1772,6 +2002,20 @@ function session.observeExit(state, currentRun, door)
     local destination, target
     if outgoing.kind == "batch" then
         target = selectedTarget(outgoing)
+        local additional = selectedAdditional(outgoing)
+        if additional ~= nil and marker == additional.room.id then
+            destination = state.roomsById[additional.room.id]
+            local generated = generatedAll(state, outgoing)
+                and room.__runPlannerExecutionAdditionalOwner == additional.owner
+                and room.__runPlannerExecutionAdditionalKey == additional.key
+            if destination == nil or not generated then
+                mismatch(state, "selected-additional-exit", { kind = "room", key = additional.room.id }, { kind = "room", key = nil })
+                return
+            end
+            confirmAction(state, "additionalExit", additional.key)
+            state.pendingExit = { sourceId = expected.id, destinationId = destination.id }
+            return
+        end
         local alternate = nil
         for _, candidate in ipairs(outgoing.targets) do
             if candidate.room.id == marker then alternate = candidate; break end
@@ -1784,7 +2028,7 @@ function session.observeExit(state, currentRun, door)
             local disposition = alternate ~= nil and alternate ~= target
                 and "playerDivergence" or "conformanceDiscrepancy"
             local agency = alternate ~= nil and alternate ~= target and "player" or "game"
-            mismatch(state, "selected-exit", { kind = "exit", key = target and target.exitKey },
+            mismatch(state, "selected-exit", { kind = "exit", key = target and target.exitKey or (additional and additional.key) },
                 { kind = "exit", key = type(room) == "table" and room.__runPlannerExecutionExitKey or nil }, true, disposition, agency)
             return
         end

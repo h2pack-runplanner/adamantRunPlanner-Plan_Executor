@@ -59,6 +59,43 @@ function TestProtocol.testClosedShapeRejectsUnsupportedAndCoercedValues()
     mutationRejected(function(value) value.rooms[1].trace[1].owner = "another-owner" end)
 end
 
+function TestProtocol.testV5AdditionalAndChaosOfferBoundariesAreStrict()
+    mutationRejected(function(value) value.rooms[1].outgoing.additional = nil end)
+    mutationRejected(function(value)
+        local function object(fields) return setmetatable(fields, { __json_object = true }) end
+        local target = value.rooms[2]
+        value.rooms[1].outgoing.additional = setmetatable({ object({
+            kind = "chaos", key = "chaos", owner = "manual-chaos",
+            room = object({ id = target.id, biomeKey = target.biomeKey, gameName = target.gameName }),
+            picked = false,
+            ixionOrigin = object({ sourceBiomeKey = 3, sourceOccurrenceId = "source", generationKey = "ixion" }),
+        }) }, { __json_array = true })
+    end)
+
+    local value = fixtures.decode()
+    local offer = value.rooms[1].trace[2].roles[1].traitOffer
+    offer.kind, offer.giver, offer.options = "chaos", "Chaos", nil
+    local function object(fields) return setmetatable(fields, { __json_object = true }) end
+    offer.curseOptions = setmetatable({
+        object({ curseKey = "ChaosDamageCurse", requirementCount = 2 }),
+        object({ curseKey = "ChaosDamageCurse", requirementCount = 3 }),
+        object({ curseKey = "ChaosSpeedCurse", requirementCount = 4 }),
+    }, { __json_array = true })
+    offer.selected, offer.selectedCurseValues = "option2", object({ damageTaken = 0.4 })
+    offer.blessingKey, offer.rarity, offer.blessingValues = "ChaosExSpeedBlessing", "Rare", object({
+        weaponSpeed = 1.25, propertySpeed = 0.6,
+    })
+    local plan, errorMessage = protocol.decode(value)
+    lu.assertNotNil(plan, errorMessage)
+    local decoded = plan.rooms[1].trace[2].roles[1].traitOffer
+    lu.assertEquals(decoded.curseOptions[1].curseKey, decoded.curseOptions[2].curseKey)
+    lu.assertEquals(decoded.selectedCurseValues.damageTaken, 0.4)
+    lu.assertEquals(decoded.blessingValues.weaponSpeed, 1.25)
+
+    value.rooms[1].trace[2].roles[1].traitOffer.selectedCurseValues.damageTaken = 0 / 0
+    lu.assertNil(protocol.decode(value))
+end
+
 function TestProtocol.testFixedAndBatchTargetReferencesRetainDecodedRoomIdentity()
     local file = assert(io.open("test/fixtures/execution-plan/fg.execution.json", "rb"))
     local value = assert(json.decode(file:read("*a")))
