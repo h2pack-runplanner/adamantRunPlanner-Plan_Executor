@@ -46,7 +46,7 @@ function timeline.lifecycle(value, label)
 end
 
 local function validateBase(record, label)
-    if not p.str(record.owner, label .. ".owner", 256) then
+    if not p.str(record.owner, label .. ".owner", p.MAX_OWNER_STRING) then
         return p.fail(label .. " has invalid owner")
     end
     return timeline.lifecycle(record.window, label .. ".window")
@@ -69,7 +69,7 @@ local function acquisition(value, label)
     if not record then return nil, errorMessage end
     local _, baseError = validateBase(record, label)
     if baseError then return nil, baseError end
-    if not p.str(record.sourceOwner, label .. ".sourceOwner", 256)
+    if not p.str(record.sourceOwner, label .. ".sourceOwner", p.MAX_OWNER_STRING)
         or not p.str(record.producerLifecycleKey, label .. ".producerLifecycleKey") then
         return p.fail(label .. " has invalid acquisition identity")
     end
@@ -215,7 +215,7 @@ local function shopPurchase(value, label)
             return p.fail(label .. " has invalid " .. key)
         end
     end
-    if not p.str(record.sourceOwner, label .. ".sourceOwner", 256) then
+    if not p.str(record.sourceOwner, label .. ".sourceOwner", p.MAX_OWNER_STRING) then
         return p.fail(label .. " has invalid sourceOwner")
     end
     local _, rewardError = rewards.reward(record.reward, label .. ".reward")
@@ -422,7 +422,7 @@ function timeline.decode(value, label, globalOwners)
             label .. ".obligations[" .. index .. "]"
         )
         if not obligation then return nil, obligationError end
-        if not p.str(obligation.owner, label .. ".obligation.owner", 256)
+        if not p.str(obligation.owner, label .. ".obligation.owner", p.MAX_OWNER_STRING)
             or not byOwner[obligation.owner]
             or not p.one(obligation.checkpoint, {
                 roomEntered = true,

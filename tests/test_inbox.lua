@@ -68,4 +68,16 @@ function TestInbox.testMissingSlotIsInactiveAndDoesNotEnumerateAlternatives()
     removeDirectory(root)
 end
 
+function TestInbox.testMalformedPlanRetainsTheDecoderReason()
+    local root = temporaryDirectory()
+    write(root .. "/active.runplanner.json", "not a plan")
+    local runtime = inbox.create(root, function() return nil, "specific decoder rejection" end, pathApi)
+    lu.assertFalse(runtime.load())
+    lu.assertEquals(runtime.status().error, {
+        code = "malformed-plan",
+        message = "specific decoder rejection",
+    })
+    removeDirectory(root)
+end
+
 return TestInbox

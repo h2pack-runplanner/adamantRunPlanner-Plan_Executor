@@ -140,7 +140,12 @@ function rewards.traitOffer(value, label)
     end
     local options, optionsError = p.arr(row.options, label .. ".options", 3)
     if not options then return nil, optionsError end
-    if #options ~= 3 then return p.fail(label .. ".options must contain three options") end
+    if #options == 0 then return p.fail(label .. ".options must contain one to three options") end
+    local optionIndex = { option1 = 1, option2 = 2, option3 = 3 }
+    if optionIndex[row.selected] > #options
+        or (row.rejected ~= nil and optionIndex[row.rejected] > #options) then
+        return p.fail(label .. " selects a missing option")
+    end
     for index, optionValue in ipairs(options) do
         local option, optionError = p.exact(
             optionValue,
@@ -196,7 +201,7 @@ function rewards.acquisitionRole(value, label)
             artificerReplacement = true,
             echoLastReward = true,
         }, label .. ".producer.kind")
-            or not p.str(producer.sourceOwner, label .. ".producer.sourceOwner", 256)
+            or not p.str(producer.sourceOwner, label .. ".producer.sourceOwner", p.MAX_OWNER_STRING)
             or not p.str(producer.sourceRole, label .. ".producer.sourceRole") then
             return p.fail(label .. " has invalid producer")
         end
@@ -209,8 +214,8 @@ function rewards.acquisitionRole(value, label)
             label .. ".settlement"
         )
         if not settlement then return nil, settlementError end
-        if not p.str(settlement.site, label .. ".settlement.site")
-            or not p.str(settlement.entry, label .. ".settlement.entry") then
+        if not p.str(settlement.site, label .. ".settlement.site", p.MAX_OWNER_STRING)
+            or not p.str(settlement.entry, label .. ".settlement.entry", p.MAX_OWNER_STRING) then
             return p.fail(label .. " has invalid settlement")
         end
     end
@@ -232,7 +237,7 @@ function rewards.acquisitionRole(value, label)
             3
         )
         if targetsError then return nil, targetsError end
-        if level.selectedTarget ~= p.json.null
+        if not p.json.isNull(level.selectedTarget)
             and not p.str(level.selectedTarget, label .. ".levelResolution.selectedTarget") then
             return p.fail(label .. " has invalid selected target")
         end

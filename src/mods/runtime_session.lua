@@ -70,7 +70,9 @@ function runtime.start(state, inbox)
     state.initialized = true
     local loaded, plan = inbox.load()
     if not loaded or type(plan) ~= "table" or plan.kind ~= "ready" then
-        return fail(state, "run-start", "ready protocol-v10 plan", plan)
+        local inboxStatus = inbox.status and inbox.status() or nil
+        local observed = inboxStatus and inboxStatus.error or plan
+        return fail(state, "run-start", "ready protocol-v10 plan", observed)
     end
     for _, occurrence in ipairs(plan.occurrences) do
         for _, fact in ipairs((occurrence.roomExitConformance or {}).facts or {}) do

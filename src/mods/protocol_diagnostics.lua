@@ -601,7 +601,7 @@ function diagnostics.expand(value, label, framing)
             if frame.checkpoint ~= checkpoint
                 or not p.int(frame.frame, label .. ".frame", 0)
                 or frame.frame ~= framing.next
-                or not p.str(frame.owner, label .. ".owner", 256) then
+                or not p.str(frame.owner, label .. ".owner", p.MAX_OWNER_STRING) then
                 return p.fail(label .. " has missing or out-of-order diagnostic frame")
             end
             local replace, replaceError = p.exact(

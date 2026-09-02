@@ -81,3 +81,18 @@ function TestRuntimeSession.testLaterRouteConformanceContactsAreRejectedAtStart(
         lu.assertEquals(value.firstMismatch.observed, kind)
     end
 end
+
+function TestRuntimeSession.testRunStartMismatchPreservesTheInboxDecoderReason()
+    local value = {}
+    local fakeInbox = {
+        load = function() return false, "malformed-plan" end,
+        status = function()
+            return { error = { code = "malformed-plan", message = "specific decoder rejection" } }
+        end,
+    }
+    lu.assertNil(runtime.start(value, fakeInbox))
+    lu.assertEquals(value.firstMismatch.observed, {
+        code = "malformed-plan",
+        message = "specific decoder rejection",
+    })
+end

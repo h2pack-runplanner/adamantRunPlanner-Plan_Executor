@@ -50,7 +50,7 @@ local function doors(value, ids, label)
             label
         )
         if not batch then return nil, batchError end
-        if not p.str(batch.owner, label .. ".owner", 256)
+        if not p.str(batch.owner, label .. ".owner", p.MAX_OWNER_STRING)
             or (batch.resolvedSharedRewardStoreKey ~= nil
                 and not p.str(batch.resolvedSharedRewardStoreKey, label .. ".resolvedSharedRewardStoreKey")) then
             return p.fail(label .. " is malformed")
@@ -86,7 +86,7 @@ local function doors(value, ids, label)
     if record.kind == "fixed" then
         local fixed, fixedError = p.exact(record, { "kind", "owner", "target" }, {}, label)
         if not fixed then return nil, fixedError end
-        if not p.str(fixed.owner, label .. ".owner", 256) then return p.fail(label .. " invalid owner") end
+        if not p.str(fixed.owner, label .. ".owner", p.MAX_OWNER_STRING) then return p.fail(label .. " invalid owner") end
         local reference, referenceError = assertRoomReference(fixed.target, ids, label .. ".target")
         if not reference then return nil, referenceError end
         return fixed, { [reference.id] = true }
@@ -94,7 +94,7 @@ local function doors(value, ids, label)
     if record.kind == "terminal" then
         local terminal, terminalError = p.exact(record, { "kind", "owner" }, {}, label)
         if not terminal then return nil, terminalError end
-        if not p.str(terminal.owner, label .. ".owner", 256) then
+        if not p.str(terminal.owner, label .. ".owner", p.MAX_OWNER_STRING) then
             return p.fail(label .. " has invalid owner")
         end
         return terminal, {}
@@ -119,7 +119,7 @@ function occurrences.decode(value, selected, label)
         if not row then return nil, rowError end
         if not p.str(row.id, label .. ".id", 256)
             or ids[row.id]
-            or not p.str(row.owner, label .. ".owner", 256)
+            or not p.str(row.owner, label .. ".owner", p.MAX_OWNER_STRING)
             or not p.one(row.biomeKey, { F = true, G = true }, label .. ".biomeKey")
             or not p.str(row.gameName, label .. ".gameName")
             or not p.str(row.kind, label .. ".kind") then

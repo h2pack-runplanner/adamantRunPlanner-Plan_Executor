@@ -12,6 +12,12 @@ function TestJson.testDecodesTaggedObjectsArraysAndScalars()
     lu.assertEquals(value.a[3].n, 2)
 end
 
+function TestJson.testRecognizesNullFromAnotherDecoderInstanceByTag()
+    local foreignNull = setmetatable({}, { __json_null = true })
+    lu.assertTrue(json.isNull(foreignNull))
+    lu.assertFalse(json.isNull({}))
+end
+
 function TestJson.testRejectsDuplicateKeysTrailingDataAndBadEscape()
     lu.assertNil(json.decode('{"a":1,"a":2}'))
     lu.assertNil(json.decode('{"a":1} trailing'))

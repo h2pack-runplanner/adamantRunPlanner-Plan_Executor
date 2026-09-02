@@ -129,7 +129,7 @@ local function purgingPool(value, label)
         if not row then return nil, rowError end
         if not p.one(row.slotKey, { left = true, middle = true, right = true }, label .. ".slotKey")
             or seen[row.slotKey]
-            or (row.traitKey ~= p.json.null and not p.str(row.traitKey, label .. ".traitKey")) then
+            or (not p.json.isNull(row.traitKey) and not p.str(row.traitKey, label .. ".traitKey")) then
             return p.fail(label .. " has invalid trait row")
         end
         seen[row.slotKey] = true
@@ -169,7 +169,7 @@ local function additional(value, label)
         )
         if not row then return nil, rowError end
         if not p.one(row.kind, { chaos = true, zagreusContract = true }, label .. ".kind")
-            or not p.str(row.owner, label .. ".owner", 256)
+            or not p.str(row.owner, label .. ".owner", p.MAX_OWNER_STRING)
             or not p.roomRef(row.room, label .. ".room") then
             return p.fail(label .. " has invalid additional exit")
         end

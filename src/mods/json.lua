@@ -155,6 +155,9 @@ json.isArray = function(value)
     local meta = type(value) == "table" and getmetatable(value) or nil
     return meta ~= nil and meta.__json_array == true
 end
-json.isNull = function(value) return value == null end
+json.isNull = function(value)
+    local meta = type(value) == "table" and getmetatable(value) or nil
+    return meta ~= nil and meta.__json_null == true
+end
 
 return json

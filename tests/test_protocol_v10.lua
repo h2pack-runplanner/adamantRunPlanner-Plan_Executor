@@ -13,6 +13,15 @@ local function decode(name)
     return value
 end
 
+local function decodeWithIndependentJsonModule(name)
+    local independentJson = assert(loadfile("src/mods/json.lua"))()
+    local file = assert(io.open(root .. name .. ".execution.json", "rb"))
+    local value = assert(independentJson.decode(file:read("*a")))
+    file:close()
+    lu.assertFalse(rawequal(independentJson.null, json.null))
+    return value
+end
+
 local function refreshFingerprint(plan)
     plan.planFingerprint = protocol.fingerprint({
         format = plan.format, protocolVersion = plan.protocolVersion,
@@ -138,6 +147,11 @@ function TestProtocolV10.testAllGateA2VectorsDecodeAndExpandDiagnostics()
     end
 end
 
+function TestProtocolV10.testProtocolAcceptsTaggedNullsFromAnIndependentDecoderModule()
+    local plan, errorMessage = protocol.decode(decodeWithIndependentJsonModule("f-opening"))
+    lu.assertNotNil(plan, errorMessage)
+end
+
 function TestProtocolV10.testOpaqueOwnerReferencesAreLocalAndLaterContactsAreRejected()
     local value = decode("f-opening")
     local room = value.occurrences[1]
@@ -145,6 +159,50 @@ function TestProtocolV10.testOpaqueOwnerReferencesAreLocalAndLaterContactsAreRej
     lu.assertNil(protocol.decode(value))
     value = decode("f-opening")
     value.occurrences[1].roomExitConformance = { facts = { { kind = "echoShopDuplicate" } } }
+    lu.assertNil(protocol.decode(value))
+end
+
+function TestProtocolV10.testNestedSemanticOwnersUseTheOwnerSpecificBound()
+    local owner = string.rep("o", 420)
+    local value = minimalPlan({ {
+        kind = "acquisition",
+        owner = owner,
+        sourceOwner = owner,
+        reward = reward(),
+        producerLifecycleKey = "pickup",
+        roles = { role() },
+        window = window(),
+    } })
+    local plan, errorMessage = protocol.decode(value)
+    lu.assertNotNil(plan, errorMessage)
+    lu.assertEquals(plan.occurrences[1].timeline.transactions[1].owner, owner)
+
+    value.occurrences[1].timeline.transactions[1].owner = string.rep("o", 2049)
+    refreshFingerprint(value)
+    lu.assertNil(protocol.decode(value))
+end
+
+function TestProtocolV10.testForcedShortageTraitOfferSelectsAnExistingOption()
+    local offer = traitOffer()
+    offer.options = { { key = "one" } }
+    offer.selected = "option1"
+    local value = minimalPlan({ {
+        kind = "acquisition",
+        owner = "acquisition",
+        sourceOwner = "source",
+        reward = reward(),
+        producerLifecycleKey = "pickup",
+        roles = { {
+            role = "self", disposition = "normal", lifecyclePoint = "pickup",
+            kind = "trait", gameName = "AllElementalBoon", traitOffer = offer,
+        } },
+        window = window(),
+    } })
+    local plan, errorMessage = protocol.decode(value)
+    lu.assertNotNil(plan, errorMessage)
+
+    offer.selected = "option2"
+    refreshFingerprint(value)
     lu.assertNil(protocol.decode(value))
 end
 

@@ -1,7 +1,7 @@
 -- Closed-shape primitives shared by the v10 fact-family decoders.
 local json = type(import) == "function" and import("mods/json.lua") or require("mods/json")
 
-local primitives = { MAX_ITEMS = 256, MAX_STRING = 512, json = json }
+local primitives = { MAX_ITEMS = 256, MAX_STRING = 512, MAX_OWNER_STRING = 2048, json = json }
 
 function primitives.fail(message) return nil, message end
 function primitives.obj(value, label)
