@@ -1,6 +1,7 @@
 -- Exact occurrence-local Timeline correlation and planner-visible outcome
 -- comparison. Native hook groups own when these functions are called; this
 -- module owns only published-field indexes and bounded native bindings.
+local chaos = type(import) == "function" and import("mods/chaos.lua") or require("mods/chaos")
 local timeline = {}
 
 local function same(left, right)
@@ -74,7 +75,11 @@ end
 
 function timeline.produced(index, sourceRow, sourceRole, native)
     if sourceRow == nil or sourceRow.node == nil or sourceRole == nil then return nil end
-    local key = sourceRow.node.owner .. "\0" .. sourceRole
+    -- Producer relations are declared against the acquisition source (for
+    -- example the incoming reward), not the timeline action that settles one
+    -- of that source's roles. Those addresses intentionally differ.
+    local sourceOwner = sourceRow.node.sourceOwner or sourceRow.node.owner
+    local key = sourceOwner .. "\0" .. sourceRole
     return timeline.bind(index, timeline.lookup(index, "produced", key), native)
 end
 
@@ -208,10 +213,23 @@ end
 
 function timeline.verifyTrait(row, selectedKey, heroTraits)
     local expected, offer = timeline.expectedTrait(row)
-    local expectedKey = row and row.realizedKey or expected and expected.key
     if offer and offer.kind == "chaos" then
-        expectedKey = row and row.realizedKey or offer.blessingKey
+        local selectedIndex = type(offer.selected) == "string"
+            and tonumber(offer.selected:match("(%d+)$")) or nil
+        local curse = selectedIndex and offer.curseOptions and offer.curseOptions[selectedIndex]
+        if curse == nil or selectedKey ~= curse.curseKey then return false end
+        for _, trait in pairs(heroTraits or {}) do
+            if type(trait) == "table" and (trait.Name == selectedKey or trait.TraitName == selectedKey) then
+                local blessing = trait.OnExpire and trait.OnExpire.TraitData
+                return chaos.matchesCurse(trait, curse.curseKey, curse.requirementCount,
+                        offer.selectedCurseValues)
+                    and chaos.matchesBlessing(blessing, offer.blessingKey, offer.rarity,
+                        offer.blessingValues)
+            end
+        end
+        return false
     end
+    local expectedKey = row and row.realizedKey or expected and expected.key
     if (expected == nil and not (offer and offer.kind == "chaos")) or expectedKey ~= selectedKey then
         return false
     end

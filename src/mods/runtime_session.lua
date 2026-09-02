@@ -92,6 +92,20 @@ function runtime.expectedOccurrence(state)
     return id and routeState.plan.occurrencesById[id] or nil
 end
 
+function runtime.prepareOccurrence(state, occurrenceId)
+    local active = runtime.current(state)
+    if active ~= nil and active.occurrence.id == occurrenceId then return active end
+    local expected = runtime.expectedOccurrence(state)
+    if expected == nil or expected.id ~= occurrenceId then return nil end
+    if state.preparedOccurrence ~= nil and state.preparedOccurrence.occurrence.id == occurrenceId then
+        return state.preparedOccurrence
+    end
+    local bindings, bindingError = timeline.index(expected)
+    if bindings == nil then return fail(state, bindingError) end
+    state.preparedOccurrence = { occurrence = expected, bindings = bindings }
+    return state.preparedOccurrence
+end
+
 function runtime.realizeStartingRoom(state, game, nativeRoom)
     local occurrence = runtime.expectedOccurrence(state)
     if occurrence == nil then return nil end
@@ -149,17 +163,31 @@ function runtime.enter(state, occurrenceId, gameName, nativeRoom)
     local current, errorValue = route.enter(state.route, occurrenceId, gameName)
     if current == true then return true end
     if current == nil then return fail(state, errorValue) end
-    local bindings, bindingError = timeline.index(current.occurrence)
-    if bindings == nil then return fail(state, bindingError) end
-    current.bindings = bindings
+    local prepared = state.preparedOccurrence
+    if prepared ~= nil and prepared.occurrence.id == current.occurrence.id then
+        current.bindings = prepared.bindings
+    else
+        local bindings, bindingError = timeline.index(current.occurrence)
+        if bindings == nil then return fail(state, bindingError) end
+        current.bindings = bindings
+    end
+    state.preparedOccurrence = nil
     current.generatedDoorIndexes = {}
     current.overviewBindings = overview.bind(current.occurrence, nativeRoom)
     if nativeRoom ~= nil then
-        local ok, observed = overview.prove(current.occurrence, nativeRoom)
-        if not ok then return fail(state, observed) end
-        local proved, proofError = room.prove(current, "overview", true, true)
-        if not proved then return fail(state, proofError) end
+        return runtime.proveOverview(state, nativeRoom)
     end
+    return current
+end
+
+function runtime.proveOverview(state, nativeRoom, nativeContext)
+    local current = runtime.current(state)
+    if current == nil then return nil end
+    current.overviewBindings = overview.bind(current.occurrence, nativeRoom)
+    local ok, observed = overview.prove(current.occurrence, nativeRoom, nativeContext)
+    if not ok then return fail(state, observed) end
+    local proved, proofError = room.prove(current, "overview", true, true)
+    if not proved then return fail(state, proofError) end
     return current
 end
 
@@ -270,6 +298,25 @@ end
 function runtime.bound(state, native)
     local current = runtime.current(state)
     return current and timeline.bound(current.bindings, native) or nil
+end
+
+-- A native interaction may materialize a published produced acquisition by
+-- asking ChooseRoomReward for a second reward in the current room. Keep that
+-- exact transaction on the occurrence session so the room hook cannot mistake
+-- the nested selection for the room's incoming reward.
+function runtime.expectRewardSelection(state, row)
+    local current = runtime.current(state)
+    if current == nil or row == nil then return nil end
+    current.pendingRewardSelection = row
+    return true
+end
+
+function runtime.takeRewardSelection(state)
+    local current = runtime.current(state)
+    if current == nil then return nil end
+    local row = current.pendingRewardSelection
+    current.pendingRewardSelection = nil
+    return row
 end
 
 function runtime.complete(state, row, verified, expected, observed)

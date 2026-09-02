@@ -22,6 +22,7 @@ end
 function logic.attach(module, data)
     data.session.defineCache(module)
     local adapter = import("mods/native_timeline_adapters.lua")
+    local nativeFacts = import("mods/native_fact_bindings.lua")
     local roomHooks = import("mods/hooks_rooms.lua")
     local timelineHooks = import("mods/hooks_timeline.lua")
     local featureHooks = import("mods/hooks_features.lua")
@@ -51,12 +52,12 @@ function logic.attach(module, data)
             local status = data.session.status(state)
             runtime.status.write("ExecutionSessionStatus", status.state .. ": " .. status.reason)
         end
-        if state.firstMismatch and not state.mismatchLogged then
-            state.mismatchLogged = true
+        if state.firstMismatch and state.loggedMismatch ~= state.firstMismatch then
+            state.loggedMismatch = state.firstMismatch
             if rom and rom.log and rom.log.info then
                 local mismatch = state.firstMismatch
                 rom.log.info("[RunPlanner] first-mismatch checkpoint="
-                    .. tostring(mismatch.checkpoint) .. " expected="
+                    .. tostring(mismatch.checkpoint or mismatch.kind) .. " expected="
                     .. diagnosticValue(mismatch.expected) .. " observed="
                     .. diagnosticValue(mismatch.observed))
             end
@@ -108,9 +109,12 @@ function logic.attach(module, data)
         end)
     end
 
-    wrapEquipResult("GiveDurationHammer", "execution-v10-equip-hammer", "experimentalHammer")
-    wrapEquipResult("GiveRandomHadesBoonAndBoostBoons", "execution-v10-equip-pom", "jeweledPom")
-    wrapEquipResult("ChaosBlessingBonus", "execution-v10-equip-embryo", "transcendentEmbryo")
+    wrapEquipResult(nativeFacts.keepsakeEquipContacts.experimentalHammer,
+        "execution-v10-equip-hammer", "experimentalHammer")
+    wrapEquipResult(nativeFacts.keepsakeEquipContacts.jeweledPom,
+        "execution-v10-equip-pom", "jeweledPom")
+    wrapEquipResult(nativeFacts.keepsakeEquipContacts.transcendentEmbryo,
+        "execution-v10-equip-embryo", "transcendentEmbryo")
 
     module.hooks.wrap("AddRandomHammer", "execution-v10-equip-hammer-result", function(_, runtime, base, args)
         local result = base(args)

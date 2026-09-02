@@ -7,11 +7,42 @@ local function roomName(value)
     return type(value) == "table" and (value.GenusName or value.Name) or nil
 end
 
+local function orderedDoors(value)
+    if type(_G.CollapseTableOrdered) == "function" then
+        return _G.CollapseTableOrdered(value or {})
+    end
+    local result = {}
+    for _, door in ipairs(value or {}) do result[#result + 1] = door end
+    if #result == 0 then
+        for _, door in pairs(value or {}) do result[#result + 1] = door end
+    end
+    return result
+end
+
+local function chooseForcedEncounter(base, currentRun, nativeRoom, args, declaration)
+    if type(currentRun) ~= "table" or declaration == nil then return nil end
+    local priorRunForce = currentRun.ForceNextEncounterData
+    local priorGlobalForce = _G.ForceNextEncounter
+    currentRun.ForceNextEncounterData = declaration
+    _G.ForceNextEncounter = nil
+    local ok, result = pcall(base, currentRun, nativeRoom, args)
+    currentRun.ForceNextEncounterData = priorRunForce
+    _G.ForceNextEncounter = priorGlobalForce
+    if not ok then error(result, 0) end
+    return result
+end
+
 function hooks.attach(module, session, getState, report, ensureStarted)
-    local secretScope = false
+    local secretScope
     local pendingAdditional
     local encounterIndex
     local doorScope
+    local rewardChoiceScope
+
+    local function occurrenceForRoom(state, room)
+        local id = type(room) == "table" and room.__runPlannerExecutionRoomId or nil
+        return id and state.plan and state.plan.occurrencesById[id] or nil
+    end
 
     module.hooks.wrap("ChooseStartingRoom", "execution-v10-starting-room", function(_, runtime, base, currentRun, args)
         local state = getState(runtime)
@@ -31,6 +62,11 @@ function hooks.attach(module, session, getState, report, ensureStarted)
     module.hooks.wrap("CreateRoom", "execution-v10-create-room", function(_, runtime, base, roomData, args)
         local state = getState(runtime)
         local id = type(roomData) == "table" and roomData.__runPlannerExecutionRoomId or nil
+        local additional = pendingAdditional
+        local additionalOwner = additional and additional.owner
+            or type(roomData) == "table" and roomData.__runPlannerExecutionAdditionalOwner
+        local additionalKind = additional and additional.kind
+            or type(roomData) == "table" and roomData.__runPlannerExecutionAdditionalKind
         if pendingAdditional ~= nil and roomName(roomData) == "C_Boss01" then
             id = pendingAdditional.room.id
         end
@@ -43,27 +79,58 @@ function hooks.attach(module, session, getState, report, ensureStarted)
             local occurrence = state.plan and state.plan.occurrencesById[id]
             overview.applyResources(occurrence, result)
         end
-        if type(result) == "table" and id ~= nil then result.__runPlannerExecutionRoomId = id end
+        if type(result) == "table" and id ~= nil then
+            result.__runPlannerExecutionRoomId = id
+            if additionalOwner ~= nil then
+                result.__runPlannerExecutionAdditionalOwner = additionalOwner
+                result.__runPlannerExecutionAdditionalKind = additionalKind
+            end
+        end
         report(runtime)
         return result
     end)
 
-    module.hooks.wrap("StartRoomPreLoadBinks", "execution-v10-room-entry", function(_, runtime, base, args)
+    module.hooks.wrap("AssignRoomToExitDoor", "execution-v10-additional-exit-binding", function(_, runtime, base,
+        door, room)
+        local additionalOwner = type(room) == "table" and room.__runPlannerExecutionAdditionalOwner
+            or pendingAdditional and pendingAdditional.owner
+        local additionalKind = type(room) == "table" and room.__runPlannerExecutionAdditionalKind
+            or pendingAdditional and pendingAdditional.kind
+        local result = base(door, room)
+        if type(door) == "table" and additionalOwner ~= nil then
+            door.__runPlannerExecutionAdditionalOwner = additionalOwner
+            door.__runPlannerExecutionAdditionalKind = additionalKind
+        end
+        report(runtime)
+        return result
+    end)
+
+    module.hooks.wrap("StartRoom", "execution-v10-room-entry", function(_, runtime, base, currentRun, nativeRoom)
         local state = getState(runtime)
-        local nativeRoom = type(args) == "table" and args.Room or nil
         local expected = session.expectedOccurrence(state)
         local id = type(nativeRoom) == "table" and nativeRoom.__runPlannerExecutionRoomId or nil
         if id == nil and expected and roomName(nativeRoom) == expected.gameName then id = expected.id end
-        session.enter(state, id, roomName(nativeRoom), nativeRoom)
+        session.enter(state, id, roomName(nativeRoom))
         report(runtime)
-        return base(args)
+        local result = base(currentRun, nativeRoom)
+        session.proveOverview(state, nativeRoom, {
+            activeObstacles = _G.MapState and _G.MapState.ActiveObstacles,
+            offeredExitDoors = _G.MapState and _G.MapState.OfferedExitDoors,
+            hasObject = function(key)
+                if type(_G.GetIdsByType) ~= "function" then return false end
+                local ids = _G.GetIdsByType({ Name = key })
+                return type(ids) == "table" and next(ids) ~= nil
+            end,
+        })
+        report(runtime)
+        return result
     end)
 
     module.hooks.wrap("HandleSecretSpawns", "execution-v10-room-features", function(_, runtime, base, currentRun)
         local state = getState(runtime)
         secretScope = session.additionalRoom(state, "chaos", _G.game or game) ~= nil
         local ok, result = pcall(base, currentRun)
-        secretScope = false
+        secretScope = nil
         if not ok then error(result, 0) end
         report(runtime)
         return result
@@ -71,8 +138,15 @@ function hooks.attach(module, session, getState, report, ensureStarted)
 
     module.hooks.wrap("IsSecretDoorEligible", "execution-v10-chaos-eligibility", function(_, _, base, currentRun,
         currentRoom)
-        if secretScope then return true end
+        if secretScope ~= nil then return secretScope end
         return base(currentRun, currentRoom)
+    end)
+
+    module.hooks.wrap("IsSellTraitShopEligible", "execution-v10-purging-pool-presence", function(_, runtime, base,
+        currentRoom)
+        local state = getState(runtime)
+        if session.current(state) ~= nil then return session.feature(state, "purgingPool") ~= nil end
+        return base(currentRoom)
     end)
 
     module.hooks.wrap("IsWellShopEligible", "execution-v10-well-presence", function(_, runtime, base, currentRun,
@@ -106,12 +180,23 @@ function hooks.attach(module, session, getState, report, ensureStarted)
 
     module.hooks.wrap("ChooseEncounter", "execution-v10-encounter-choice", function(_, runtime, base, currentRun,
         nativeRoom, args)
+        local declaration
         if encounterIndex ~= nil then
             encounterIndex = encounterIndex + 1
             local current = session.current(getState(runtime))
             local phase = current and current.occurrence.overview.encounterPhases[encounterIndex]
-            local declaration = phase and (_G.game or game).EncounterData[phase.encounterKey]
-            if declaration ~= nil then return declaration end
+            declaration = phase and (_G.game or game).EncounterData[phase.encounterKey]
+        end
+        if declaration == nil then
+            local state = getState(runtime)
+            local occurrence = occurrenceForRoom(state, nativeRoom)
+            local phases = occurrence and occurrence.overview.encounterPhases or {}
+            if #phases == 1 then
+                declaration = (_G.game or game).EncounterData[phases[1].encounterKey]
+            end
+        end
+        if declaration ~= nil then
+            return chooseForcedEncounter(base, currentRun, nativeRoom, args, declaration)
         end
         return base(currentRun, nativeRoom, args)
     end)
@@ -151,41 +236,88 @@ function hooks.attach(module, session, getState, report, ensureStarted)
         return base(currentRun, args, otherDoors)
     end)
 
-    module.hooks.wrap("ChooseRoomReward", "execution-v10-door-reward", function(_, _runtime, base, run, room,
-        rewardStore, chosen, args)
-        local target = doorScope and doorScope.targets[room and room.__runPlannerExecutionRoomId]
-        if target ~= nil then
-            room.ForceLootName = target.reward and target.reward.source or nil
-            return target.reward and target.reward.rewardType or nil
+    module.hooks.wrap("IsRoomRewardEligible", "execution-v10-room-reward-eligibility", function(_, _, base, run,
+        room, reward, previouslyChosen, args)
+        local scope = rewardChoiceScope
+        if scope ~= nil and type(reward) == "table" then
+            return reward.Name == scope.rewardType
         end
-        return base(run, room, rewardStore, chosen, args)
+        return base(run, room, reward, previouslyChosen, args)
+    end)
+
+    module.hooks.wrap("ChooseRoomReward", "execution-v10-room-reward", function(_, runtime, base, run, room,
+        rewardStore, chosen, args)
+        -- Native ChooseRoomReward can refill a depleted store recursively.
+        -- The outer call owns the published selection and its scoped random
+        -- choice; a recursive call must remain native implementation detail.
+        if rewardChoiceScope ~= nil then return base(run, room, rewardStore, chosen, args) end
+        local state = getState(runtime)
+        local pending = session.takeRewardSelection(state)
+        local occurrence = occurrenceForRoom(state, room)
+        if occurrence == nil and pending == nil then return base(run, room, rewardStore, chosen, args) end
+        local expected = pending and pending.node and pending.node.reward
+            or occurrence and occurrence.overview.incomingReward
+        if expected == nil then
+            room.ForceLootName = nil
+            return nil
+        end
+        if overview.isLogicalRoomAcquisition(expected) then
+            return base(run, room, rewardStore, chosen, args)
+        end
+        local resolvedStore = expected.resolvedStoreKey or rewardStore
+        room.RewardStoreName = resolvedStore
+        local prior = rewardChoiceScope
+        rewardChoiceScope = {
+            run = run,
+            rewardStoreName = resolvedStore,
+            rewardType = expected.rewardType,
+        }
+        local ok, result = pcall(base, run, room, resolvedStore, chosen, args)
+        rewardChoiceScope = prior
+        local observed = type(result) == "table" and result.Name or result
+        if not ok then error(result, 0) end
+        if observed ~= expected.rewardType then
+            session.mismatch(state, "room-reward", expected.rewardType, observed)
+        end
+        if expected.source ~= nil then room.ForceLootName = expected.source end
+        report(runtime)
+        return result
     end)
 
     module.hooks.wrap("DoUnlockRoomExits", "execution-v10-doors", function(_, runtime, base, currentRun, nativeRoom)
         local state = getState(runtime)
         local current = session.current(state)
         local expected = current and current.occurrence.doors
+        local additionalIds, additionalOwners = {}, {}
+        for _, additional in ipairs(current and current.occurrence.overview
+            and current.occurrence.overview.additional or {}) do
+            additionalIds[additional.room.id] = true
+            additionalOwners[additional.owner] = true
+        end
+        local function normalDoors()
+            local normal = {}
+            for _, door in ipairs(orderedDoors(_G.MapState and _G.MapState.OfferedExitDoors or {})) do
+                local generated = door.Room or door.RoomData
+                local generatedId = type(generated) == "table" and generated.__runPlannerExecutionRoomId
+                local owner = door.__runPlannerExecutionAdditionalOwner
+                    or type(generated) == "table" and generated.__runPlannerExecutionAdditionalOwner
+                local isAdditional = generatedId ~= nil and additionalIds[generatedId]
+                    or generatedId == nil and owner ~= nil and additionalOwners[owner]
+                if not isAdditional then normal[#normal + 1] = door end
+            end
+            return normal
+        end
         if expected and expected.resolvedSharedRewardStoreKey then
             currentRun.NextRewardStoreName = expected.resolvedSharedRewardStoreKey
         end
-        local offered = _G.MapState and _G.MapState.OfferedExitDoors or {}
-        local normal = {}
-        for _, door in ipairs(offered) do
-            local generated = door.Room or door.RoomData
-            if type(generated) ~= "table" or generated.__runPlannerExecutionAdditionalKind == nil then
-                normal[#normal + 1] = door
-            end
-        end
-        local rows = expected and session.realizeDoors(state, normal, _G.game or game) or nil
+        local rows = expected and session.realizeDoors(state, normalDoors(), _G.game or game) or nil
         if rows ~= nil and expected and expected.kind ~= "terminal" then
-            local targets = expected.kind == "fixed" and { expected.target } or expected.targets
-            local targetsById = {}
-            for _, target in ipairs(targets or {}) do targetsById[target.room.id] = target end
-            doorScope = { rows = rows, targets = targetsById, index = 1 }
+            doorScope = { rows = rows, index = 1 }
         end
         local ok, result = pcall(base, currentRun, nativeRoom)
         doorScope = nil
         if not ok then error(result, 0) end
+        local normal = normalDoors()
         if expected and expected.resolvedSharedRewardStoreKey then
             normal.sharedRewardStoreKey = currentRun.NextRewardStoreName
         end

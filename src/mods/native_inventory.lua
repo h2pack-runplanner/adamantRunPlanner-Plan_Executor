@@ -117,8 +117,9 @@ function inventory.verify(prepared, store)
         if observedKey ~= expectedKey then
             return nil, { checkpoint = "inventory-generation", expected = expectedKey, observed = observedKey }
         end
-        option.__runPlannerOfferKey = offer.offerKey or expectedKey
+        option.__runPlannerOfferKey = offer.offerKey or offer.sourceOfferKey or expectedKey
         option.__runPlannerGenerationKey = offer.generationKey
+            or (prepared.kind == "shopRefill" and "travelDealRefill" or nil)
         option.__runPlannerTwistResultKey = offer.twistResultKey
     end
     return true

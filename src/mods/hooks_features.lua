@@ -6,7 +6,14 @@ local adapter = type(import) == "function" and import("mods/native_timeline_adap
 local hooks = {}
 
 local function current(session, state)
-    return session.current(state)
+    local active = session.current(state)
+    local nativeRoom = _G.CurrentRun and _G.CurrentRun.CurrentRoom
+    local occurrenceId = type(nativeRoom) == "table" and nativeRoom.__runPlannerExecutionRoomId
+    if occurrenceId ~= nil and (active == nil or active.occurrence.id ~= occurrenceId)
+        and type(session.prepareOccurrence) == "function" then
+        return session.prepareOccurrence(state, occurrenceId)
+    end
+    return active
 end
 
 local function mismatch(session, state, errorValue)
@@ -20,6 +27,39 @@ function hooks.attach(module, session, getState, report)
     local pendingTwist
     local refillScope
     local worldItemsById = {}
+
+    local bindingFields = {
+        "__runPlannerOfferKey", "__runPlannerGenerationKey", "__runPlannerTwistResultKey",
+    }
+
+    local function captureStoreBindings()
+        local options = _G.CurrentRun and _G.CurrentRun.CurrentRoom
+            and _G.CurrentRun.CurrentRoom.Store and _G.CurrentRun.CurrentRoom.Store.StoreOptions
+        local bindings = {}
+        for index, option in pairs(options or {}) do
+            if type(option) == "table" then
+                local binding = {}
+                for _, field in ipairs(bindingFields) do binding[field] = option[field] end
+                bindings[index] = binding
+            end
+        end
+        return bindings
+    end
+
+    local function restoreStoreBindings(bindings, screen)
+        local options = _G.CurrentRun and _G.CurrentRun.CurrentRoom
+            and _G.CurrentRun.CurrentRoom.Store and _G.CurrentRun.CurrentRoom.Store.StoreOptions
+        for index, binding in pairs(bindings or {}) do
+            local option = options and options[index]
+            local button = type(screen) == "table" and type(screen.Components) == "table"
+                and screen.Components["PurchaseButton" .. index] or nil
+            for _, target in ipairs({ option, button and button.Data }) do
+                if type(target) == "table" then
+                    for _, field in ipairs(bindingFields) do target[field] = binding[field] end
+                end
+            end
+        end
+    end
 
     local function availableIn(value, key, seen)
         if type(value) ~= "table" then return value == key end
@@ -100,6 +140,19 @@ function hooks.attach(module, session, getState, report)
         return item
     end
 
+    local function verifyShopBinding(row, bindingKey, itemKey)
+        if row == nil or row.node == nil or row.node.kind ~= "shopPurchase" then return false end
+        if row.realizedKey ~= nil then return row.realizedKey == itemKey end
+        return row.node.offerKey == bindingKey
+    end
+
+    local function completesAtPurchase(node)
+        for _, role in ipairs(node and node.roles or {}) do
+            if role.lifecyclePoint ~= "purchase" then return false end
+        end
+        return true
+    end
+
     module.hooks.wrap("FillInShopOptions", "execution-v10-inventory", function(_, runtime, base, args)
         local state = getState(runtime)
         local active = current(session, state)
@@ -148,16 +201,25 @@ function hooks.attach(module, session, getState, report)
         return result
     end)
 
+    module.hooks.wrap("CreateStoreButtons", "execution-v10-store-button-bindings", function(_, _, base, screen,
+        instant)
+        local bindings = captureStoreBindings()
+        local result = base(screen, instant)
+        restoreStoreBindings(bindings, screen)
+        return result
+    end)
+
     module.hooks.wrap("HandleStorePurchase", "execution-v10-store-purchase", function(_, runtime, base, screen, button,
         args)
         local state = getState(runtime)
         local active = current(session, state)
         local item = type(button) == "table" and (button.Data or button) or nil
         local generationKey = item and item.__runPlannerGenerationKey
-        local offerKey = item and (item.__runPlannerOfferKey or item.Name or item.ItemName)
+        local bindingKey = item and (item.__runPlannerOfferKey or item.Name or item.ItemName)
+        local itemKey = item and (item.Name or item.ItemName or bindingKey)
         local bindings = active and active.bindings
         local row = bindings and (generationKey and adapter.generation(bindings, generationKey, item)
-            or offerKey and adapter.offer(bindings, offerKey, item)) or nil
+            or bindingKey and adapter.offer(bindings, bindingKey, item)) or nil
         if row and row.node ~= false then
             for _, fallback in ipairs(row.node.runtimeFallbacks or {}) do
                 if fallback.availabilityContact == "storePurchase" then
@@ -166,7 +228,7 @@ function hooks.attach(module, session, getState, report)
                     end, item)
                     if key == nil then report(runtime); return nil end
                     if materializeCarrier(item, key) == nil then report(runtime); return nil end
-                    offerKey = key
+                    itemKey = key
                 end
             end
         end
@@ -178,11 +240,13 @@ function hooks.attach(module, session, getState, report)
         local purchasesAfter = _G.CurrentRun and _G.CurrentRun.WellPurchases
         local purchased = row ~= nil and (row.node.kind ~= "wellPurchase"
             or type(purchasesBefore) ~= "number" or purchasesAfter == purchasesBefore + 1)
-        if purchased then
+        if purchased and completesAtPurchase(row.node) then
             local verified = row.node.kind == "wellPurchase"
-                and adapter.verifyWell(row, generationKey, offerKey, item.__runPlannerTwistResultKey)
-                or row.node.kind == "shopPurchase" and adapter.effectiveOfferKey(row) == offerKey
-            session.complete(state, row, verified, row.node, { generationKey, offerKey })
+                and adapter.verifyWell(row, generationKey, itemKey, item.__runPlannerTwistResultKey)
+                or verifyShopBinding(row, bindingKey, itemKey)
+            session.complete(state, row, verified, row.node, {
+                generationKey = generationKey, bindingKey = bindingKey, itemKey = itemKey,
+            })
         end
         report(runtime)
         return result
@@ -217,15 +281,19 @@ function hooks.attach(module, session, getState, report)
         local result = base(itemData, kitId)
         if active and type(itemData) == "table" and result ~= nil then
             local generationKey = itemData.__runPlannerGenerationKey
-            local offerKey = itemData.__runPlannerOfferKey or itemData.Name or itemData.ItemName
+            local bindingKey = itemData.__runPlannerOfferKey or itemData.Name or itemData.ItemName
+            local itemKey = itemData.Name or itemData.ItemName or bindingKey
             local row = generationKey and adapter.generation(active.bindings, generationKey, result)
-                or offerKey and adapter.offer(active.bindings, offerKey, result) or nil
+                or bindingKey and adapter.offer(active.bindings, bindingKey, result) or nil
             if row and row.node and row.node.kind == "wellRefill" then
-                local verified = adapter.verifyWell(row, generationKey, offerKey, itemData.__runPlannerTwistResultKey)
-                session.complete(state, row, verified, row.node, offerKey)
+                local verified = adapter.verifyWell(row, generationKey, itemKey,
+                    itemData.__runPlannerTwistResultKey)
+                session.complete(state, row, verified, row.node, itemKey)
             end
             if type(result) == "table" and result.ObjectId ~= nil and row ~= nil then
-                worldItemsById[result.ObjectId] = row
+                worldItemsById[result.ObjectId] = {
+                    row = row, bindingKey = bindingKey, itemKey = itemKey,
+                }
             end
         end
         report(runtime)
@@ -234,15 +302,16 @@ function hooks.attach(module, session, getState, report)
 
     module.hooks.wrap("RemoveStoreItem", "execution-v10-world-shop-purchase", function(_, runtime, base, args)
         local state = getState(runtime)
-        local row = type(args) == "table" and worldItemsById[args.Id] or nil
+        local binding = type(args) == "table" and worldItemsById[args.Id] or nil
+        local row = binding and binding.row
         local nativeRoom = _G.CurrentRun and _G.CurrentRun.CurrentRoom
         local before = nativeRoom and nativeRoom.StoreItemsPurchased or 0
         local result = base(args)
         local after = nativeRoom and nativeRoom.StoreItemsPurchased or 0
-        if row and row.node and row.node.kind == "shopPurchase" then
-            local key = adapter.effectiveOfferKey(row)
-            session.complete(state, row, after == before + 1 and key ~= nil,
-                row.node, key)
+        if row and row.node and row.node.kind == "shopPurchase" and completesAtPurchase(row.node) then
+            local verified = after == before + 1
+                and verifyShopBinding(row, binding.bindingKey, binding.itemKey)
+            session.complete(state, row, verified, row.node, binding.itemKey)
         end
         if type(args) == "table" then worldItemsById[args.Id] = nil end
         report(runtime)

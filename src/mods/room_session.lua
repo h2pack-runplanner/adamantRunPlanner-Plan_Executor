@@ -29,6 +29,7 @@ function roomSession.new(occurrence)
     end
     return {
         occurrence = occurrence, window = "roomEntered", completedOwners = {},
+        outgoingGenerated = false,
         prerequisites = prerequisites, obligations = obligations, proofs = {},
         firstMismatch = nil, closed = false,
     }
@@ -47,6 +48,13 @@ function roomSession.openWindow(session, window)
         or window:match("^encounterEnd:.+") or window:match("^bossDefeated:.+")) then
         return mismatch(session, "lifecycle-window", "published lifecycle window", window)
     end
+    -- Outgoing generation is a milestone, not an exclusive phase. Native
+    -- rooms may generate their doors while an after-combat pickup remains
+    -- pending, so it must not replace the active combat lifecycle window.
+    if window == "postOutgoing" then
+        session.outgoingGenerated = true
+        return true
+    end
     session.window = window
     return true
 end
@@ -60,12 +68,19 @@ function roomSession.complete(session, owner, _outcome)
     if transaction == nil then return mismatch(session, "transaction-owner", "published owner", owner) end
     local expectedWindow = transaction.window
     if expectedWindow then
-        local expected = expectedWindow.kind == "standard"
-            and (expectedWindow.phase == "beforeCombat" and "roomEntered" or "afterCombat")
-            or expectedWindow.kind == "encounterEnd" and ("encounterEnd:" .. expectedWindow.phaseKey)
-            or expectedWindow.kind == "bossDefeated" and ("bossDefeated:" .. expectedWindow.phaseKey)
-            or "postOutgoing"
-        if session.window ~= expected then return mismatch(session, "transaction-window", expected, session.window) end
+        if expectedWindow.kind == "postOutgoing" then
+            if not session.outgoingGenerated then
+                return mismatch(session, "transaction-window", "postOutgoing", session.window)
+            end
+        else
+            local expected = expectedWindow.kind == "standard"
+                and (expectedWindow.phase == "beforeCombat" and "roomEntered" or "afterCombat")
+                or expectedWindow.kind == "encounterEnd" and ("encounterEnd:" .. expectedWindow.phaseKey)
+                or "bossDefeated:" .. expectedWindow.phaseKey
+            if session.window ~= expected then
+                return mismatch(session, "transaction-window", expected, session.window)
+            end
+        end
     end
     for prerequisite in pairs(session.prerequisites[owner] or {}) do
         if not session.completedOwners[prerequisite] then

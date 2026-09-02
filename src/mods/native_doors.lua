@@ -43,14 +43,8 @@ function doors.prove(occurrence, nativeDoors)
         if roomName(room) ~= target.room.gameName then
             return nil, { kind = "target", index = index, expected = target.room.gameName, observed = roomName(room) }
         end
-        if target.exitKey ~= nil and native.ExitKey ~= target.exitKey then
-            return nil, { kind = "exitKey", index = index, expected = target.exitKey,
-                observed = native.ExitKey }
-        end
-        if target.index ~= nil and native.Index ~= nil and native.Index ~= target.index then
-            return nil, { kind = "index", index = index, expected = target.index, observed = native.Index }
-        end
-        local actualReward = rewardName(native.RewardType or native.Reward)
+        local actualReward = rewardName(native.RewardType or native.Reward
+            or room.ChosenRewardType or room.RewardType or room.Reward)
         local expectedReward = target.reward and target.reward.rewardType or nil
         if actualReward ~= expectedReward then
             return nil, { kind = "reward", index = index, expected = expectedReward,
@@ -82,15 +76,13 @@ function doors.realize(occurrence, nativeDoors, game)
         realized.Room.__runPlannerExecutionRoomId = target.room.id
         realized.RewardType = target.reward and target.reward.rewardType or nil
         realized.Room.RewardType = realized.RewardType
-        realized.Room.ChosenRewardType = realized.RewardType
+        realized.Room.ChosenRewardType = nil
         realized.Room.ForceLootName = target.reward and target.reward.source or nil
         if target.reward and target.reward.spurnedSource then
             realized.Room.Encounter = realized.Room.Encounter or {}
             realized.Room.Encounter.LootAName = target.reward.source
             realized.Room.Encounter.LootBName = target.reward.spurnedSource
         end
-        realized.ExitKey = target.exitKey
-        realized.Index = target.index
         realized.__runPlannerExecutionDoorTarget = target.room.id
         rows[index] = realized
     end

@@ -3,6 +3,9 @@
 -- planner chronology or action provenance.
 local chaos = type(import) == "function" and import("mods/chaos.lua") or require("mods/chaos")
 local json = type(import) == "function" and import("mods/json.lua") or require("mods/json")
+local nativeFacts = type(import) == "function" and import("mods/native_fact_bindings.lua")
+    or require("mods/native_fact_bindings")
+local conformanceBindings = nativeFacts.conformance
 local readers = {}
 
 local function traitKey(value)
@@ -51,7 +54,7 @@ end
 
 local function forfeit(run)
     local rank = type(_G.GetNumShrineUpgrades) == "function"
-        and _G.GetNumShrineUpgrades("BoonSkipShrineUpgrade") or 0
+        and _G.GetNumShrineUpgrades(conformanceBindings.shrineUpgrades.forfeit) or 0
     if type(rank) ~= "number" or rank <= 0 then return "inactive" end
     local count = type(run) == "table" and run.BiomeBoonSkipCount or nil
     if type(count) ~= "number" then return nil end
@@ -107,13 +110,14 @@ local function durationList(run, key)
 end
 
 local function stygianWell(run)
+    local keys = conformanceBindings.stygianWellTraits
     return {
-        sparkUses = remaining(run, "TemporaryForcedSecretDoorTrait"),
-        yarnUses = remaining(run, "TemporaryBoonRarityTrait"),
-        hymnUses = remaining(run, "LimitedSwapBonusTrait"),
-        discountUses = durationList(run, "TemporaryDiscountTrait"),
-        emptySlotUses = durationList(run, "TemporaryEmptySlotDamageTrait"),
-        extendedUses = remaining(run, "ExtendedShopTrait"),
+        sparkUses = remaining(run, keys.sparkUses),
+        yarnUses = remaining(run, keys.yarnUses),
+        hymnUses = remaining(run, keys.hymnUses),
+        discountUses = durationList(run, keys.discountUses),
+        emptySlotUses = durationList(run, keys.emptySlotUses),
+        extendedUses = remaining(run, keys.extendedUses),
     }
 end
 
@@ -129,20 +133,20 @@ local function keepsakeEffects(run, _gameState, expected)
         stone = json.null, transcendentEmbryo = json.null,
     }
     if expected.timePiece ~= nil and not json.isNull(expected.timePiece) then
-        local trait = findTrait(run, "GoldifyKeepsake")
+        local trait = findTrait(run, conformanceBindings.keepsakeTraits.timePiece)
         result.timePiece = {
             remainingCharges = type(trait) == "table" and (trait.BoonConversionUses or 0) or 0,
         }
     end
     if expected.callingCard ~= nil and not json.isNull(expected.callingCard) then
-        local trait = findTrait(run, "RarifyKeepsake")
+        local trait = findTrait(run, conformanceBindings.keepsakeTraits.callingCard)
         local upgrade = type(trait) == "table" and trait.RarityUpgradeData or nil
         result.callingCard = {
             remainingCharges = type(upgrade) == "table" and (upgrade.Uses or 0) or 0,
         }
     end
     if expected.figurine ~= nil and not json.isNull(expected.figurine) then
-        local trait = findTrait(run, "BossMetaUpgradeKeepsake")
+        local trait = findTrait(run, conformanceBindings.keepsakeTraits.figurine)
         local temporary = type(run) == "table" and next(run.TemporaryMetaUpgrades or {}) ~= nil
         result.figurine = {
             origin = expected.figurine.origin,

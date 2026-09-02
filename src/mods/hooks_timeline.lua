@@ -16,6 +16,32 @@ local function findTrait(key)
     return nil
 end
 
+local function keepSelectedTraitOptionAvailable(screen, offer)
+    if type(screen) ~= "table" or type(screen.BlockedIndexes) ~= "table"
+        or type(offer) ~= "table" or type(offer.options) ~= "table" then
+        return
+    end
+    local selectedIndex = type(offer.selected) == "string"
+        and tonumber(offer.selected:match("(%d+)$")) or nil
+    if selectedIndex == nil then return end
+
+    local selectedBlockPosition
+    local blocked = {}
+    for position, index in ipairs(screen.BlockedIndexes) do
+        blocked[index] = true
+        if index == selectedIndex then selectedBlockPosition = position end
+    end
+    if selectedBlockPosition == nil then return end
+
+    for index = 1, #offer.options do
+        if index ~= selectedIndex and not blocked[index] then
+            screen.BlockedIndexes[selectedBlockPosition] = index
+            return
+        end
+    end
+    table.remove(screen.BlockedIndexes, selectedBlockPosition)
+end
+
 local function currentIndex(session, state)
     local current = session.current(state)
     return current and current.bindings or nil
@@ -27,12 +53,11 @@ local function incomingRow(session, state, native)
     local reward = current.occurrence.overview.incomingReward
     if reward == nil then return nil end
     local key = reward.producerLifecycleKey .. "\0" .. reward.rewardType
-    local producer = adapter.bind(current.bindings,
-        adapter.lookup(current.bindings, "producer", key), native)
+    local producer = adapter.lookup(current.bindings, "producer", key)
     local gameName = type(native) == "table" and (native.Name or native.ItemName or native.LootName) or nil
     local materialized, errorValue = adapter.materialized(current.bindings, producer, gameName, native)
     if errorValue then session.mismatch(state, errorValue.checkpoint, errorValue.expected, errorValue.observed) end
-    return materialized or producer
+    return materialized
 end
 
 local function resolveTraitFallback(session, state, row, native)
@@ -64,6 +89,8 @@ function hooks.attach(module, session, getState, report)
     local nemesisSpawnDepth = 0
     local pendingNemesis
     local npcRewardSource
+    local unwrappedTraitRow
+    local unwrappedSourceKey
 
     local function interactionRow(state, source)
         local current = session.current(state)
@@ -100,16 +127,19 @@ function hooks.attach(module, session, getState, report)
 
     module.hooks.wrap("SetupRoomReward", "execution-v10-reward-source", function(_, runtime, base, currentRun,
         nativeRoom, prior, args)
-        local current = session.current(getState(runtime))
-        local reward = current and current.occurrence.overview.incomingReward
+        local state = getState(runtime)
+        local occurrenceId = type(nativeRoom) == "table" and nativeRoom.__runPlannerExecutionRoomId or nil
+        local occurrence = occurrenceId and state.plan and state.plan.occurrencesById[occurrenceId] or nil
+        local reward = occurrence and occurrence.overview.incomingReward
+        local result = base(currentRun, nativeRoom, prior, args)
         if reward and type(nativeRoom) == "table" then
-            nativeRoom.ForceLootName = reward.source
+            if reward.source ~= nil then nativeRoom.ForceLootName = reward.source end
             if reward.spurnedSource and type(nativeRoom.Encounter) == "table" then
                 nativeRoom.Encounter.LootAName = reward.source
                 nativeRoom.Encounter.LootBName = reward.spurnedSource
             end
         end
-        return base(currentRun, nativeRoom, prior, args)
+        return result
     end)
 
     module.hooks.wrap("UseLoot", "execution-v10-use-loot", function(_, runtime, base, usee, args, user)
@@ -141,8 +171,21 @@ function hooks.attach(module, session, getState, report)
 
     module.hooks.wrap("UseConsumableItem", "execution-v10-use-consumable", function(_, runtime, base, item, args, user)
         local state = getState(runtime)
-        local row = adapter.bound(currentIndex(session, state), item) or incomingRow(session, state, item)
-        if row ~= nil then pendingSimple = { row = row, source = item, gameName = item.Name } end
+        local index = currentIndex(session, state)
+        local row = adapter.bound(index, item) or incomingRow(session, state, item)
+        if row ~= nil then
+            local materialized, errorValue = adapter.materialized(index, row, item.Name, item)
+            if errorValue ~= nil then
+                session.mismatch(state, errorValue.checkpoint, errorValue.expected, errorValue.observed)
+            elseif materialized ~= nil then
+                row = materialized
+            end
+            local terminal = row.detail ~= nil
+            for _, role in ipairs(row.node and row.node.roles or {}) do
+                if role ~= row.detail then terminal = false end
+            end
+            if terminal then pendingSimple = { row = row, source = item, gameName = item.Name } end
+        end
         local result = base(item, args, user)
         report(runtime)
         return result
@@ -185,6 +228,7 @@ function hooks.attach(module, session, getState, report)
         local sourceRow, child = childFor(state, target, "artificerReplacement")
         if child == nil then return base(target) end
         pendingProduced[target.ObjectId] = child
+        session.expectRewardSelection(state, child)
         local result = base(target)
         session.complete(state, sourceRow, true)
         report(runtime)
@@ -210,11 +254,52 @@ function hooks.attach(module, session, getState, report)
         end
     end
 
+    module.hooks.wrap("GiveLoot", "execution-v10-mystery-boon-loot-source", function(_, _, base, args)
+        if unwrappedSourceKey == nil then return base(args) end
+        local forcedArgs = {}
+        for key, value in pairs(args or {}) do forcedArgs[key] = value end
+        forcedArgs.ForceLootName = unwrappedSourceKey
+        return base(forcedArgs)
+    end)
+
     module.hooks.wrap("CreateLoot", "execution-v10-created-loot", function(_, runtime, base, args)
         local result = base(args)
+        local state = getState(runtime)
+        if unwrappedTraitRow ~= nil and result ~= nil then
+            local current = session.current(state)
+            local row, errorValue = adapter.materialized(current and current.bindings,
+                unwrappedTraitRow, result.Name, result)
+            if errorValue ~= nil then
+                session.mismatch(state, errorValue.checkpoint, errorValue.expected, errorValue.observed)
+            elseif row == nil then
+                session.mismatch(state, "timeline-binding", "published mystery-boon source", result.Name)
+            end
+        end
         local sourceId = type(args) == "table" and args.SpawnRewardOnId
-        bindProduced(getState(runtime), sourceId, result)
+        bindProduced(state, sourceId, result)
         if sourceId then pendingProduced[sourceId] = nil end
+        return result
+    end)
+
+    module.hooks.wrap("UnwrapRandomLoot", "execution-v10-mystery-boon-source", function(_, runtime, base, source)
+        local state = getState(runtime)
+        local current = session.current(state)
+        local prior = unwrappedTraitRow
+        local priorSource = unwrappedSourceKey
+        unwrappedTraitRow = adapter.bound(current and current.bindings, source)
+        unwrappedSourceKey = nil
+        for _, role in ipairs(unwrappedTraitRow and unwrappedTraitRow.node
+            and unwrappedTraitRow.node.roles or {}) do
+            if role.lifecyclePoint == "afterUnwrap" then
+                unwrappedSourceKey = role.gameName
+                break
+            end
+        end
+        local ok, result = pcall(base, source)
+        unwrappedTraitRow = prior
+        unwrappedSourceKey = priorSource
+        if not ok then error(result, 0) end
+        report(runtime)
         return result
     end)
 
@@ -423,7 +508,9 @@ function hooks.attach(module, session, getState, report)
                     chaosContext.blessingValues = offer.blessingValues
                 end
             end
-        elseif offer and offer.options[itemIndex] then
+        elseif offer and type(offer.options) == "table" then
+            keepSelectedTraitOptionAvailable(screen, offer)
+            if offer.options[itemIndex] == nil then return base(screen, lootData, itemIndex, itemData, args) end
             local option = offer.options[itemIndex]
             itemData.ItemName, itemData.Rarity, itemData.StackNum = option.key, option.rarity, option.effectiveLevel
             if option.replacement then

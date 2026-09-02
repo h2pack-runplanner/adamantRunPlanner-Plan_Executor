@@ -108,6 +108,31 @@ function TestRoomSessionsV10.testEveryPublishedLifecycleWindowAndCheckpointIsUsa
     end
 end
 
+function TestRoomSessionsV10.testOutgoingGenerationDoesNotCloseTheAfterCombatWindow()
+    local afterCombatOwner = "after-combat"
+    local postOutgoingOwner = "post-outgoing"
+    local entry = occurrence()
+    entry.transactionsByOwner = {
+        [afterCombatOwner] = {
+            owner = afterCombatOwner,
+            window = { kind = "standard", phase = "afterCombat" },
+        },
+        [postOutgoingOwner] = {
+            owner = postOutgoingOwner,
+            window = { kind = "postOutgoing" },
+        },
+    }
+    entry.timeline = { dependencies = {}, obligations = {} }
+    local session = room.new(entry)
+
+    lu.assertTrue(room.openWindow(session, "afterCombat"))
+    lu.assertTrue(room.openWindow(session, "postOutgoing"))
+    lu.assertEquals(session.window, "afterCombat")
+    lu.assertTrue(session.outgoingGenerated)
+    lu.assertTrue(room.complete(session, afterCombatOwner))
+    lu.assertTrue(room.complete(session, postOutgoingOwner))
+end
+
 function TestRoomSessionsV10.testRouteRefusesOverlapThenAdvancesExactlyOnce()
     local first, second = occurrence(), occurrence()
     second.id, second.gameName = "two", "F_Next"

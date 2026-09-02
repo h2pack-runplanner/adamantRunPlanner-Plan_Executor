@@ -98,6 +98,39 @@ function TestNativeAdapters.testOutcomeVerifiersRequirePublishedFields()
     lu.assertFalse(adapters.verifyPool(row, "slot", "other"))
 end
 
+function TestNativeAdapters.testChaosSelectionVerifiesTheNativeCurseAndEmbeddedBlessingPair()
+    local row = {
+        node = {},
+        detail = {
+            traitOffer = {
+                kind = "chaos",
+                selected = "option1",
+                curseOptions = { { curseKey = "ChaosRestrictBoonCurse", requirementCount = 3 } },
+                selectedCurseValues = {},
+                blessingKey = "ChaosSpecialBlessing",
+                rarity = "Epic",
+                blessingValues = { damageBonus = 1.2 },
+            },
+        },
+    }
+    local curse = {
+        Name = "ChaosRestrictBoonCurse",
+        RemainingUses = 3,
+        OnExpire = {
+            TraitData = {
+                Name = "ChaosSpecialBlessing",
+                Rarity = "Epic",
+                AddOutgoingDamageModifiers = { ValidWeaponMultiplier = 2.2 },
+            },
+        },
+    }
+
+    lu.assertTrue(adapters.verifyTrait(row, "ChaosRestrictBoonCurse", { curse }))
+    lu.assertFalse(adapters.verifyTrait(row, "ChaosSpecialBlessing", { curse }))
+    curse.OnExpire.TraitData.Rarity = "Rare"
+    lu.assertFalse(adapters.verifyTrait(row, "ChaosRestrictBoonCurse", { curse }))
+end
+
 function TestNativeAdapters.testMaterializationBindsTheExactPublishedRole()
     local item = occurrence("traitEligibility")
     item.transactionsByOwner.owner.roles = {
@@ -111,6 +144,36 @@ function TestNativeAdapters.testMaterializationBindsTheExactPublishedRole()
     lu.assertEquals(loot.detail.role, "loot")
     lu.assertEquals(consumable.detail.role, "resource")
     lu.assertNil(adapters.materialized(index, producer, "UnknownDrop", {}))
+end
+
+function TestNativeAdapters.testProducedAcquisitionUsesItsPublishedSourceOwnerNotTimelineOwner()
+    local item = occurrence("traitEligibility")
+    item.transactionsByOwner.owner.sourceOwner = "incoming-reward"
+    item.transactionsByOwner.owner.roles = {
+        { role = "self", lifecyclePoint = "pickup", kind = "resource", gameName = "MetaCurrencyDrop" },
+    }
+    item.transactionsByOwner.child = {
+        owner = "child-action",
+        sourceOwner = "child-source",
+        kind = "acquisition",
+        window = { kind = "standard", phase = "beforeCombat" },
+        roles = {
+            {
+                role = "source", lifecyclePoint = "pickup", kind = "consumable",
+                gameName = "RoomRewardConsolationPrize",
+                producer = {
+                    kind = "artificerReplacement",
+                    sourceOwner = "incoming-reward",
+                    sourceRole = "self",
+                },
+            },
+        },
+    }
+    local index = assert(adapters.index(item))
+    local source = adapters.lookup(index, "owner", "owner")
+    local child = adapters.produced(index, source, "self")
+    lu.assertEquals(child.node.owner, "child-action")
+    lu.assertEquals(child.detail.gameName, "RoomRewardConsolationPrize")
 end
 
 function TestNativeAdapters.testReachableReadersProjectNativeState()

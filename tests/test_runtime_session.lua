@@ -96,3 +96,17 @@ function TestRuntimeSession.testRunStartMismatchPreservesTheInboxDecoderReason()
         message = "specific decoder rejection",
     })
 end
+
+function TestRuntimeSession.testPreparedDestinationBindingsAreReusedWhenTheRoomStarts()
+    local row = occurrence("storePurchase")
+    local plan = { occurrences = { row }, occurrencesById = { one = row }, selectedOccurrenceIds = { "one" } }
+    local value = { state = "synchronized", route = route.new(plan), diagnostics = {} }
+
+    local prepared = runtime.prepareOccurrence(value, "one")
+    lu.assertNotNil(prepared)
+    prepared.bindings.destinationWitness = true
+
+    lu.assertNotNil(runtime.enter(value, "one", "F_Test"))
+    lu.assertTrue(value.route.current.bindings.destinationWitness)
+    lu.assertNil(value.preparedOccurrence)
+end
