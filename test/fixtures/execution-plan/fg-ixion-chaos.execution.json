@@ -1,7 +1,7 @@
 {
   "format": "run-planner-execution",
   "protocolVersion": 10,
-  "catalogVersion": "0.53.0-chaos-return-batches",
+  "catalogVersion": "0.54.0-required-boss-rewards",
   "projectId": "golden-fg",
   "routeKey": "Underworld",
   "startingKeepsake": { "keepsakeKey": "ManaOverTimeRefundKeepsake" },
@@ -1879,6 +1879,7 @@
       "gameName": "F_Boss01",
       "kind": "SingleEncounter",
       "overview": {
+        "effectNeutralRequiredReward": true,
         "encounterPhases": [
           { "slotKey": "Encounter", "encounterKey": "BossHecate01", "kind": "boss" }
         ],
@@ -3393,6 +3394,7 @@
       "gameName": "G_Boss01",
       "kind": "SingleEncounter",
       "overview": {
+        "effectNeutralRequiredReward": true,
         "encounterPhases": [
           { "slotKey": "Encounter", "encounterKey": "BossScylla01", "kind": "boss" }
         ],
@@ -3489,5 +3491,5 @@
       }
     }
   ],
-  "planFingerprint": "ab8840dc"
+  "planFingerprint": "a9008649"
 }

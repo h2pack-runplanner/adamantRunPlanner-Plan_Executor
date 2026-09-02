@@ -19,7 +19,14 @@ local function rewardName(value)
     return type(value) == "table" and (value.RewardType or value.Name or value.Reward) or value
 end
 
-function doors.prove(occurrence, nativeDoors)
+local function preservesNativeRequiredReward(target, occurrencesById)
+    local targetOccurrence = occurrencesById and occurrencesById[target.room.id]
+    return type(targetOccurrence) == "table"
+        and type(targetOccurrence.overview) == "table"
+        and targetOccurrence.overview.effectNeutralRequiredReward == true
+end
+
+function doors.prove(occurrence, nativeDoors, occurrencesById)
     local expected = occurrence.doors
     if expected.kind == "terminal" then
         if nativeDoors ~= nil and #nativeDoors ~= 0 then
@@ -46,7 +53,11 @@ function doors.prove(occurrence, nativeDoors)
         local actualReward = rewardName(native.RewardType or native.Reward
             or room.ChosenRewardType or room.RewardType or room.Reward)
         local expectedReward = target.reward and target.reward.rewardType or nil
-        if actualReward ~= expectedReward then
+        local preserveNativeReward = preservesNativeRequiredReward(target, occurrencesById)
+        if preserveNativeReward and actualReward == nil then
+            return nil, { kind = "reward", index = index, expected = "native required reward",
+                observed = actualReward }
+        elseif not preserveNativeReward and actualReward ~= expectedReward then
             return nil, { kind = "reward", index = index, expected = expectedReward,
                 observed = actualReward }
         end
@@ -61,7 +72,7 @@ end
 
 -- Replace only the semantic rows.  Existing native-only door fields are
 -- retained by index, while route target/reward/provider facts are stamped.
-function doors.realize(occurrence, nativeDoors, game)
+function doors.realize(occurrence, nativeDoors, game, occurrencesById)
     local expected = occurrence.doors
     if expected.kind == "terminal" then return {} end
     local targets = expected.kind == "fixed" and { { room = expected.target } } or expected.targets
@@ -74,10 +85,12 @@ function doors.realize(occurrence, nativeDoors, game)
         realized.Room.GenusName = target.room.gameName
         realized.Room.Name = target.room.gameName
         realized.Room.__runPlannerExecutionRoomId = target.room.id
-        realized.RewardType = target.reward and target.reward.rewardType or nil
-        realized.Room.RewardType = realized.RewardType
-        realized.Room.ChosenRewardType = nil
-        realized.Room.ForceLootName = target.reward and target.reward.source or nil
+        if not preservesNativeRequiredReward(target, occurrencesById) then
+            realized.RewardType = target.reward and target.reward.rewardType or nil
+            realized.Room.RewardType = realized.RewardType
+            realized.Room.ChosenRewardType = nil
+            realized.Room.ForceLootName = target.reward and target.reward.source or nil
+        end
         if target.reward and target.reward.spurnedSource then
             realized.Room.Encounter = realized.Room.Encounter or {}
             realized.Room.Encounter.LootAName = target.reward.source

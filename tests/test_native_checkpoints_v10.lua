@@ -142,6 +142,27 @@ function TestNativeCheckpointsV10.testLogicalContractAcquisitionDoesNotReplaceIt
     lu.assertTrue(overview.prove(item, realized, context()))
 end
 
+function TestNativeCheckpointsV10.testEffectNeutralRequiredRewardPreservesAndAcceptsNativeBossDrop()
+    local item = occurrence()
+    item.gameName = "F_Boss01"
+    item.overview.incomingReward = nil
+    item.overview.effectNeutralRequiredReward = true
+    local game = { RoomData = { F_Boss01 = { ForcedReward = "MixerFBossDrop" } } }
+
+    local realized = assert(overview.realize(item, game))
+
+    lu.assertEquals(realized.ForcedReward, "MixerFBossDrop")
+    lu.assertNil(realized.RewardType)
+    realized.ChosenRewardType = "MixerFBossDrop"
+    realized.Encounter = { Name = "Fight" }
+    realized.WellShop = {}
+    realized.SellTraitShop = {}
+    realized.StoreDataName = "WorldShop"
+    lu.assertTrue(overview.prove(item, realized, context()))
+    realized.ChosenRewardType = nil
+    lu.assertNil(overview.prove(item, realized, context()))
+end
+
 function TestNativeCheckpointsV10.testDoorsProveOrderTargetsRewardsAndTerminal()
     local item = occurrence()
     local native = { sharedRewardStoreKey = "RunProgress",
@@ -164,4 +185,23 @@ function TestNativeCheckpointsV10.testDoorRealizationOverwritesRandomRowsAndChoo
     lu.assertEquals(realized[2].Room.GenusName, "F_Two")
     lu.assertTrue(doors.prove(item, realized))
     lu.assertEquals(doors.chooseNext(item, game, 2).GenusName, "F_Two")
+end
+
+function TestNativeCheckpointsV10.testDoorRealizationPreservesAndRequiresNativeBossReward()
+    local item = occurrence()
+    item.doors = { kind = "fixed", target = {
+        id = "boss", biomeKey = "F", gameName = "F_Boss01",
+    } }
+    local occurrencesById = {
+        boss = { id = "boss", overview = { effectNeutralRequiredReward = true } },
+    }
+    local game = { RoomData = { F_Boss01 = { ForcedReward = "MixerFBossDrop" } } }
+
+    local realized = doors.realize(item, { {} }, game, occurrencesById)
+
+    lu.assertEquals(realized[1].Room.ForcedReward, "MixerFBossDrop")
+    realized[1].Room.ChosenRewardType = "MixerFBossDrop"
+    lu.assertTrue(doors.prove(item, realized, occurrencesById))
+    realized[1].Room.ChosenRewardType = nil
+    lu.assertNil(doors.prove(item, realized, occurrencesById))
 end

@@ -258,6 +258,9 @@ function hooks.attach(module, session, getState, report, ensureStarted)
         local expected = pending and pending.node and pending.node.reward
             or occurrence and occurrence.overview.incomingReward
         if expected == nil then
+            if occurrence and occurrence.overview.effectNeutralRequiredReward == true then
+                return base(run, room, rewardStore, chosen, args)
+            end
             room.ForceLootName = nil
             return nil
         end

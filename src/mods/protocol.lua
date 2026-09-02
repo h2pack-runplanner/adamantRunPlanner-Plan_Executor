@@ -10,7 +10,7 @@ local occurrences = type(import) == "function" and import("mods/protocol_occurre
 local protocol = {
     FORMAT = "run-planner-execution",
     VERSION = 10,
-    CATALOG_VERSION = "0.53.0-chaos-return-batches",
+    CATALOG_VERSION = "0.54.0-required-boss-rewards",
     MAX_ITEMS = p.MAX_ITEMS,
     MAX_STRING = p.MAX_STRING,
     fingerprint = p.fingerprint,

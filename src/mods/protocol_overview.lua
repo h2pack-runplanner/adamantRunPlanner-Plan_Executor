@@ -196,7 +196,7 @@ function overview.decode(value, label)
         value,
         { "encounterPhases", "requiredObjects" },
         {
-            "incomingReward", "shop", "stygianWell", "purgingPool", "keepsakeRack",
+            "incomingReward", "effectNeutralRequiredReward", "shop", "stygianWell", "purgingPool", "keepsakeRack",
             "fountain", "resources", "additional",
         },
         label
@@ -223,6 +223,11 @@ function overview.decode(value, label)
     if record.incomingReward ~= nil then
         local _, rewardError = rewards.reward(record.incomingReward, label .. ".incomingReward")
         if rewardError then return nil, rewardError end
+    end
+    if record.effectNeutralRequiredReward ~= nil
+        and (not p.bool(record.effectNeutralRequiredReward, label .. ".effectNeutralRequiredReward")
+            or record.effectNeutralRequiredReward ~= true) then
+        return p.fail(label .. ".effectNeutralRequiredReward must be true when present")
     end
     if record.shop ~= nil then
         local _, shopError = shop(record.shop, label .. ".shop")

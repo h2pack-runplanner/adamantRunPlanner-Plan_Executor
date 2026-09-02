@@ -209,13 +209,15 @@ end
 function runtime.realizeDoors(state, nativeDoors, game)
     local current = runtime.current(state)
     if current == nil then return nativeDoors end
-    return doors.realize(current.occurrence, nativeDoors, game)
+    return doors.realize(current.occurrence, nativeDoors, game,
+        state.plan and state.plan.occurrencesById)
 end
 
 function runtime.proveDoors(state, nativeDoors)
     local current = runtime.current(state)
     if current == nil then return nil end
-    local ok, observed = doors.prove(current.occurrence, nativeDoors)
+    local ok, observed = doors.prove(current.occurrence, nativeDoors,
+        state.plan and state.plan.occurrencesById)
     if not ok then return fail(state, observed) end
     local closed, errorValue = room.checkpoint(current, "outgoingGeneration")
     if not closed then return fail(state, errorValue) end

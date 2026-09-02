@@ -355,6 +355,28 @@ function TestHookCompositionV10.testContractTraitAcquisitionDoesNotOwnTheNativeM
     lu.assertEquals(mismatches, {})
 end
 
+function TestHookCompositionV10.testEffectNeutralBossRewardUsesNativeForcedRewardChoice()
+    local module, _, callbacks = capture()
+    local occurrence = {
+        id = "boss",
+        overview = { effectNeutralRequiredReward = true },
+    }
+    local state = { plan = { occurrencesById = { boss = occurrence } } }
+    local session = stub()
+    session.current = function() return { occurrence = occurrence } end
+    rooms.attach(module, session, function() return state end, function() end, function() end)
+
+    local room = { __runPlannerExecutionRoomId = "boss", ForcedReward = "MixerFBossDrop" }
+    local baseCalled = false
+    local result = callbacks.ChooseRoomReward(nil, {}, function(_, nativeRoom)
+        baseCalled = true
+        return nativeRoom.ForcedReward
+    end, {}, room, "RunProgress", {}, {})
+
+    lu.assertTrue(baseCalled)
+    lu.assertEquals(result, "MixerFBossDrop")
+end
+
 function TestHookCompositionV10.testProducedRewardSelectionDoesNotReuseTheIncomingMinorStore()
     local module, _, callbacks = capture()
     local occurrence = {

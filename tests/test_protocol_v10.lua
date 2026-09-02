@@ -114,7 +114,7 @@ local function minimalPlan(transactions)
     local plan = tagged({
         format = "run-planner-execution",
         protocolVersion = 10,
-        catalogVersion = "0.53.0-chaos-return-batches",
+        catalogVersion = "0.54.0-required-boss-rewards",
         projectId = "test-project",
         planFingerprint = "00000000",
         routeKey = "Underworld",
@@ -215,6 +215,11 @@ function TestProtocolV10.testRecomputedFingerprintCannotHideClosedUnionViolation
 
     value = decode("f-opening")
     value.occurrences[1].overview.unknown = true
+    refreshFingerprint(value)
+    lu.assertNil(protocol.decode(value))
+
+    value = decode("f-opening")
+    value.occurrences[1].overview.effectNeutralRequiredReward = false
     refreshFingerprint(value)
     lu.assertNil(protocol.decode(value))
 

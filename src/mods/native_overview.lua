@@ -77,8 +77,10 @@ function overview.prove(occurrence, room, context)
     local expected = occurrence.overview
     local actualReward = reward(room.ChosenRewardType)
     local expectedReward = expected.incomingReward and expected.incomingReward.rewardType or nil
-    if not overview.isLogicalRoomAcquisition(expected.incomingReward)
-        and actualReward ~= expectedReward then
+    if expected.effectNeutralRequiredReward == true and actualReward == nil then
+        return nil, { kind = "incomingReward", expected = "native required reward", observed = actualReward }
+    elseif not overview.isLogicalRoomAcquisition(expected.incomingReward)
+        and expected.effectNeutralRequiredReward ~= true and actualReward ~= expectedReward then
         return nil, { kind = "incomingReward", expected = expectedReward, observed = actualReward }
     end
     local nativePhases = encounterPhases(room)
@@ -138,7 +140,7 @@ function overview.realize(occurrence, game, room)
         result.RewardType = expected.incomingReward.rewardType
         result.ChosenRewardType = nil
         result.ForceLootName = expected.incomingReward.source
-    elseif expected.incomingReward == nil then
+    elseif expected.incomingReward == nil and expected.effectNeutralRequiredReward ~= true then
         result.RewardType = nil
         result.ChosenRewardType = nil
         result.Reward = nil
