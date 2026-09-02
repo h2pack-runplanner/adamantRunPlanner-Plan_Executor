@@ -1,0 +1,195 @@
+local p = type(import) == "function" and import("mods/protocol_primitives.lua")
+    or require("mods/protocol_primitives")
+local rewards = type(import) == "function" and import("mods/protocol_rewards.lua")
+    or require("mods/protocol_rewards")
+local overview = type(import) == "function" and import("mods/protocol_overview.lua")
+    or require("mods/protocol_overview")
+local timeline = type(import) == "function" and import("mods/protocol_timeline.lua")
+    or require("mods/protocol_timeline")
+local diagnostics = type(import) == "function" and import("mods/protocol_diagnostics.lua")
+    or require("mods/protocol_diagnostics")
+
+local occurrences = {}
+
+local function anomaly(value, biomeKey, label)
+    local record, errorMessage = p.exact(
+        value,
+        { "replacedRoomGameName", "success" },
+        {},
+        label
+    )
+    if not record then return nil, errorMessage end
+    if biomeKey ~= "G"
+        or not p.str(record.replacedRoomGameName, label .. ".replacedRoomGameName")
+        or not p.bool(record.success, label .. ".success") then
+        return p.fail(label .. " is invalid")
+    end
+    return record
+end
+
+local function assertRoomReference(value, ids, label)
+    local reference, errorMessage = p.roomRef(value, label)
+    if not reference then return nil, errorMessage end
+    local target = ids[reference.id]
+    if target == nil
+        or target.biomeKey ~= reference.biomeKey
+        or target.gameName ~= reference.gameName then
+        return p.fail(label .. " is unresolved or contradicts occurrence identity")
+    end
+    return reference
+end
+
+local function doors(value, ids, label)
+    local record, errorMessage = p.obj(value, label)
+    if not record then return nil, errorMessage end
+    if record.kind == "batch" then
+        local batch, batchError = p.exact(
+            record,
+            { "kind", "owner", "targets" },
+            { "resolvedSharedRewardStoreKey" },
+            label
+        )
+        if not batch then return nil, batchError end
+        if not p.str(batch.owner, label .. ".owner", 256)
+            or (batch.resolvedSharedRewardStoreKey ~= nil
+                and not p.str(batch.resolvedSharedRewardStoreKey, label .. ".resolvedSharedRewardStoreKey")) then
+            return p.fail(label .. " is malformed")
+        end
+        local targets, targetsError = p.arr(batch.targets, label .. ".targets")
+        if not targets then return nil, targetsError end
+        local exitKeys = {}
+        local continuations = {}
+        for index, valueTarget in ipairs(targets) do
+            local target, targetError = p.exact(
+                valueTarget,
+                { "exitKey", "index", "room" },
+                { "reward" },
+                label .. ".targets[" .. index .. "]"
+            )
+            if not target then return nil, targetError end
+            if not p.str(target.exitKey, label .. ".exitKey")
+                or exitKeys[target.exitKey]
+                or not p.int(target.index, label .. ".index", 0) then
+                return p.fail(label .. " has invalid door target")
+            end
+            exitKeys[target.exitKey] = true
+            local reference, referenceError = assertRoomReference(target.room, ids, label .. ".room")
+            if not reference then return nil, referenceError end
+            continuations[reference.id] = true
+            if target.reward ~= nil then
+                local _, rewardError = rewards.reward(target.reward, label .. ".reward")
+                if rewardError then return nil, rewardError end
+            end
+        end
+        return batch, continuations
+    end
+    if record.kind == "fixed" then
+        local fixed, fixedError = p.exact(record, { "kind", "owner", "target" }, {}, label)
+        if not fixed then return nil, fixedError end
+        if not p.str(fixed.owner, label .. ".owner", 256) then return p.fail(label .. " invalid owner") end
+        local reference, referenceError = assertRoomReference(fixed.target, ids, label .. ".target")
+        if not reference then return nil, referenceError end
+        return fixed, { [reference.id] = true }
+    end
+    if record.kind == "terminal" then
+        local terminal, terminalError = p.exact(record, { "kind", "owner" }, {}, label)
+        if not terminal then return nil, terminalError end
+        if not p.str(terminal.owner, label .. ".owner", 256) then
+            return p.fail(label .. " has invalid owner")
+        end
+        return terminal, {}
+    end
+    return p.fail(label .. ".kind is unsupported")
+end
+
+function occurrences.decode(value, selected, label)
+    local rows, errorMessage = p.arr(value, label)
+    if not rows then return nil, errorMessage end
+    local ids = {}
+    local globalOwners = {}
+    local framing = { next = 0, values = {} }
+    local result = setmetatable({}, getmetatable(rows))
+    for index, valueRow in ipairs(rows) do
+        local row, rowError = p.exact(
+            valueRow,
+            { "id", "owner", "biomeKey", "gameName", "kind", "overview", "timeline", "doors" },
+            { "anomaly", "roomExitConformance", "diagnostics" },
+            label .. "[" .. index .. "]"
+        )
+        if not row then return nil, rowError end
+        if not p.str(row.id, label .. ".id", 256)
+            or ids[row.id]
+            or not p.str(row.owner, label .. ".owner", 256)
+            or not p.one(row.biomeKey, { F = true, G = true }, label .. ".biomeKey")
+            or not p.str(row.gameName, label .. ".gameName")
+            or not p.str(row.kind, label .. ".kind") then
+            return p.fail(label .. " has invalid occurrence identity")
+        end
+        ids[row.id] = row
+        local _, overviewError = overview.decode(row.overview, label .. ".overview")
+        if overviewError then return nil, overviewError end
+        if row.anomaly ~= nil then
+            local _, anomalyError = anomaly(row.anomaly, row.biomeKey, label .. ".anomaly")
+            if anomalyError then return nil, anomalyError end
+        end
+        local _, byOwnerOrError = timeline.decode(
+            row.timeline,
+            label .. ".timeline",
+            globalOwners
+        )
+        if type(byOwnerOrError) == "string" then return nil, byOwnerOrError end
+        row.transactionsByOwner = byOwnerOrError
+        local hadDiagnostics = row.diagnostics ~= nil
+        local expanded, diagnosticError = diagnostics.expand(
+            row.diagnostics,
+            label .. ".diagnostics",
+            framing
+        )
+        if not expanded then return nil, diagnosticError end
+        if hadDiagnostics then row.diagnostics = expanded end
+        if row.roomExitConformance ~= nil then
+            if expanded.beforeRoomExit == nil then
+                return p.fail(label .. " conformance requires beforeRoomExit diagnostic")
+            end
+            local expected, conformanceError = diagnostics.conformance(
+                row.roomExitConformance,
+                expanded.beforeRoomExit,
+                label .. ".roomExitConformance"
+            )
+            if not expected then return nil, conformanceError end
+            row.conformanceExpected = expected
+        end
+        result[index] = row
+    end
+    if #selected == 0 or result[1] == nil or selected[1] ~= result[1].id then
+        return p.fail("selected route must start at opening occurrence")
+    end
+    local selectedSeen = {}
+    for _, id in ipairs(selected) do
+        if ids[id] == nil or selectedSeen[id] then return p.fail("invalid selected occurrence") end
+        selectedSeen[id] = true
+    end
+    local continuations = {}
+    for _, row in ipairs(result) do
+        local _, rowContinuationsOrError = doors(row.doors, ids, label .. ".doors")
+        if type(rowContinuationsOrError) == "string" then return nil, rowContinuationsOrError end
+        continuations[row.id] = rowContinuationsOrError
+        for _, additional in ipairs(row.overview.additional or {}) do
+            local reference, referenceError = assertRoomReference(
+                additional.room,
+                ids,
+                label .. ".additional.room"
+            )
+            if not reference then return nil, referenceError end
+            continuations[row.id][reference.id] = true
+        end
+    end
+    for index = 1, #selected - 1 do
+        if not continuations[selected[index]][selected[index + 1]] then
+            return p.fail("selected route is disconnected")
+        end
+    end
+    return result, ids
+end
+
+return occurrences

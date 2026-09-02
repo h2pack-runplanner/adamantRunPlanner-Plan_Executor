@@ -1,20 +1,35 @@
 {
   "format": "run-planner-execution",
-  "protocolVersion": 9,
+  "protocolVersion": 10,
   "catalogVersion": "0.53.0-chaos-return-batches",
   "projectId": "golden-fg",
   "routeKey": "Underworld",
   "startingKeepsake": { "keepsakeKey": "ManaOverTimeRefundKeepsake" },
   "extent": { "kind": "configuredPrefix", "biomeKeys": ["F"], "terminalBiomeKey": "F" },
-  "rooms": [
+  "selectedOccurrenceIds": [
+    "golden-f-start",
+    "golden-f-b1-e1",
+    "golden-f-b2-e1",
+    "golden-f-b3-e1",
+    "golden-f-b4-e1",
+    "golden-f-b5-e1",
+    "golden-f-b6-e1",
+    "golden-f-b7-e1",
+    "golden-f-b8-e1",
+    "golden-f-b9-e1",
+    "golden-f-b10-e1",
+    "golden-f-preboss-shop",
+    "golden-f-preboss-shop:boss",
+    "golden-f-preboss-shop:postboss"
+  ],
+  "occurrences": [
     {
       "id": "golden-f-start",
       "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-start\"]",
       "biomeKey": "F",
       "gameName": "F_Opening01",
       "kind": "SingleEncounter",
-      "entered": true,
-      "contents": {
+      "overview": {
         "incomingReward": {
           "rewardType": "Boon",
           "producerLifecycleKey": "RoomReward",
@@ -26,8 +41,72 @@
         ],
         "requiredObjects": []
       },
-      "trace": [
-        {
+      "timeline": {
+        "transactions": [
+          {
+            "kind": "acquisition",
+            "owner": "[\"acquisitionRole\",\"Underworld\",\"F\",\"[\\\"incomingReward\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-start\\\"]\",\"source\"]",
+            "sourceOwner": "[\"incomingReward\",\"Underworld\",\"F\",\"golden-f-start\"]",
+            "reward": {
+              "rewardType": "Boon",
+              "producerLifecycleKey": "RoomReward",
+              "resolvedStoreKey": "RunProgress",
+              "source": "ApolloUpgrade"
+            },
+            "producerLifecycleKey": "RoomReward",
+            "roles": [
+              {
+                "role": "source",
+                "disposition": "normal",
+                "lifecyclePoint": "roomRewardPickup",
+                "kind": "loot",
+                "gameName": "ApolloUpgrade",
+                "settlement": {
+                  "site": "[\"acquisitionSite\",\"Underworld\",\"F\",\"[\\\"occurrence\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-start\\\"]\",\"roomRewardPickup\"]",
+                  "entry": "[\"acquisitionEntry\",\"Underworld\",\"F\",\"[\\\"acquisitionSite\\\",\\\"Underworld\\\",\\\"F\\\",\\\"[\\\\\\\"occurrence\\\\\\\",\\\\\\\"Underworld\\\\\\\",\\\\\\\"F\\\\\\\",\\\\\\\"golden-f-start\\\\\\\"]\\\",\\\"roomRewardPickup\\\"]\",\"source\"]"
+                },
+                "traitOffer": {
+                  "kind": "traits",
+                  "giver": "Apollo",
+                  "options": [
+                    { "key": "ApolloWeaponBoon", "rarity": "Common", "effectiveLevel": 1 },
+                    { "key": "ApolloSpecialBoon", "rarity": "Common", "effectiveLevel": 1 },
+                    { "key": "ApolloCastBoon", "rarity": "Common", "effectiveLevel": 1 }
+                  ],
+                  "selected": "option1"
+                }
+              }
+            ],
+            "window": { "kind": "standard", "phase": "beforeCombat" }
+          }
+        ],
+        "dependencies": [],
+        "obligations": [
+          {
+            "owner": "[\"acquisitionRole\",\"Underworld\",\"F\",\"[\\\"incomingReward\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-start\\\"]\",\"source\"]",
+            "checkpoint": "outgoingGeneration"
+          }
+        ]
+      },
+      "doors": {
+        "owner": "[\"exitDecision\",\"Underworld\",\"F\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-f-start\"}]",
+        "kind": "batch",
+        "targets": [
+          {
+            "exitKey": "exit1",
+            "index": 1,
+            "room": { "id": "golden-f-b1-e1", "biomeKey": "F", "gameName": "F_Combat02" },
+            "reward": {
+              "rewardType": "MetaCurrencyDrop",
+              "producerLifecycleKey": "RoomReward",
+              "resolvedStoreKey": "MetaProgress"
+            }
+          }
+        ],
+        "resolvedSharedRewardStoreKey": "MetaProgress"
+      },
+      "diagnostics": {
+        "roomEntered": {
           "frame": 0,
           "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"F\",\"golden-f-start\",\"roomEntered\"]",
           "checkpoint": "roomEntered",
@@ -138,59 +217,36 @@
               "bankedPathPoints": 0,
               "investedPathPoints": 0
             },
-            "artificer": null
-          }
-        },
-        {
-          "kind": "acquireReward",
-          "owner": "[\"acquisitionRole\",\"Underworld\",\"F\",\"[\\\"incomingReward\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-start\\\"]\",\"source\"]",
-          "sourceOwner": "[\"incomingReward\",\"Underworld\",\"F\",\"golden-f-start\"]",
-          "reward": {
-            "rewardType": "Boon",
-            "producerLifecycleKey": "RoomReward",
-            "resolvedStoreKey": "RunProgress",
-            "source": "ApolloUpgrade"
-          },
-          "producerLifecycleKey": "RoomReward",
-          "roles": [
-            {
-              "role": "source",
-              "disposition": "normal",
-              "lifecyclePoint": "roomRewardPickup",
-              "kind": "loot",
-              "gameName": "ApolloUpgrade",
-              "settlement": {
-                "site": "[\"acquisitionSite\",\"Underworld\",\"F\",\"[\\\"occurrence\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-start\\\"]\",\"roomRewardPickup\"]",
-                "entry": "[\"acquisitionEntry\",\"Underworld\",\"F\",\"[\\\"acquisitionSite\\\",\\\"Underworld\\\",\\\"F\\\",\\\"[\\\\\\\"occurrence\\\\\\\",\\\\\\\"Underworld\\\\\\\",\\\\\\\"F\\\\\\\",\\\\\\\"golden-f-start\\\\\\\"]\\\",\\\"roomRewardPickup\\\"]\",\"source\"]"
+            "artificer": null,
+            "retainedEffects": {
+              "echoShopDuplicateStatus": null,
+              "keepsakes": {
+                "olympianSources": [],
+                "jeweledPom": null,
+                "experimentalHammers": [],
+                "callingCard": null,
+                "timePiece": null,
+                "figLeaf": null,
+                "gorgon": null,
+                "phial": null,
+                "figurine": null,
+                "stone": null,
+                "transcendentEmbryo": null
               },
-              "traitOffer": {
-                "kind": "traits",
-                "giver": "Apollo",
-                "options": [
-                  { "key": "ApolloWeaponBoon", "rarity": "Common", "effectiveLevel": 1 },
-                  { "key": "ApolloSpecialBoon", "rarity": "Common", "effectiveLevel": 1 },
-                  { "key": "ApolloCastBoon", "rarity": "Common", "effectiveLevel": 1 }
-                ],
-                "selected": "option1"
+              "steadyGrowth": [],
+              "hermesShrineDeliveries": [],
+              "stygianWell": {
+                "sparkUses": 0,
+                "yarnUses": 0,
+                "hymnUses": 0,
+                "discountUses": [],
+                "emptySlotUses": [],
+                "extendedUses": 0
               }
             }
-          ]
+          }
         },
-        {
-          "kind": "encounterStart",
-          "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-start\"]",
-          "phase": "Encounter",
-          "encounter": "OpeningGeneratedF",
-          "encounterKind": "combat"
-        },
-        {
-          "kind": "encounterEnd",
-          "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-start\"]",
-          "phase": "Encounter",
-          "endEffectsExpected": true
-        },
-        { "kind": "cleanup", "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-start\"]" },
-        {
+        "beforeRoomExit": {
           "frame": 1,
           "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"F\",\"golden-f-start\",\"beforeRoomExit\"]",
           "checkpoint": "beforeRoomExit",
@@ -246,22 +302,6 @@
             }
           }
         }
-      ],
-      "outgoing": {
-        "owner": "[\"exitDecision\",\"Underworld\",\"F\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-f-start\"}]",
-        "kind": "batch",
-        "targets": [
-          {
-            "exitKey": "exit1",
-            "index": 1,
-            "type": "ErebusExitDoor",
-            "room": { "id": "golden-f-b1-e1", "biomeKey": "F", "gameName": "F_Combat02" },
-            "picked": true
-          }
-        ],
-        "additional": [],
-        "selectedExitKey": "exit1",
-        "resolvedSharedRewardStoreKey": "MetaProgress"
       }
     },
     {
@@ -270,8 +310,7 @@
       "biomeKey": "F",
       "gameName": "F_Combat02",
       "kind": "SingleEncounter",
-      "entered": true,
-      "contents": {
+      "overview": {
         "incomingReward": {
           "rewardType": "MetaCurrencyDrop",
           "producerLifecycleKey": "RoomReward",
@@ -282,52 +321,78 @@
         ],
         "requiredObjects": []
       },
-      "trace": [
-        {
+      "timeline": {
+        "transactions": [
+          {
+            "kind": "acquisition",
+            "owner": "[\"acquisitionRole\",\"Underworld\",\"F\",\"[\\\"incomingReward\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b1-e1\\\"]\",\"self\"]",
+            "sourceOwner": "[\"incomingReward\",\"Underworld\",\"F\",\"golden-f-b1-e1\"]",
+            "reward": {
+              "rewardType": "MetaCurrencyDrop",
+              "producerLifecycleKey": "RoomReward",
+              "resolvedStoreKey": "MetaProgress"
+            },
+            "producerLifecycleKey": "RoomReward",
+            "roles": [
+              {
+                "role": "self",
+                "disposition": "normal",
+                "lifecyclePoint": "roomRewardPickup",
+                "kind": "resource",
+                "gameName": "MetaCurrencyDrop",
+                "settlement": {
+                  "site": "[\"acquisitionSite\",\"Underworld\",\"F\",\"[\\\"occurrence\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b1-e1\\\"]\",\"roomRewardPickup\"]",
+                  "entry": "[\"acquisitionEntry\",\"Underworld\",\"F\",\"[\\\"acquisitionSite\\\",\\\"Underworld\\\",\\\"F\\\",\\\"[\\\\\\\"occurrence\\\\\\\",\\\\\\\"Underworld\\\\\\\",\\\\\\\"F\\\\\\\",\\\\\\\"golden-f-b1-e1\\\\\\\"]\\\",\\\"roomRewardPickup\\\"]\",\"self\"]"
+                }
+              }
+            ],
+            "window": { "kind": "standard", "phase": "afterCombat" }
+          }
+        ],
+        "dependencies": [],
+        "obligations": [
+          {
+            "owner": "[\"acquisitionRole\",\"Underworld\",\"F\",\"[\\\"incomingReward\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b1-e1\\\"]\",\"self\"]",
+            "checkpoint": "exitUsable"
+          }
+        ]
+      },
+      "doors": {
+        "owner": "[\"exitDecision\",\"Underworld\",\"F\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-f-b1-e1\"}]",
+        "kind": "batch",
+        "targets": [
+          {
+            "exitKey": "exit1",
+            "index": 1,
+            "room": { "id": "golden-f-b2-e1", "biomeKey": "F", "gameName": "F_Combat03" },
+            "reward": {
+              "rewardType": "Boon",
+              "producerLifecycleKey": "RoomReward",
+              "resolvedStoreKey": "RunProgress",
+              "source": "ZeusUpgrade"
+            }
+          },
+          {
+            "exitKey": "exit2",
+            "index": 2,
+            "room": { "id": "golden-f-b2-e2", "biomeKey": "F", "gameName": "F_Combat03" },
+            "reward": {
+              "rewardType": "MaxHealthDrop",
+              "producerLifecycleKey": "RoomReward",
+              "resolvedStoreKey": "RunProgress"
+            }
+          }
+        ],
+        "resolvedSharedRewardStoreKey": "RunProgress"
+      },
+      "diagnostics": {
+        "roomEntered": {
           "frame": 2,
           "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"F\",\"golden-f-b1-e1\",\"roomEntered\"]",
           "checkpoint": "roomEntered",
           "replace": {}
         },
-        {
-          "kind": "encounterStart",
-          "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-b1-e1\"]",
-          "phase": "Encounter",
-          "encounter": "GeneratedF",
-          "encounterKind": "combat"
-        },
-        {
-          "kind": "encounterEnd",
-          "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-b1-e1\"]",
-          "phase": "Encounter",
-          "endEffectsExpected": true
-        },
-        {
-          "kind": "acquireReward",
-          "owner": "[\"acquisitionRole\",\"Underworld\",\"F\",\"[\\\"incomingReward\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b1-e1\\\"]\",\"self\"]",
-          "sourceOwner": "[\"incomingReward\",\"Underworld\",\"F\",\"golden-f-b1-e1\"]",
-          "reward": {
-            "rewardType": "MetaCurrencyDrop",
-            "producerLifecycleKey": "RoomReward",
-            "resolvedStoreKey": "MetaProgress"
-          },
-          "producerLifecycleKey": "RoomReward",
-          "roles": [
-            {
-              "role": "self",
-              "disposition": "normal",
-              "lifecyclePoint": "roomRewardPickup",
-              "kind": "resource",
-              "gameName": "MetaCurrencyDrop",
-              "settlement": {
-                "site": "[\"acquisitionSite\",\"Underworld\",\"F\",\"[\\\"occurrence\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b1-e1\\\"]\",\"roomRewardPickup\"]",
-                "entry": "[\"acquisitionEntry\",\"Underworld\",\"F\",\"[\\\"acquisitionSite\\\",\\\"Underworld\\\",\\\"F\\\",\\\"[\\\\\\\"occurrence\\\\\\\",\\\\\\\"Underworld\\\\\\\",\\\\\\\"F\\\\\\\",\\\\\\\"golden-f-b1-e1\\\\\\\"]\\\",\\\"roomRewardPickup\\\"]\",\"self\"]"
-              }
-            }
-          ]
-        },
-        { "kind": "cleanup", "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-b1-e1\"]" },
-        {
+        "beforeRoomExit": {
           "frame": 3,
           "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"F\",\"golden-f-b1-e1\",\"beforeRoomExit\"]",
           "checkpoint": "beforeRoomExit",
@@ -353,29 +418,6 @@
             ]
           }
         }
-      ],
-      "outgoing": {
-        "owner": "[\"exitDecision\",\"Underworld\",\"F\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-f-b1-e1\"}]",
-        "kind": "batch",
-        "targets": [
-          {
-            "exitKey": "exit1",
-            "index": 1,
-            "type": "ErebusExitDoor",
-            "room": { "id": "golden-f-b2-e1", "biomeKey": "F", "gameName": "F_Combat03" },
-            "picked": true
-          },
-          {
-            "exitKey": "exit2",
-            "index": 2,
-            "type": "ErebusExitDoor",
-            "room": { "id": "golden-f-b2-e2", "biomeKey": "F", "gameName": "F_Combat03" },
-            "picked": false
-          }
-        ],
-        "additional": [],
-        "selectedExitKey": "exit1",
-        "resolvedSharedRewardStoreKey": "RunProgress"
       }
     },
     {
@@ -384,8 +426,7 @@
       "biomeKey": "F",
       "gameName": "F_Combat03",
       "kind": "SingleEncounter",
-      "entered": true,
-      "contents": {
+      "overview": {
         "incomingReward": {
           "rewardType": "Boon",
           "producerLifecycleKey": "RoomReward",
@@ -397,63 +438,88 @@
         ],
         "requiredObjects": []
       },
-      "trace": [
-        {
+      "timeline": {
+        "transactions": [
+          {
+            "kind": "acquisition",
+            "owner": "[\"acquisitionRole\",\"Underworld\",\"F\",\"[\\\"incomingReward\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b2-e1\\\"]\",\"source\"]",
+            "sourceOwner": "[\"incomingReward\",\"Underworld\",\"F\",\"golden-f-b2-e1\"]",
+            "reward": {
+              "rewardType": "Boon",
+              "producerLifecycleKey": "RoomReward",
+              "resolvedStoreKey": "RunProgress",
+              "source": "ZeusUpgrade"
+            },
+            "producerLifecycleKey": "RoomReward",
+            "roles": [
+              {
+                "role": "source",
+                "disposition": "normal",
+                "lifecyclePoint": "roomRewardPickup",
+                "kind": "loot",
+                "gameName": "ZeusUpgrade",
+                "settlement": {
+                  "site": "[\"acquisitionSite\",\"Underworld\",\"F\",\"[\\\"occurrence\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b2-e1\\\"]\",\"roomRewardPickup\"]",
+                  "entry": "[\"acquisitionEntry\",\"Underworld\",\"F\",\"[\\\"acquisitionSite\\\",\\\"Underworld\\\",\\\"F\\\",\\\"[\\\\\\\"occurrence\\\\\\\",\\\\\\\"Underworld\\\\\\\",\\\\\\\"F\\\\\\\",\\\\\\\"golden-f-b2-e1\\\\\\\"]\\\",\\\"roomRewardPickup\\\"]\",\"source\"]"
+                },
+                "traitOffer": {
+                  "kind": "traits",
+                  "giver": "Zeus",
+                  "options": [
+                    { "key": "ZeusSpecialBoon", "rarity": "Common", "effectiveLevel": 1 },
+                    { "key": "ZeusCastBoon", "rarity": "Common", "effectiveLevel": 1 },
+                    { "key": "ZeusSprintBoon", "rarity": "Common", "effectiveLevel": 1 }
+                  ],
+                  "selected": "option1"
+                }
+              }
+            ],
+            "window": { "kind": "standard", "phase": "afterCombat" }
+          }
+        ],
+        "dependencies": [],
+        "obligations": [
+          {
+            "owner": "[\"acquisitionRole\",\"Underworld\",\"F\",\"[\\\"incomingReward\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b2-e1\\\"]\",\"source\"]",
+            "checkpoint": "exitUsable"
+          }
+        ]
+      },
+      "doors": {
+        "owner": "[\"exitDecision\",\"Underworld\",\"F\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-f-b2-e1\"}]",
+        "kind": "batch",
+        "targets": [
+          {
+            "exitKey": "exit1",
+            "index": 1,
+            "room": { "id": "golden-f-b3-e1", "biomeKey": "F", "gameName": "F_Combat04" },
+            "reward": {
+              "rewardType": "MaxHealthDrop",
+              "producerLifecycleKey": "RoomReward",
+              "resolvedStoreKey": "RunProgress"
+            }
+          },
+          {
+            "exitKey": "exit2",
+            "index": 2,
+            "room": { "id": "golden-f-b3-e2", "biomeKey": "F", "gameName": "F_Combat04" },
+            "reward": {
+              "rewardType": "MaxManaDrop",
+              "producerLifecycleKey": "RoomReward",
+              "resolvedStoreKey": "RunProgress"
+            }
+          }
+        ],
+        "resolvedSharedRewardStoreKey": "RunProgress"
+      },
+      "diagnostics": {
+        "roomEntered": {
           "frame": 4,
           "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"F\",\"golden-f-b2-e1\",\"roomEntered\"]",
           "checkpoint": "roomEntered",
           "replace": {}
         },
-        {
-          "kind": "encounterStart",
-          "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-b2-e1\"]",
-          "phase": "Encounter",
-          "encounter": "GeneratedF",
-          "encounterKind": "combat"
-        },
-        {
-          "kind": "encounterEnd",
-          "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-b2-e1\"]",
-          "phase": "Encounter",
-          "endEffectsExpected": true
-        },
-        {
-          "kind": "acquireReward",
-          "owner": "[\"acquisitionRole\",\"Underworld\",\"F\",\"[\\\"incomingReward\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b2-e1\\\"]\",\"source\"]",
-          "sourceOwner": "[\"incomingReward\",\"Underworld\",\"F\",\"golden-f-b2-e1\"]",
-          "reward": {
-            "rewardType": "Boon",
-            "producerLifecycleKey": "RoomReward",
-            "resolvedStoreKey": "RunProgress",
-            "source": "ZeusUpgrade"
-          },
-          "producerLifecycleKey": "RoomReward",
-          "roles": [
-            {
-              "role": "source",
-              "disposition": "normal",
-              "lifecyclePoint": "roomRewardPickup",
-              "kind": "loot",
-              "gameName": "ZeusUpgrade",
-              "settlement": {
-                "site": "[\"acquisitionSite\",\"Underworld\",\"F\",\"[\\\"occurrence\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b2-e1\\\"]\",\"roomRewardPickup\"]",
-                "entry": "[\"acquisitionEntry\",\"Underworld\",\"F\",\"[\\\"acquisitionSite\\\",\\\"Underworld\\\",\\\"F\\\",\\\"[\\\\\\\"occurrence\\\\\\\",\\\\\\\"Underworld\\\\\\\",\\\\\\\"F\\\\\\\",\\\\\\\"golden-f-b2-e1\\\\\\\"]\\\",\\\"roomRewardPickup\\\"]\",\"source\"]"
-              },
-              "traitOffer": {
-                "kind": "traits",
-                "giver": "Zeus",
-                "options": [
-                  { "key": "ZeusSpecialBoon", "rarity": "Common", "effectiveLevel": 1 },
-                  { "key": "ZeusCastBoon", "rarity": "Common", "effectiveLevel": 1 },
-                  { "key": "ZeusSprintBoon", "rarity": "Common", "effectiveLevel": 1 }
-                ],
-                "selected": "option1"
-              }
-            }
-          ]
-        },
-        { "kind": "cleanup", "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-b2-e1\"]" },
-        {
+        "beforeRoomExit": {
           "frame": 5,
           "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"F\",\"golden-f-b2-e1\",\"beforeRoomExit\"]",
           "checkpoint": "beforeRoomExit",
@@ -512,29 +578,6 @@
             }
           }
         }
-      ],
-      "outgoing": {
-        "owner": "[\"exitDecision\",\"Underworld\",\"F\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-f-b2-e1\"}]",
-        "kind": "batch",
-        "targets": [
-          {
-            "exitKey": "exit1",
-            "index": 1,
-            "type": "ErebusExitDoor",
-            "room": { "id": "golden-f-b3-e1", "biomeKey": "F", "gameName": "F_Combat04" },
-            "picked": true
-          },
-          {
-            "exitKey": "exit2",
-            "index": 2,
-            "type": "ErebusExitDoor",
-            "room": { "id": "golden-f-b3-e2", "biomeKey": "F", "gameName": "F_Combat04" },
-            "picked": false
-          }
-        ],
-        "additional": [],
-        "selectedExitKey": "exit1",
-        "resolvedSharedRewardStoreKey": "RunProgress"
       }
     },
     {
@@ -543,8 +586,7 @@
       "biomeKey": "F",
       "gameName": "F_Combat03",
       "kind": "SingleEncounter",
-      "entered": false,
-      "contents": {
+      "overview": {
         "incomingReward": {
           "rewardType": "MaxHealthDrop",
           "producerLifecycleKey": "RoomReward",
@@ -555,8 +597,8 @@
         ],
         "requiredObjects": []
       },
-      "trace": [],
-      "outgoing": {
+      "timeline": { "transactions": [], "dependencies": [], "obligations": [] },
+      "doors": {
         "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-b2-e2\"]",
         "kind": "terminal"
       }
@@ -567,8 +609,7 @@
       "biomeKey": "F",
       "gameName": "F_Combat04",
       "kind": "SingleEncounter",
-      "entered": true,
-      "contents": {
+      "overview": {
         "incomingReward": {
           "rewardType": "MaxHealthDrop",
           "producerLifecycleKey": "RoomReward",
@@ -579,52 +620,77 @@
         ],
         "requiredObjects": []
       },
-      "trace": [
-        {
+      "timeline": {
+        "transactions": [
+          {
+            "kind": "acquisition",
+            "owner": "[\"acquisitionRole\",\"Underworld\",\"F\",\"[\\\"incomingReward\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b3-e1\\\"]\",\"self\"]",
+            "sourceOwner": "[\"incomingReward\",\"Underworld\",\"F\",\"golden-f-b3-e1\"]",
+            "reward": {
+              "rewardType": "MaxHealthDrop",
+              "producerLifecycleKey": "RoomReward",
+              "resolvedStoreKey": "RunProgress"
+            },
+            "producerLifecycleKey": "RoomReward",
+            "roles": [
+              {
+                "role": "self",
+                "disposition": "normal",
+                "lifecyclePoint": "roomRewardPickup",
+                "kind": "consumable",
+                "gameName": "MaxHealthDrop",
+                "settlement": {
+                  "site": "[\"acquisitionSite\",\"Underworld\",\"F\",\"[\\\"occurrence\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b3-e1\\\"]\",\"roomRewardPickup\"]",
+                  "entry": "[\"acquisitionEntry\",\"Underworld\",\"F\",\"[\\\"acquisitionSite\\\",\\\"Underworld\\\",\\\"F\\\",\\\"[\\\\\\\"occurrence\\\\\\\",\\\\\\\"Underworld\\\\\\\",\\\\\\\"F\\\\\\\",\\\\\\\"golden-f-b3-e1\\\\\\\"]\\\",\\\"roomRewardPickup\\\"]\",\"self\"]"
+                }
+              }
+            ],
+            "window": { "kind": "standard", "phase": "afterCombat" }
+          }
+        ],
+        "dependencies": [],
+        "obligations": [
+          {
+            "owner": "[\"acquisitionRole\",\"Underworld\",\"F\",\"[\\\"incomingReward\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b3-e1\\\"]\",\"self\"]",
+            "checkpoint": "exitUsable"
+          }
+        ]
+      },
+      "doors": {
+        "owner": "[\"exitDecision\",\"Underworld\",\"F\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-f-b3-e1\"}]",
+        "kind": "batch",
+        "targets": [
+          {
+            "exitKey": "exit1",
+            "index": 1,
+            "room": { "id": "golden-f-b4-e1", "biomeKey": "F", "gameName": "F_Combat05" },
+            "reward": {
+              "rewardType": "StackUpgrade",
+              "producerLifecycleKey": "RoomReward",
+              "resolvedStoreKey": "RunProgress"
+            }
+          },
+          {
+            "exitKey": "exit2",
+            "index": 2,
+            "room": { "id": "golden-f-b4-e2", "biomeKey": "F", "gameName": "F_Combat11" },
+            "reward": {
+              "rewardType": "RoomMoneyDrop",
+              "producerLifecycleKey": "RoomReward",
+              "resolvedStoreKey": "RunProgress"
+            }
+          }
+        ],
+        "resolvedSharedRewardStoreKey": "RunProgress"
+      },
+      "diagnostics": {
+        "roomEntered": {
           "frame": 6,
           "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"F\",\"golden-f-b3-e1\",\"roomEntered\"]",
           "checkpoint": "roomEntered",
           "replace": {}
         },
-        {
-          "kind": "encounterStart",
-          "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-b3-e1\"]",
-          "phase": "Encounter",
-          "encounter": "GeneratedF",
-          "encounterKind": "combat"
-        },
-        {
-          "kind": "encounterEnd",
-          "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-b3-e1\"]",
-          "phase": "Encounter",
-          "endEffectsExpected": true
-        },
-        {
-          "kind": "acquireReward",
-          "owner": "[\"acquisitionRole\",\"Underworld\",\"F\",\"[\\\"incomingReward\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b3-e1\\\"]\",\"self\"]",
-          "sourceOwner": "[\"incomingReward\",\"Underworld\",\"F\",\"golden-f-b3-e1\"]",
-          "reward": {
-            "rewardType": "MaxHealthDrop",
-            "producerLifecycleKey": "RoomReward",
-            "resolvedStoreKey": "RunProgress"
-          },
-          "producerLifecycleKey": "RoomReward",
-          "roles": [
-            {
-              "role": "self",
-              "disposition": "normal",
-              "lifecyclePoint": "roomRewardPickup",
-              "kind": "consumable",
-              "gameName": "MaxHealthDrop",
-              "settlement": {
-                "site": "[\"acquisitionSite\",\"Underworld\",\"F\",\"[\\\"occurrence\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b3-e1\\\"]\",\"roomRewardPickup\"]",
-                "entry": "[\"acquisitionEntry\",\"Underworld\",\"F\",\"[\\\"acquisitionSite\\\",\\\"Underworld\\\",\\\"F\\\",\\\"[\\\\\\\"occurrence\\\\\\\",\\\\\\\"Underworld\\\\\\\",\\\\\\\"F\\\\\\\",\\\\\\\"golden-f-b3-e1\\\\\\\"]\\\",\\\"roomRewardPickup\\\"]\",\"self\"]"
-              }
-            }
-          ]
-        },
-        { "kind": "cleanup", "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-b3-e1\"]" },
-        {
+        "beforeRoomExit": {
           "frame": 7,
           "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"F\",\"golden-f-b3-e1\",\"beforeRoomExit\"]",
           "checkpoint": "beforeRoomExit",
@@ -650,29 +716,6 @@
             ]
           }
         }
-      ],
-      "outgoing": {
-        "owner": "[\"exitDecision\",\"Underworld\",\"F\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-f-b3-e1\"}]",
-        "kind": "batch",
-        "targets": [
-          {
-            "exitKey": "exit1",
-            "index": 1,
-            "type": "ErebusExitDoor",
-            "room": { "id": "golden-f-b4-e1", "biomeKey": "F", "gameName": "F_Combat05" },
-            "picked": true
-          },
-          {
-            "exitKey": "exit2",
-            "index": 2,
-            "type": "ErebusExitDoor",
-            "room": { "id": "golden-f-b4-e2", "biomeKey": "F", "gameName": "F_Combat11" },
-            "picked": false
-          }
-        ],
-        "additional": [],
-        "selectedExitKey": "exit1",
-        "resolvedSharedRewardStoreKey": "RunProgress"
       }
     },
     {
@@ -681,8 +724,7 @@
       "biomeKey": "F",
       "gameName": "F_Combat04",
       "kind": "SingleEncounter",
-      "entered": false,
-      "contents": {
+      "overview": {
         "incomingReward": {
           "rewardType": "MaxManaDrop",
           "producerLifecycleKey": "RoomReward",
@@ -693,8 +735,8 @@
         ],
         "requiredObjects": []
       },
-      "trace": [],
-      "outgoing": {
+      "timeline": { "transactions": [], "dependencies": [], "obligations": [] },
+      "doors": {
         "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-b3-e2\"]",
         "kind": "terminal"
       }
@@ -705,8 +747,7 @@
       "biomeKey": "F",
       "gameName": "F_Combat05",
       "kind": "SingleEncounter",
-      "entered": true,
-      "contents": {
+      "overview": {
         "incomingReward": {
           "rewardType": "StackUpgrade",
           "producerLifecycleKey": "RoomReward",
@@ -717,57 +758,82 @@
         ],
         "requiredObjects": []
       },
-      "trace": [
-        {
+      "timeline": {
+        "transactions": [
+          {
+            "kind": "acquisition",
+            "owner": "[\"acquisitionRole\",\"Underworld\",\"F\",\"[\\\"incomingReward\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b4-e1\\\"]\",\"self\"]",
+            "sourceOwner": "[\"incomingReward\",\"Underworld\",\"F\",\"golden-f-b4-e1\"]",
+            "reward": {
+              "rewardType": "StackUpgrade",
+              "producerLifecycleKey": "RoomReward",
+              "resolvedStoreKey": "RunProgress"
+            },
+            "producerLifecycleKey": "RoomReward",
+            "roles": [
+              {
+                "role": "self",
+                "disposition": "normal",
+                "lifecyclePoint": "roomRewardPickup",
+                "kind": "loot",
+                "gameName": "StackUpgrade",
+                "settlement": {
+                  "site": "[\"acquisitionSite\",\"Underworld\",\"F\",\"[\\\"occurrence\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b4-e1\\\"]\",\"roomRewardPickup\"]",
+                  "entry": "[\"acquisitionEntry\",\"Underworld\",\"F\",\"[\\\"acquisitionSite\\\",\\\"Underworld\\\",\\\"F\\\",\\\"[\\\\\\\"occurrence\\\\\\\",\\\\\\\"Underworld\\\\\\\",\\\\\\\"F\\\\\\\",\\\\\\\"golden-f-b4-e1\\\\\\\"]\\\",\\\"roomRewardPickup\\\"]\",\"self\"]"
+                },
+                "levelResolution": {
+                  "offeredTargets": ["ApolloWeaponBoon", "ZeusSpecialBoon"],
+                  "selectedTarget": "ApolloWeaponBoon",
+                  "levelCount": 1
+                }
+              }
+            ],
+            "window": { "kind": "standard", "phase": "afterCombat" }
+          }
+        ],
+        "dependencies": [],
+        "obligations": [
+          {
+            "owner": "[\"acquisitionRole\",\"Underworld\",\"F\",\"[\\\"incomingReward\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b4-e1\\\"]\",\"self\"]",
+            "checkpoint": "exitUsable"
+          }
+        ]
+      },
+      "doors": {
+        "owner": "[\"exitDecision\",\"Underworld\",\"F\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-f-b4-e1\"}]",
+        "kind": "batch",
+        "targets": [
+          {
+            "exitKey": "exit1",
+            "index": 1,
+            "room": { "id": "golden-f-b5-e1", "biomeKey": "F", "gameName": "F_Combat06" },
+            "reward": {
+              "rewardType": "MetaCardPointsCommonDrop",
+              "producerLifecycleKey": "RoomReward",
+              "resolvedStoreKey": "MetaProgress"
+            }
+          },
+          {
+            "exitKey": "exit2",
+            "index": 2,
+            "room": { "id": "golden-f-b5-e2", "biomeKey": "F", "gameName": "F_Combat06" },
+            "reward": {
+              "rewardType": "MetaCurrencyDrop",
+              "producerLifecycleKey": "RoomReward",
+              "resolvedStoreKey": "MetaProgress"
+            }
+          }
+        ],
+        "resolvedSharedRewardStoreKey": "MetaProgress"
+      },
+      "diagnostics": {
+        "roomEntered": {
           "frame": 8,
           "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"F\",\"golden-f-b4-e1\",\"roomEntered\"]",
           "checkpoint": "roomEntered",
           "replace": {}
         },
-        {
-          "kind": "encounterStart",
-          "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-b4-e1\"]",
-          "phase": "Encounter",
-          "encounter": "GeneratedF",
-          "encounterKind": "combat"
-        },
-        {
-          "kind": "encounterEnd",
-          "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-b4-e1\"]",
-          "phase": "Encounter",
-          "endEffectsExpected": true
-        },
-        {
-          "kind": "acquireReward",
-          "owner": "[\"acquisitionRole\",\"Underworld\",\"F\",\"[\\\"incomingReward\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b4-e1\\\"]\",\"self\"]",
-          "sourceOwner": "[\"incomingReward\",\"Underworld\",\"F\",\"golden-f-b4-e1\"]",
-          "reward": {
-            "rewardType": "StackUpgrade",
-            "producerLifecycleKey": "RoomReward",
-            "resolvedStoreKey": "RunProgress"
-          },
-          "producerLifecycleKey": "RoomReward",
-          "roles": [
-            {
-              "role": "self",
-              "disposition": "normal",
-              "lifecyclePoint": "roomRewardPickup",
-              "kind": "loot",
-              "gameName": "StackUpgrade",
-              "settlement": {
-                "site": "[\"acquisitionSite\",\"Underworld\",\"F\",\"[\\\"occurrence\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b4-e1\\\"]\",\"roomRewardPickup\"]",
-                "entry": "[\"acquisitionEntry\",\"Underworld\",\"F\",\"[\\\"acquisitionSite\\\",\\\"Underworld\\\",\\\"F\\\",\\\"[\\\\\\\"occurrence\\\\\\\",\\\\\\\"Underworld\\\\\\\",\\\\\\\"F\\\\\\\",\\\\\\\"golden-f-b4-e1\\\\\\\"]\\\",\\\"roomRewardPickup\\\"]\",\"self\"]"
-              },
-              "levelResolution": {
-                "offeredTargets": ["ApolloWeaponBoon", "ZeusSpecialBoon"],
-                "selectedTarget": "ApolloWeaponBoon",
-                "levelCount": 1
-              }
-            }
-          ]
-        },
-        { "kind": "cleanup", "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-b4-e1\"]" },
-        {
+        "beforeRoomExit": {
           "frame": 9,
           "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"F\",\"golden-f-b4-e1\",\"beforeRoomExit\"]",
           "checkpoint": "beforeRoomExit",
@@ -811,29 +877,6 @@
             }
           }
         }
-      ],
-      "outgoing": {
-        "owner": "[\"exitDecision\",\"Underworld\",\"F\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-f-b4-e1\"}]",
-        "kind": "batch",
-        "targets": [
-          {
-            "exitKey": "exit1",
-            "index": 1,
-            "type": "ErebusExitDoor",
-            "room": { "id": "golden-f-b5-e1", "biomeKey": "F", "gameName": "F_Combat06" },
-            "picked": true
-          },
-          {
-            "exitKey": "exit2",
-            "index": 2,
-            "type": "ErebusExitDoor",
-            "room": { "id": "golden-f-b5-e2", "biomeKey": "F", "gameName": "F_Combat06" },
-            "picked": false
-          }
-        ],
-        "additional": [],
-        "selectedExitKey": "exit1",
-        "resolvedSharedRewardStoreKey": "MetaProgress"
       }
     },
     {
@@ -842,8 +885,7 @@
       "biomeKey": "F",
       "gameName": "F_Combat11",
       "kind": "SingleEncounter",
-      "entered": false,
-      "contents": {
+      "overview": {
         "incomingReward": {
           "rewardType": "RoomMoneyDrop",
           "producerLifecycleKey": "RoomReward",
@@ -854,8 +896,8 @@
         ],
         "requiredObjects": []
       },
-      "trace": [],
-      "outgoing": {
+      "timeline": { "transactions": [], "dependencies": [], "obligations": [] },
+      "doors": {
         "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-b4-e2\"]",
         "kind": "terminal"
       }
@@ -866,8 +908,7 @@
       "biomeKey": "F",
       "gameName": "F_Combat06",
       "kind": "SingleEncounter",
-      "entered": true,
-      "contents": {
+      "overview": {
         "incomingReward": {
           "rewardType": "MetaCardPointsCommonDrop",
           "producerLifecycleKey": "RoomReward",
@@ -878,52 +919,79 @@
         ],
         "requiredObjects": []
       },
-      "trace": [
-        {
+      "timeline": {
+        "transactions": [
+          {
+            "kind": "acquisition",
+            "owner": "[\"acquisitionRole\",\"Underworld\",\"F\",\"[\\\"incomingReward\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b5-e1\\\"]\",\"self\"]",
+            "sourceOwner": "[\"incomingReward\",\"Underworld\",\"F\",\"golden-f-b5-e1\"]",
+            "reward": {
+              "rewardType": "MetaCardPointsCommonDrop",
+              "producerLifecycleKey": "RoomReward",
+              "resolvedStoreKey": "MetaProgress"
+            },
+            "producerLifecycleKey": "RoomReward",
+            "roles": [
+              {
+                "role": "self",
+                "disposition": "normal",
+                "lifecyclePoint": "roomRewardPickup",
+                "kind": "resource",
+                "gameName": "MetaCardPointsCommonDrop",
+                "settlement": {
+                  "site": "[\"acquisitionSite\",\"Underworld\",\"F\",\"[\\\"occurrence\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b5-e1\\\"]\",\"roomRewardPickup\"]",
+                  "entry": "[\"acquisitionEntry\",\"Underworld\",\"F\",\"[\\\"acquisitionSite\\\",\\\"Underworld\\\",\\\"F\\\",\\\"[\\\\\\\"occurrence\\\\\\\",\\\\\\\"Underworld\\\\\\\",\\\\\\\"F\\\\\\\",\\\\\\\"golden-f-b5-e1\\\\\\\"]\\\",\\\"roomRewardPickup\\\"]\",\"self\"]"
+                }
+              }
+            ],
+            "window": { "kind": "standard", "phase": "afterCombat" }
+          }
+        ],
+        "dependencies": [],
+        "obligations": [
+          {
+            "owner": "[\"acquisitionRole\",\"Underworld\",\"F\",\"[\\\"incomingReward\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b5-e1\\\"]\",\"self\"]",
+            "checkpoint": "exitUsable"
+          }
+        ]
+      },
+      "doors": {
+        "owner": "[\"exitDecision\",\"Underworld\",\"F\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-f-b5-e1\"}]",
+        "kind": "batch",
+        "targets": [
+          {
+            "exitKey": "exit1",
+            "index": 1,
+            "room": { "id": "golden-f-b6-e1", "biomeKey": "F", "gameName": "F_MiniBoss01" },
+            "reward": {
+              "rewardType": "Boon",
+              "producerLifecycleKey": "RoomReward",
+              "resolvedStoreKey": "RunProgress",
+              "source": "HeraUpgrade"
+            }
+          },
+          {
+            "exitKey": "exit2",
+            "index": 2,
+            "room": { "id": "golden-f-b6-e2", "biomeKey": "F", "gameName": "F_MiniBoss02" },
+            "reward": {
+              "rewardType": "Boon",
+              "producerLifecycleKey": "RoomReward",
+              "resolvedStoreKey": "RunProgress",
+              "source": "PoseidonUpgrade"
+            }
+          }
+        ],
+        "resolvedSharedRewardStoreKey": "RunProgress"
+      },
+      "diagnostics": {
+        "roomEntered": {
           "frame": 10,
           "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"F\",\"golden-f-b5-e1\",\"roomEntered\"]",
           "checkpoint": "roomEntered",
           "replace": {}
         },
-        {
-          "kind": "encounterStart",
-          "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-b5-e1\"]",
-          "phase": "Encounter",
-          "encounter": "GeneratedF",
-          "encounterKind": "combat"
-        },
-        {
-          "kind": "encounterEnd",
-          "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-b5-e1\"]",
-          "phase": "Encounter",
-          "endEffectsExpected": true
-        },
-        {
-          "kind": "acquireReward",
-          "owner": "[\"acquisitionRole\",\"Underworld\",\"F\",\"[\\\"incomingReward\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b5-e1\\\"]\",\"self\"]",
-          "sourceOwner": "[\"incomingReward\",\"Underworld\",\"F\",\"golden-f-b5-e1\"]",
-          "reward": {
-            "rewardType": "MetaCardPointsCommonDrop",
-            "producerLifecycleKey": "RoomReward",
-            "resolvedStoreKey": "MetaProgress"
-          },
-          "producerLifecycleKey": "RoomReward",
-          "roles": [
-            {
-              "role": "self",
-              "disposition": "normal",
-              "lifecyclePoint": "roomRewardPickup",
-              "kind": "resource",
-              "gameName": "MetaCardPointsCommonDrop",
-              "settlement": {
-                "site": "[\"acquisitionSite\",\"Underworld\",\"F\",\"[\\\"occurrence\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b5-e1\\\"]\",\"roomRewardPickup\"]",
-                "entry": "[\"acquisitionEntry\",\"Underworld\",\"F\",\"[\\\"acquisitionSite\\\",\\\"Underworld\\\",\\\"F\\\",\\\"[\\\\\\\"occurrence\\\\\\\",\\\\\\\"Underworld\\\\\\\",\\\\\\\"F\\\\\\\",\\\\\\\"golden-f-b5-e1\\\\\\\"]\\\",\\\"roomRewardPickup\\\"]\",\"self\"]"
-              }
-            }
-          ]
-        },
-        { "kind": "cleanup", "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-b5-e1\"]" },
-        {
+        "beforeRoomExit": {
           "frame": 11,
           "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"F\",\"golden-f-b5-e1\",\"beforeRoomExit\"]",
           "checkpoint": "beforeRoomExit",
@@ -949,29 +1017,6 @@
             ]
           }
         }
-      ],
-      "outgoing": {
-        "owner": "[\"exitDecision\",\"Underworld\",\"F\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-f-b5-e1\"}]",
-        "kind": "batch",
-        "targets": [
-          {
-            "exitKey": "exit1",
-            "index": 1,
-            "type": "ErebusExitDoor",
-            "room": { "id": "golden-f-b6-e1", "biomeKey": "F", "gameName": "F_MiniBoss01" },
-            "picked": true
-          },
-          {
-            "exitKey": "exit2",
-            "index": 2,
-            "type": "ErebusExitDoor",
-            "room": { "id": "golden-f-b6-e2", "biomeKey": "F", "gameName": "F_MiniBoss02" },
-            "picked": false
-          }
-        ],
-        "additional": [],
-        "selectedExitKey": "exit1",
-        "resolvedSharedRewardStoreKey": "RunProgress"
       }
     },
     {
@@ -980,8 +1025,7 @@
       "biomeKey": "F",
       "gameName": "F_Combat06",
       "kind": "SingleEncounter",
-      "entered": false,
-      "contents": {
+      "overview": {
         "incomingReward": {
           "rewardType": "MetaCurrencyDrop",
           "producerLifecycleKey": "RoomReward",
@@ -992,8 +1036,8 @@
         ],
         "requiredObjects": []
       },
-      "trace": [],
-      "outgoing": {
+      "timeline": { "transactions": [], "dependencies": [], "obligations": [] },
+      "doors": {
         "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-b5-e2\"]",
         "kind": "terminal"
       }
@@ -1004,8 +1048,7 @@
       "biomeKey": "F",
       "gameName": "F_MiniBoss01",
       "kind": "SingleEncounter",
-      "entered": true,
-      "contents": {
+      "overview": {
         "incomingReward": {
           "rewardType": "Boon",
           "producerLifecycleKey": "RoomReward",
@@ -1017,63 +1060,78 @@
         ],
         "requiredObjects": []
       },
-      "trace": [
-        {
+      "timeline": {
+        "transactions": [
+          {
+            "kind": "acquisition",
+            "owner": "[\"acquisitionRole\",\"Underworld\",\"F\",\"[\\\"incomingReward\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b6-e1\\\"]\",\"source\"]",
+            "sourceOwner": "[\"incomingReward\",\"Underworld\",\"F\",\"golden-f-b6-e1\"]",
+            "reward": {
+              "rewardType": "Boon",
+              "producerLifecycleKey": "RoomReward",
+              "resolvedStoreKey": "RunProgress",
+              "source": "HeraUpgrade"
+            },
+            "producerLifecycleKey": "RoomReward",
+            "roles": [
+              {
+                "role": "source",
+                "disposition": "normal",
+                "lifecyclePoint": "roomRewardPickup",
+                "kind": "loot",
+                "gameName": "HeraUpgrade",
+                "settlement": {
+                  "site": "[\"acquisitionSite\",\"Underworld\",\"F\",\"[\\\"occurrence\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b6-e1\\\"]\",\"roomRewardPickup\"]",
+                  "entry": "[\"acquisitionEntry\",\"Underworld\",\"F\",\"[\\\"acquisitionSite\\\",\\\"Underworld\\\",\\\"F\\\",\\\"[\\\\\\\"occurrence\\\\\\\",\\\\\\\"Underworld\\\\\\\",\\\\\\\"F\\\\\\\",\\\\\\\"golden-f-b6-e1\\\\\\\"]\\\",\\\"roomRewardPickup\\\"]\",\"source\"]"
+                },
+                "traitOffer": {
+                  "kind": "traits",
+                  "giver": "Hera",
+                  "options": [
+                    { "key": "HeraCastBoon", "rarity": "Common", "effectiveLevel": 1 },
+                    { "key": "HeraSprintBoon", "rarity": "Common", "effectiveLevel": 1 },
+                    { "key": "HeraManaBoon", "rarity": "Common", "effectiveLevel": 1 }
+                  ],
+                  "selected": "option1"
+                }
+              }
+            ],
+            "window": { "kind": "standard", "phase": "afterCombat" }
+          }
+        ],
+        "dependencies": [],
+        "obligations": [
+          {
+            "owner": "[\"acquisitionRole\",\"Underworld\",\"F\",\"[\\\"incomingReward\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b6-e1\\\"]\",\"source\"]",
+            "checkpoint": "exitUsable"
+          }
+        ]
+      },
+      "doors": {
+        "owner": "[\"exitDecision\",\"Underworld\",\"F\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-f-b6-e1\"}]",
+        "kind": "batch",
+        "targets": [
+          {
+            "exitKey": "exit1",
+            "index": 1,
+            "room": { "id": "golden-f-b7-e1", "biomeKey": "F", "gameName": "F_Combat11" },
+            "reward": {
+              "rewardType": "MaxManaDrop",
+              "producerLifecycleKey": "RoomReward",
+              "resolvedStoreKey": "RunProgress"
+            }
+          }
+        ],
+        "resolvedSharedRewardStoreKey": "RunProgress"
+      },
+      "diagnostics": {
+        "roomEntered": {
           "frame": 12,
           "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"F\",\"golden-f-b6-e1\",\"roomEntered\"]",
           "checkpoint": "roomEntered",
           "replace": {}
         },
-        {
-          "kind": "encounterStart",
-          "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-b6-e1\"]",
-          "phase": "Encounter",
-          "encounter": "MiniBossTreant",
-          "encounterKind": "miniboss"
-        },
-        {
-          "kind": "encounterEnd",
-          "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-b6-e1\"]",
-          "phase": "Encounter",
-          "endEffectsExpected": true
-        },
-        {
-          "kind": "acquireReward",
-          "owner": "[\"acquisitionRole\",\"Underworld\",\"F\",\"[\\\"incomingReward\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b6-e1\\\"]\",\"source\"]",
-          "sourceOwner": "[\"incomingReward\",\"Underworld\",\"F\",\"golden-f-b6-e1\"]",
-          "reward": {
-            "rewardType": "Boon",
-            "producerLifecycleKey": "RoomReward",
-            "resolvedStoreKey": "RunProgress",
-            "source": "HeraUpgrade"
-          },
-          "producerLifecycleKey": "RoomReward",
-          "roles": [
-            {
-              "role": "source",
-              "disposition": "normal",
-              "lifecyclePoint": "roomRewardPickup",
-              "kind": "loot",
-              "gameName": "HeraUpgrade",
-              "settlement": {
-                "site": "[\"acquisitionSite\",\"Underworld\",\"F\",\"[\\\"occurrence\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b6-e1\\\"]\",\"roomRewardPickup\"]",
-                "entry": "[\"acquisitionEntry\",\"Underworld\",\"F\",\"[\\\"acquisitionSite\\\",\\\"Underworld\\\",\\\"F\\\",\\\"[\\\\\\\"occurrence\\\\\\\",\\\\\\\"Underworld\\\\\\\",\\\\\\\"F\\\\\\\",\\\\\\\"golden-f-b6-e1\\\\\\\"]\\\",\\\"roomRewardPickup\\\"]\",\"source\"]"
-              },
-              "traitOffer": {
-                "kind": "traits",
-                "giver": "Hera",
-                "options": [
-                  { "key": "HeraCastBoon", "rarity": "Common", "effectiveLevel": 1 },
-                  { "key": "HeraSprintBoon", "rarity": "Common", "effectiveLevel": 1 },
-                  { "key": "HeraManaBoon", "rarity": "Common", "effectiveLevel": 1 }
-                ],
-                "selected": "option1"
-              }
-            }
-          ]
-        },
-        { "kind": "cleanup", "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-b6-e1\"]" },
-        {
+        "beforeRoomExit": {
           "frame": 13,
           "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"F\",\"golden-f-b6-e1\",\"beforeRoomExit\"]",
           "checkpoint": "beforeRoomExit",
@@ -1133,22 +1191,6 @@
             }
           }
         }
-      ],
-      "outgoing": {
-        "owner": "[\"exitDecision\",\"Underworld\",\"F\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-f-b6-e1\"}]",
-        "kind": "batch",
-        "targets": [
-          {
-            "exitKey": "exit1",
-            "index": 1,
-            "type": "ErebusExitDoor",
-            "room": { "id": "golden-f-b7-e1", "biomeKey": "F", "gameName": "F_Combat11" },
-            "picked": true
-          }
-        ],
-        "additional": [],
-        "selectedExitKey": "exit1",
-        "resolvedSharedRewardStoreKey": "RunProgress"
       }
     },
     {
@@ -1157,8 +1199,7 @@
       "biomeKey": "F",
       "gameName": "F_MiniBoss02",
       "kind": "SingleEncounter",
-      "entered": false,
-      "contents": {
+      "overview": {
         "incomingReward": {
           "rewardType": "Boon",
           "producerLifecycleKey": "RoomReward",
@@ -1170,8 +1211,8 @@
         ],
         "requiredObjects": []
       },
-      "trace": [],
-      "outgoing": {
+      "timeline": { "transactions": [], "dependencies": [], "obligations": [] },
+      "doors": {
         "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-b6-e2\"]",
         "kind": "terminal"
       }
@@ -1182,8 +1223,7 @@
       "biomeKey": "F",
       "gameName": "F_Combat11",
       "kind": "SingleEncounter",
-      "entered": true,
-      "contents": {
+      "overview": {
         "incomingReward": {
           "rewardType": "MaxManaDrop",
           "producerLifecycleKey": "RoomReward",
@@ -1194,52 +1234,77 @@
         ],
         "requiredObjects": []
       },
-      "trace": [
-        {
+      "timeline": {
+        "transactions": [
+          {
+            "kind": "acquisition",
+            "owner": "[\"acquisitionRole\",\"Underworld\",\"F\",\"[\\\"incomingReward\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b7-e1\\\"]\",\"self\"]",
+            "sourceOwner": "[\"incomingReward\",\"Underworld\",\"F\",\"golden-f-b7-e1\"]",
+            "reward": {
+              "rewardType": "MaxManaDrop",
+              "producerLifecycleKey": "RoomReward",
+              "resolvedStoreKey": "RunProgress"
+            },
+            "producerLifecycleKey": "RoomReward",
+            "roles": [
+              {
+                "role": "self",
+                "disposition": "normal",
+                "lifecyclePoint": "roomRewardPickup",
+                "kind": "consumable",
+                "gameName": "MaxManaDrop",
+                "settlement": {
+                  "site": "[\"acquisitionSite\",\"Underworld\",\"F\",\"[\\\"occurrence\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b7-e1\\\"]\",\"roomRewardPickup\"]",
+                  "entry": "[\"acquisitionEntry\",\"Underworld\",\"F\",\"[\\\"acquisitionSite\\\",\\\"Underworld\\\",\\\"F\\\",\\\"[\\\\\\\"occurrence\\\\\\\",\\\\\\\"Underworld\\\\\\\",\\\\\\\"F\\\\\\\",\\\\\\\"golden-f-b7-e1\\\\\\\"]\\\",\\\"roomRewardPickup\\\"]\",\"self\"]"
+                }
+              }
+            ],
+            "window": { "kind": "standard", "phase": "afterCombat" }
+          }
+        ],
+        "dependencies": [],
+        "obligations": [
+          {
+            "owner": "[\"acquisitionRole\",\"Underworld\",\"F\",\"[\\\"incomingReward\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b7-e1\\\"]\",\"self\"]",
+            "checkpoint": "exitUsable"
+          }
+        ]
+      },
+      "doors": {
+        "owner": "[\"exitDecision\",\"Underworld\",\"F\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-f-b7-e1\"}]",
+        "kind": "batch",
+        "targets": [
+          {
+            "exitKey": "exit1",
+            "index": 1,
+            "room": { "id": "golden-f-b8-e1", "biomeKey": "F", "gameName": "F_Combat12" },
+            "reward": {
+              "rewardType": "WeaponUpgrade",
+              "producerLifecycleKey": "RoomReward",
+              "resolvedStoreKey": "RunProgress"
+            }
+          },
+          {
+            "exitKey": "exit2",
+            "index": 2,
+            "room": { "id": "golden-f-b8-e2", "biomeKey": "F", "gameName": "F_Combat12" },
+            "reward": {
+              "rewardType": "HermesUpgrade",
+              "producerLifecycleKey": "RoomReward",
+              "resolvedStoreKey": "RunProgress"
+            }
+          }
+        ],
+        "resolvedSharedRewardStoreKey": "RunProgress"
+      },
+      "diagnostics": {
+        "roomEntered": {
           "frame": 14,
           "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"F\",\"golden-f-b7-e1\",\"roomEntered\"]",
           "checkpoint": "roomEntered",
           "replace": {}
         },
-        {
-          "kind": "encounterStart",
-          "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-b7-e1\"]",
-          "phase": "Encounter",
-          "encounter": "GeneratedF",
-          "encounterKind": "combat"
-        },
-        {
-          "kind": "encounterEnd",
-          "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-b7-e1\"]",
-          "phase": "Encounter",
-          "endEffectsExpected": true
-        },
-        {
-          "kind": "acquireReward",
-          "owner": "[\"acquisitionRole\",\"Underworld\",\"F\",\"[\\\"incomingReward\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b7-e1\\\"]\",\"self\"]",
-          "sourceOwner": "[\"incomingReward\",\"Underworld\",\"F\",\"golden-f-b7-e1\"]",
-          "reward": {
-            "rewardType": "MaxManaDrop",
-            "producerLifecycleKey": "RoomReward",
-            "resolvedStoreKey": "RunProgress"
-          },
-          "producerLifecycleKey": "RoomReward",
-          "roles": [
-            {
-              "role": "self",
-              "disposition": "normal",
-              "lifecyclePoint": "roomRewardPickup",
-              "kind": "consumable",
-              "gameName": "MaxManaDrop",
-              "settlement": {
-                "site": "[\"acquisitionSite\",\"Underworld\",\"F\",\"[\\\"occurrence\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b7-e1\\\"]\",\"roomRewardPickup\"]",
-                "entry": "[\"acquisitionEntry\",\"Underworld\",\"F\",\"[\\\"acquisitionSite\\\",\\\"Underworld\\\",\\\"F\\\",\\\"[\\\\\\\"occurrence\\\\\\\",\\\\\\\"Underworld\\\\\\\",\\\\\\\"F\\\\\\\",\\\\\\\"golden-f-b7-e1\\\\\\\"]\\\",\\\"roomRewardPickup\\\"]\",\"self\"]"
-              }
-            }
-          ]
-        },
-        { "kind": "cleanup", "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-b7-e1\"]" },
-        {
+        "beforeRoomExit": {
           "frame": 15,
           "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"F\",\"golden-f-b7-e1\",\"beforeRoomExit\"]",
           "checkpoint": "beforeRoomExit",
@@ -1265,29 +1330,6 @@
             ]
           }
         }
-      ],
-      "outgoing": {
-        "owner": "[\"exitDecision\",\"Underworld\",\"F\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-f-b7-e1\"}]",
-        "kind": "batch",
-        "targets": [
-          {
-            "exitKey": "exit1",
-            "index": 1,
-            "type": "ErebusExitDoor",
-            "room": { "id": "golden-f-b8-e1", "biomeKey": "F", "gameName": "F_Combat12" },
-            "picked": true
-          },
-          {
-            "exitKey": "exit2",
-            "index": 2,
-            "type": "ErebusExitDoor",
-            "room": { "id": "golden-f-b8-e2", "biomeKey": "F", "gameName": "F_Combat12" },
-            "picked": false
-          }
-        ],
-        "additional": [],
-        "selectedExitKey": "exit1",
-        "resolvedSharedRewardStoreKey": "RunProgress"
       }
     },
     {
@@ -1296,8 +1338,7 @@
       "biomeKey": "F",
       "gameName": "F_Combat12",
       "kind": "SingleEncounter",
-      "entered": true,
-      "contents": {
+      "overview": {
         "incomingReward": {
           "rewardType": "WeaponUpgrade",
           "producerLifecycleKey": "RoomReward",
@@ -1308,62 +1349,87 @@
         ],
         "requiredObjects": []
       },
-      "trace": [
-        {
+      "timeline": {
+        "transactions": [
+          {
+            "kind": "acquisition",
+            "owner": "[\"acquisitionRole\",\"Underworld\",\"F\",\"[\\\"incomingReward\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b8-e1\\\"]\",\"self\"]",
+            "sourceOwner": "[\"incomingReward\",\"Underworld\",\"F\",\"golden-f-b8-e1\"]",
+            "reward": {
+              "rewardType": "WeaponUpgrade",
+              "producerLifecycleKey": "RoomReward",
+              "resolvedStoreKey": "RunProgress"
+            },
+            "producerLifecycleKey": "RoomReward",
+            "roles": [
+              {
+                "role": "self",
+                "disposition": "normal",
+                "lifecyclePoint": "roomRewardPickup",
+                "kind": "loot",
+                "gameName": "WeaponUpgrade",
+                "settlement": {
+                  "site": "[\"acquisitionSite\",\"Underworld\",\"F\",\"[\\\"occurrence\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b8-e1\\\"]\",\"roomRewardPickup\"]",
+                  "entry": "[\"acquisitionEntry\",\"Underworld\",\"F\",\"[\\\"acquisitionSite\\\",\\\"Underworld\\\",\\\"F\\\",\\\"[\\\\\\\"occurrence\\\\\\\",\\\\\\\"Underworld\\\\\\\",\\\\\\\"F\\\\\\\",\\\\\\\"golden-f-b8-e1\\\\\\\"]\\\",\\\"roomRewardPickup\\\"]\",\"self\"]"
+                },
+                "traitOffer": {
+                  "kind": "traits",
+                  "giver": "WeaponUpgrade",
+                  "options": [
+                    { "key": "StaffDoubleAttackTrait" },
+                    { "key": "StaffLongAttackTrait" },
+                    { "key": "StaffDashAttackTrait" }
+                  ],
+                  "selected": "option1"
+                }
+              }
+            ],
+            "window": { "kind": "standard", "phase": "afterCombat" }
+          }
+        ],
+        "dependencies": [],
+        "obligations": [
+          {
+            "owner": "[\"acquisitionRole\",\"Underworld\",\"F\",\"[\\\"incomingReward\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b8-e1\\\"]\",\"self\"]",
+            "checkpoint": "exitUsable"
+          }
+        ]
+      },
+      "doors": {
+        "owner": "[\"exitDecision\",\"Underworld\",\"F\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-f-b8-e1\"}]",
+        "kind": "batch",
+        "targets": [
+          {
+            "exitKey": "exit1",
+            "index": 1,
+            "room": { "id": "golden-f-b9-e1", "biomeKey": "F", "gameName": "F_Combat14" },
+            "reward": {
+              "rewardType": "MetaCardPointsCommonDrop",
+              "producerLifecycleKey": "RoomReward",
+              "resolvedStoreKey": "MetaProgress"
+            }
+          },
+          {
+            "exitKey": "exit2",
+            "index": 2,
+            "room": { "id": "golden-f-b9-e2", "biomeKey": "F", "gameName": "F_Combat14" },
+            "reward": {
+              "rewardType": "GiftDrop",
+              "producerLifecycleKey": "RoomReward",
+              "resolvedStoreKey": "MetaProgress"
+            }
+          }
+        ],
+        "resolvedSharedRewardStoreKey": "MetaProgress"
+      },
+      "diagnostics": {
+        "roomEntered": {
           "frame": 16,
           "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"F\",\"golden-f-b8-e1\",\"roomEntered\"]",
           "checkpoint": "roomEntered",
           "replace": {}
         },
-        {
-          "kind": "encounterStart",
-          "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-b8-e1\"]",
-          "phase": "Encounter",
-          "encounter": "GeneratedF",
-          "encounterKind": "combat"
-        },
-        {
-          "kind": "encounterEnd",
-          "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-b8-e1\"]",
-          "phase": "Encounter",
-          "endEffectsExpected": true
-        },
-        {
-          "kind": "acquireReward",
-          "owner": "[\"acquisitionRole\",\"Underworld\",\"F\",\"[\\\"incomingReward\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b8-e1\\\"]\",\"self\"]",
-          "sourceOwner": "[\"incomingReward\",\"Underworld\",\"F\",\"golden-f-b8-e1\"]",
-          "reward": {
-            "rewardType": "WeaponUpgrade",
-            "producerLifecycleKey": "RoomReward",
-            "resolvedStoreKey": "RunProgress"
-          },
-          "producerLifecycleKey": "RoomReward",
-          "roles": [
-            {
-              "role": "self",
-              "disposition": "normal",
-              "lifecyclePoint": "roomRewardPickup",
-              "kind": "loot",
-              "gameName": "WeaponUpgrade",
-              "settlement": {
-                "site": "[\"acquisitionSite\",\"Underworld\",\"F\",\"[\\\"occurrence\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b8-e1\\\"]\",\"roomRewardPickup\"]",
-                "entry": "[\"acquisitionEntry\",\"Underworld\",\"F\",\"[\\\"acquisitionSite\\\",\\\"Underworld\\\",\\\"F\\\",\\\"[\\\\\\\"occurrence\\\\\\\",\\\\\\\"Underworld\\\\\\\",\\\\\\\"F\\\\\\\",\\\\\\\"golden-f-b8-e1\\\\\\\"]\\\",\\\"roomRewardPickup\\\"]\",\"self\"]"
-              },
-              "traitOffer": {
-                "kind": "traits",
-                "giver": "WeaponUpgrade",
-                "options": [
-                  { "key": "StaffDoubleAttackTrait" },
-                  { "key": "StaffLongAttackTrait" },
-                  { "key": "StaffDashAttackTrait" }
-                ],
-                "selected": "option1"
-              }
-            }
-          ]
-        },
-        { "kind": "cleanup", "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-b8-e1\"]" },
-        {
+        "beforeRoomExit": {
           "frame": 17,
           "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"F\",\"golden-f-b8-e1\",\"beforeRoomExit\"]",
           "checkpoint": "beforeRoomExit",
@@ -1409,29 +1475,6 @@
             }
           }
         }
-      ],
-      "outgoing": {
-        "owner": "[\"exitDecision\",\"Underworld\",\"F\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-f-b8-e1\"}]",
-        "kind": "batch",
-        "targets": [
-          {
-            "exitKey": "exit1",
-            "index": 1,
-            "type": "ErebusExitDoor",
-            "room": { "id": "golden-f-b9-e1", "biomeKey": "F", "gameName": "F_Combat14" },
-            "picked": true
-          },
-          {
-            "exitKey": "exit2",
-            "index": 2,
-            "type": "ErebusExitDoor",
-            "room": { "id": "golden-f-b9-e2", "biomeKey": "F", "gameName": "F_Combat14" },
-            "picked": false
-          }
-        ],
-        "additional": [],
-        "selectedExitKey": "exit1",
-        "resolvedSharedRewardStoreKey": "MetaProgress"
       }
     },
     {
@@ -1440,8 +1483,7 @@
       "biomeKey": "F",
       "gameName": "F_Combat12",
       "kind": "SingleEncounter",
-      "entered": false,
-      "contents": {
+      "overview": {
         "incomingReward": {
           "rewardType": "HermesUpgrade",
           "producerLifecycleKey": "RoomReward",
@@ -1452,8 +1494,8 @@
         ],
         "requiredObjects": []
       },
-      "trace": [],
-      "outgoing": {
+      "timeline": { "transactions": [], "dependencies": [], "obligations": [] },
+      "doors": {
         "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-b8-e2\"]",
         "kind": "terminal"
       }
@@ -1464,8 +1506,7 @@
       "biomeKey": "F",
       "gameName": "F_Combat14",
       "kind": "SingleEncounter",
-      "entered": true,
-      "contents": {
+      "overview": {
         "incomingReward": {
           "rewardType": "MetaCardPointsCommonDrop",
           "producerLifecycleKey": "RoomReward",
@@ -1476,52 +1517,77 @@
         ],
         "requiredObjects": []
       },
-      "trace": [
-        {
+      "timeline": {
+        "transactions": [
+          {
+            "kind": "acquisition",
+            "owner": "[\"acquisitionRole\",\"Underworld\",\"F\",\"[\\\"incomingReward\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b9-e1\\\"]\",\"self\"]",
+            "sourceOwner": "[\"incomingReward\",\"Underworld\",\"F\",\"golden-f-b9-e1\"]",
+            "reward": {
+              "rewardType": "MetaCardPointsCommonDrop",
+              "producerLifecycleKey": "RoomReward",
+              "resolvedStoreKey": "MetaProgress"
+            },
+            "producerLifecycleKey": "RoomReward",
+            "roles": [
+              {
+                "role": "self",
+                "disposition": "normal",
+                "lifecyclePoint": "roomRewardPickup",
+                "kind": "resource",
+                "gameName": "MetaCardPointsCommonDrop",
+                "settlement": {
+                  "site": "[\"acquisitionSite\",\"Underworld\",\"F\",\"[\\\"occurrence\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b9-e1\\\"]\",\"roomRewardPickup\"]",
+                  "entry": "[\"acquisitionEntry\",\"Underworld\",\"F\",\"[\\\"acquisitionSite\\\",\\\"Underworld\\\",\\\"F\\\",\\\"[\\\\\\\"occurrence\\\\\\\",\\\\\\\"Underworld\\\\\\\",\\\\\\\"F\\\\\\\",\\\\\\\"golden-f-b9-e1\\\\\\\"]\\\",\\\"roomRewardPickup\\\"]\",\"self\"]"
+                }
+              }
+            ],
+            "window": { "kind": "standard", "phase": "afterCombat" }
+          }
+        ],
+        "dependencies": [],
+        "obligations": [
+          {
+            "owner": "[\"acquisitionRole\",\"Underworld\",\"F\",\"[\\\"incomingReward\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b9-e1\\\"]\",\"self\"]",
+            "checkpoint": "exitUsable"
+          }
+        ]
+      },
+      "doors": {
+        "owner": "[\"exitDecision\",\"Underworld\",\"F\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-f-b9-e1\"}]",
+        "kind": "batch",
+        "targets": [
+          {
+            "exitKey": "exit1",
+            "index": 1,
+            "room": { "id": "golden-f-b10-e1", "biomeKey": "F", "gameName": "F_Combat15" },
+            "reward": {
+              "rewardType": "RoomMoneyDrop",
+              "producerLifecycleKey": "RoomReward",
+              "resolvedStoreKey": "RunProgress"
+            }
+          },
+          {
+            "exitKey": "exit2",
+            "index": 2,
+            "room": { "id": "golden-f-b10-e2", "biomeKey": "F", "gameName": "F_Combat15" },
+            "reward": {
+              "rewardType": "SpellDrop",
+              "producerLifecycleKey": "RoomReward",
+              "resolvedStoreKey": "RunProgress"
+            }
+          }
+        ],
+        "resolvedSharedRewardStoreKey": "RunProgress"
+      },
+      "diagnostics": {
+        "roomEntered": {
           "frame": 18,
           "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"F\",\"golden-f-b9-e1\",\"roomEntered\"]",
           "checkpoint": "roomEntered",
           "replace": {}
         },
-        {
-          "kind": "encounterStart",
-          "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-b9-e1\"]",
-          "phase": "Encounter",
-          "encounter": "GeneratedF",
-          "encounterKind": "combat"
-        },
-        {
-          "kind": "encounterEnd",
-          "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-b9-e1\"]",
-          "phase": "Encounter",
-          "endEffectsExpected": true
-        },
-        {
-          "kind": "acquireReward",
-          "owner": "[\"acquisitionRole\",\"Underworld\",\"F\",\"[\\\"incomingReward\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b9-e1\\\"]\",\"self\"]",
-          "sourceOwner": "[\"incomingReward\",\"Underworld\",\"F\",\"golden-f-b9-e1\"]",
-          "reward": {
-            "rewardType": "MetaCardPointsCommonDrop",
-            "producerLifecycleKey": "RoomReward",
-            "resolvedStoreKey": "MetaProgress"
-          },
-          "producerLifecycleKey": "RoomReward",
-          "roles": [
-            {
-              "role": "self",
-              "disposition": "normal",
-              "lifecyclePoint": "roomRewardPickup",
-              "kind": "resource",
-              "gameName": "MetaCardPointsCommonDrop",
-              "settlement": {
-                "site": "[\"acquisitionSite\",\"Underworld\",\"F\",\"[\\\"occurrence\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b9-e1\\\"]\",\"roomRewardPickup\"]",
-                "entry": "[\"acquisitionEntry\",\"Underworld\",\"F\",\"[\\\"acquisitionSite\\\",\\\"Underworld\\\",\\\"F\\\",\\\"[\\\\\\\"occurrence\\\\\\\",\\\\\\\"Underworld\\\\\\\",\\\\\\\"F\\\\\\\",\\\\\\\"golden-f-b9-e1\\\\\\\"]\\\",\\\"roomRewardPickup\\\"]\",\"self\"]"
-              }
-            }
-          ]
-        },
-        { "kind": "cleanup", "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-b9-e1\"]" },
-        {
+        "beforeRoomExit": {
           "frame": 19,
           "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"F\",\"golden-f-b9-e1\",\"beforeRoomExit\"]",
           "checkpoint": "beforeRoomExit",
@@ -1547,29 +1613,6 @@
             ]
           }
         }
-      ],
-      "outgoing": {
-        "owner": "[\"exitDecision\",\"Underworld\",\"F\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-f-b9-e1\"}]",
-        "kind": "batch",
-        "targets": [
-          {
-            "exitKey": "exit1",
-            "index": 1,
-            "type": "ErebusExitDoor",
-            "room": { "id": "golden-f-b10-e1", "biomeKey": "F", "gameName": "F_Combat15" },
-            "picked": true
-          },
-          {
-            "exitKey": "exit2",
-            "index": 2,
-            "type": "ErebusExitDoor",
-            "room": { "id": "golden-f-b10-e2", "biomeKey": "F", "gameName": "F_Combat15" },
-            "picked": false
-          }
-        ],
-        "additional": [],
-        "selectedExitKey": "exit1",
-        "resolvedSharedRewardStoreKey": "RunProgress"
       }
     },
     {
@@ -1578,8 +1621,7 @@
       "biomeKey": "F",
       "gameName": "F_Combat14",
       "kind": "SingleEncounter",
-      "entered": false,
-      "contents": {
+      "overview": {
         "incomingReward": {
           "rewardType": "GiftDrop",
           "producerLifecycleKey": "RoomReward",
@@ -1590,8 +1632,8 @@
         ],
         "requiredObjects": []
       },
-      "trace": [],
-      "outgoing": {
+      "timeline": { "transactions": [], "dependencies": [], "obligations": [] },
+      "doors": {
         "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-b9-e2\"]",
         "kind": "terminal"
       }
@@ -1602,8 +1644,7 @@
       "biomeKey": "F",
       "gameName": "F_Combat15",
       "kind": "SingleEncounter",
-      "entered": true,
-      "contents": {
+      "overview": {
         "incomingReward": {
           "rewardType": "RoomMoneyDrop",
           "producerLifecycleKey": "RoomReward",
@@ -1614,52 +1655,77 @@
         ],
         "requiredObjects": []
       },
-      "trace": [
-        {
+      "timeline": {
+        "transactions": [
+          {
+            "kind": "acquisition",
+            "owner": "[\"acquisitionRole\",\"Underworld\",\"F\",\"[\\\"incomingReward\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b10-e1\\\"]\",\"self\"]",
+            "sourceOwner": "[\"incomingReward\",\"Underworld\",\"F\",\"golden-f-b10-e1\"]",
+            "reward": {
+              "rewardType": "RoomMoneyDrop",
+              "producerLifecycleKey": "RoomReward",
+              "resolvedStoreKey": "RunProgress"
+            },
+            "producerLifecycleKey": "RoomReward",
+            "roles": [
+              {
+                "role": "self",
+                "disposition": "normal",
+                "lifecyclePoint": "roomRewardPickup",
+                "kind": "consumable",
+                "gameName": "RoomMoneyDrop",
+                "settlement": {
+                  "site": "[\"acquisitionSite\",\"Underworld\",\"F\",\"[\\\"occurrence\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b10-e1\\\"]\",\"roomRewardPickup\"]",
+                  "entry": "[\"acquisitionEntry\",\"Underworld\",\"F\",\"[\\\"acquisitionSite\\\",\\\"Underworld\\\",\\\"F\\\",\\\"[\\\\\\\"occurrence\\\\\\\",\\\\\\\"Underworld\\\\\\\",\\\\\\\"F\\\\\\\",\\\\\\\"golden-f-b10-e1\\\\\\\"]\\\",\\\"roomRewardPickup\\\"]\",\"self\"]"
+                }
+              }
+            ],
+            "window": { "kind": "standard", "phase": "afterCombat" }
+          }
+        ],
+        "dependencies": [],
+        "obligations": [
+          {
+            "owner": "[\"acquisitionRole\",\"Underworld\",\"F\",\"[\\\"incomingReward\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b10-e1\\\"]\",\"self\"]",
+            "checkpoint": "exitUsable"
+          }
+        ]
+      },
+      "doors": {
+        "owner": "[\"exitDecision\",\"Underworld\",\"F\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-f-b10-e1\"}]",
+        "kind": "batch",
+        "targets": [
+          {
+            "exitKey": "exit1",
+            "index": 1,
+            "room": { "id": "golden-f-preboss-shop", "biomeKey": "F", "gameName": "F_PreBoss01" },
+            "reward": {
+              "rewardType": "Shop",
+              "producerLifecycleKey": "RoomReward",
+              "resolvedStoreKey": "RunProgress"
+            }
+          },
+          {
+            "exitKey": "exit2",
+            "index": 2,
+            "room": { "id": "golden-f-preboss-free", "biomeKey": "F", "gameName": "F_PreBoss01" },
+            "reward": {
+              "rewardType": "StackUpgrade",
+              "producerLifecycleKey": "RoomReward",
+              "resolvedStoreKey": "RunProgress"
+            }
+          }
+        ],
+        "resolvedSharedRewardStoreKey": "RunProgress"
+      },
+      "diagnostics": {
+        "roomEntered": {
           "frame": 20,
           "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"F\",\"golden-f-b10-e1\",\"roomEntered\"]",
           "checkpoint": "roomEntered",
           "replace": {}
         },
-        {
-          "kind": "encounterStart",
-          "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-b10-e1\"]",
-          "phase": "Encounter",
-          "encounter": "GeneratedF",
-          "encounterKind": "combat"
-        },
-        {
-          "kind": "encounterEnd",
-          "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-b10-e1\"]",
-          "phase": "Encounter",
-          "endEffectsExpected": true
-        },
-        {
-          "kind": "acquireReward",
-          "owner": "[\"acquisitionRole\",\"Underworld\",\"F\",\"[\\\"incomingReward\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b10-e1\\\"]\",\"self\"]",
-          "sourceOwner": "[\"incomingReward\",\"Underworld\",\"F\",\"golden-f-b10-e1\"]",
-          "reward": {
-            "rewardType": "RoomMoneyDrop",
-            "producerLifecycleKey": "RoomReward",
-            "resolvedStoreKey": "RunProgress"
-          },
-          "producerLifecycleKey": "RoomReward",
-          "roles": [
-            {
-              "role": "self",
-              "disposition": "normal",
-              "lifecyclePoint": "roomRewardPickup",
-              "kind": "consumable",
-              "gameName": "RoomMoneyDrop",
-              "settlement": {
-                "site": "[\"acquisitionSite\",\"Underworld\",\"F\",\"[\\\"occurrence\\\",\\\"Underworld\\\",\\\"F\\\",\\\"golden-f-b10-e1\\\"]\",\"roomRewardPickup\"]",
-                "entry": "[\"acquisitionEntry\",\"Underworld\",\"F\",\"[\\\"acquisitionSite\\\",\\\"Underworld\\\",\\\"F\\\",\\\"[\\\\\\\"occurrence\\\\\\\",\\\\\\\"Underworld\\\\\\\",\\\\\\\"F\\\\\\\",\\\\\\\"golden-f-b10-e1\\\\\\\"]\\\",\\\"roomRewardPickup\\\"]\",\"self\"]"
-              }
-            }
-          ]
-        },
-        { "kind": "cleanup", "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-b10-e1\"]" },
-        {
+        "beforeRoomExit": {
           "frame": 21,
           "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"F\",\"golden-f-b10-e1\",\"beforeRoomExit\"]",
           "checkpoint": "beforeRoomExit",
@@ -1685,29 +1751,6 @@
             ]
           }
         }
-      ],
-      "outgoing": {
-        "owner": "[\"exitDecision\",\"Underworld\",\"F\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-f-b10-e1\"}]",
-        "kind": "batch",
-        "targets": [
-          {
-            "exitKey": "exit1",
-            "index": 1,
-            "type": "ErebusExitDoor",
-            "room": { "id": "golden-f-preboss-shop", "biomeKey": "F", "gameName": "F_PreBoss01" },
-            "picked": true
-          },
-          {
-            "exitKey": "exit2",
-            "index": 2,
-            "type": "ErebusExitDoor",
-            "room": { "id": "golden-f-preboss-free", "biomeKey": "F", "gameName": "F_PreBoss01" },
-            "picked": false
-          }
-        ],
-        "additional": [],
-        "selectedExitKey": "exit1",
-        "resolvedSharedRewardStoreKey": "RunProgress"
       }
     },
     {
@@ -1716,8 +1759,7 @@
       "biomeKey": "F",
       "gameName": "F_Combat15",
       "kind": "SingleEncounter",
-      "entered": false,
-      "contents": {
+      "overview": {
         "incomingReward": {
           "rewardType": "SpellDrop",
           "producerLifecycleKey": "RoomReward",
@@ -1728,8 +1770,8 @@
         ],
         "requiredObjects": []
       },
-      "trace": [],
-      "outgoing": {
+      "timeline": { "transactions": [], "dependencies": [], "obligations": [] },
+      "doors": {
         "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-b10-e2\"]",
         "kind": "terminal"
       }
@@ -1740,8 +1782,7 @@
       "biomeKey": "F",
       "gameName": "F_PreBoss01",
       "kind": "SingleEncounter",
-      "entered": true,
-      "contents": {
+      "overview": {
         "incomingReward": {
           "rewardType": "Shop",
           "producerLifecycleKey": "RoomReward",
@@ -1769,18 +1810,20 @@
           ]
         }
       },
-      "trace": [
-        {
+      "timeline": { "transactions": [], "dependencies": [], "obligations": [] },
+      "doors": {
+        "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-preboss-shop\"]",
+        "kind": "fixed",
+        "target": { "id": "golden-f-preboss-shop:boss", "biomeKey": "F", "gameName": "F_Boss01" }
+      },
+      "diagnostics": {
+        "roomEntered": {
           "frame": 22,
           "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"F\",\"golden-f-preboss-shop\",\"roomEntered\"]",
           "checkpoint": "roomEntered",
           "replace": {}
         },
-        {
-          "kind": "cleanup",
-          "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-preboss-shop\"]"
-        },
-        {
+        "beforeRoomExit": {
           "frame": 23,
           "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"F\",\"golden-f-preboss-shop\",\"beforeRoomExit\"]",
           "checkpoint": "beforeRoomExit",
@@ -1793,11 +1836,6 @@
             }
           }
         }
-      ],
-      "outgoing": {
-        "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-preboss-shop\"]",
-        "kind": "fixed",
-        "target": { "id": "golden-f-preboss-shop:boss", "biomeKey": "F", "gameName": "F_Boss01" }
       }
     },
     {
@@ -1806,8 +1844,7 @@
       "biomeKey": "F",
       "gameName": "F_PreBoss01",
       "kind": "SingleEncounter",
-      "entered": false,
-      "contents": {
+      "overview": {
         "incomingReward": {
           "rewardType": "StackUpgrade",
           "producerLifecycleKey": "RoomReward",
@@ -1818,8 +1855,8 @@
         ],
         "requiredObjects": []
       },
-      "trace": [],
-      "outgoing": {
+      "timeline": { "transactions": [], "dependencies": [], "obligations": [] },
+      "doors": {
         "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-preboss-free\"]",
         "kind": "terminal"
       }
@@ -1830,44 +1867,30 @@
       "biomeKey": "F",
       "gameName": "F_Boss01",
       "kind": "SingleEncounter",
-      "entered": true,
-      "contents": {
+      "overview": {
         "encounterPhases": [
           { "slotKey": "Encounter", "encounterKey": "BossHecate01", "kind": "boss" }
         ],
         "requiredObjects": []
       },
-      "trace": [
-        {
+      "timeline": { "transactions": [], "dependencies": [], "obligations": [] },
+      "doors": {
+        "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-preboss-shop:boss\"]",
+        "kind": "fixed",
+        "target": {
+          "id": "golden-f-preboss-shop:postboss",
+          "biomeKey": "F",
+          "gameName": "F_PostBoss01"
+        }
+      },
+      "diagnostics": {
+        "roomEntered": {
           "frame": 24,
           "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"F\",\"golden-f-preboss-shop:boss\",\"roomEntered\"]",
           "checkpoint": "roomEntered",
           "replace": {}
         },
-        {
-          "kind": "encounterStart",
-          "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-preboss-shop:boss\"]",
-          "phase": "Encounter",
-          "encounter": "BossHecate01",
-          "encounterKind": "boss"
-        },
-        {
-          "kind": "encounterEnd",
-          "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-preboss-shop:boss\"]",
-          "phase": "Encounter",
-          "endEffectsExpected": true
-        },
-        {
-          "kind": "encounterEnd",
-          "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-preboss-shop:boss\"]",
-          "phase": "Encounter",
-          "endEffectsExpected": true
-        },
-        {
-          "kind": "cleanup",
-          "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-preboss-shop:boss\"]"
-        },
-        {
+        "beforeRoomExit": {
           "frame": 25,
           "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"F\",\"golden-f-preboss-shop:boss\",\"beforeRoomExit\"]",
           "checkpoint": "beforeRoomExit",
@@ -1880,15 +1903,6 @@
             }
           }
         }
-      ],
-      "outgoing": {
-        "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-preboss-shop:boss\"]",
-        "kind": "fixed",
-        "target": {
-          "id": "golden-f-preboss-shop:postboss",
-          "biomeKey": "F",
-          "gameName": "F_PostBoss01"
-        }
       }
     },
     {
@@ -1897,31 +1911,44 @@
       "biomeKey": "F",
       "gameName": "F_PostBoss01",
       "kind": "SingleEncounter",
-      "entered": true,
-      "contents": {
+      "overview": {
         "encounterPhases": [
           { "slotKey": "Encounter", "encounterKey": "Empty", "kind": "nonCombat" }
         ],
         "requiredObjects": [],
         "stygianWell": { "interacted": false },
-        "purgingPool": { "interacted": false }
+        "purgingPool": { "interacted": false },
+        "keepsakeRack": {},
+        "fountain": {}
       },
-      "trace": [
-        {
+      "timeline": {
+        "transactions": [
+          {
+            "kind": "fountainUse",
+            "owner": "[\"roomAction\",\"Underworld\",\"F\",\"golden-f-preboss-shop:postboss\",\"[\\\"useFountain\\\"]\"]",
+            "window": { "kind": "standard", "phase": "afterCombat" }
+          }
+        ],
+        "dependencies": [],
+        "obligations": [
+          {
+            "owner": "[\"roomAction\",\"Underworld\",\"F\",\"golden-f-preboss-shop:postboss\",\"[\\\"useFountain\\\"]\"]",
+            "checkpoint": "exitUsable"
+          }
+        ]
+      },
+      "doors": {
+        "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-preboss-shop:postboss\"]",
+        "kind": "terminal"
+      },
+      "diagnostics": {
+        "roomEntered": {
           "frame": 26,
           "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"F\",\"golden-f-preboss-shop:postboss\",\"roomEntered\"]",
           "checkpoint": "roomEntered",
           "replace": {}
         },
-        {
-          "kind": "fountainUse",
-          "owner": "[\"roomAction\",\"Underworld\",\"F\",\"golden-f-preboss-shop:postboss\",\"[\\\"useFountain\\\"]\"]"
-        },
-        {
-          "kind": "cleanup",
-          "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-preboss-shop:postboss\"]"
-        },
-        {
+        "beforeRoomExit": {
           "frame": 27,
           "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"F\",\"golden-f-preboss-shop:postboss\",\"beforeRoomExit\"]",
           "checkpoint": "beforeRoomExit",
@@ -1934,12 +1961,8 @@
             }
           }
         }
-      ],
-      "outgoing": {
-        "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-preboss-shop:postboss\"]",
-        "kind": "terminal"
       }
     }
   ],
-  "planFingerprint": "bbb50f69"
+  "planFingerprint": "937ba045"
 }

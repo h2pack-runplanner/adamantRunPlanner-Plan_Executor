@@ -24,7 +24,7 @@
     "golden-g-intro",
     "golden-g-b1-e1",
     "golden-g-b2-e1",
-    "golden-g-b3-e1",
+    "golden-g-b3-e2",
     "golden-g-b4-e1",
     "golden-g-b5-e1",
     "golden-g-b6-e1",
@@ -2276,7 +2276,7 @@
           {
             "exitKey": "exit2",
             "index": 2,
-            "room": { "id": "golden-g-b3-e2", "biomeKey": "G", "gameName": "G_Combat03" },
+            "room": { "id": "golden-g-b3-e2", "biomeKey": "G", "gameName": "B_Combat01" },
             "reward": {
               "rewardType": "MaxManaDrop",
               "producerLifecycleKey": "RoomReward",
@@ -2371,69 +2371,87 @@
         ],
         "requiredObjects": []
       },
+      "timeline": { "transactions": [], "dependencies": [], "obligations": [] },
+      "doors": {
+        "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b3-e1\"]",
+        "kind": "terminal"
+      }
+    },
+    {
+      "id": "golden-g-b3-e2",
+      "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b3-e2\"]",
+      "biomeKey": "G",
+      "gameName": "B_Combat01",
+      "kind": "SingleEncounter",
+      "anomaly": { "replacedRoomGameName": "G_Combat03", "success": true },
+      "overview": {
+        "incomingReward": {
+          "rewardType": "MaxManaDrop",
+          "producerLifecycleKey": "RoomReward",
+          "resolvedStoreKey": "RunProgress"
+        },
+        "encounterPhases": [
+          { "slotKey": "Encounter", "encounterKey": "GeneratedAnomalyB", "kind": "combat" }
+        ],
+        "requiredObjects": []
+      },
       "timeline": {
         "transactions": [
           {
-            "kind": "encounterInteraction",
-            "owner": "[\"encounterPhase\",\"Underworld\",\"G\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-g-b3-e1\"},\"Encounter\"]",
-            "phaseKey": "Encounter",
-            "resolution": {
-              "kind": "traitOffer",
-              "offer": {
-                "kind": "traits",
-                "giver": "Narcissus",
-                "options": [
-                  { "key": "NarcissusA" },
-                  { "key": "NarcissusB" },
-                  { "key": "NarcissusC" }
-                ],
-                "selected": "option1"
-              }
+            "kind": "acquisition",
+            "owner": "[\"acquisitionRole\",\"Underworld\",\"G\",\"[\\\"incomingReward\\\",\\\"Underworld\\\",\\\"G\\\",\\\"golden-g-b3-e2\\\"]\",\"self\"]",
+            "sourceOwner": "[\"incomingReward\",\"Underworld\",\"G\",\"golden-g-b3-e2\"]",
+            "reward": {
+              "rewardType": "MaxManaDrop",
+              "producerLifecycleKey": "RoomReward",
+              "resolvedStoreKey": "RunProgress"
             },
+            "producerLifecycleKey": "RoomReward",
+            "roles": [
+              {
+                "role": "self",
+                "disposition": "normal",
+                "lifecyclePoint": "roomRewardPickup",
+                "kind": "consumable",
+                "gameName": "MaxManaDrop",
+                "settlement": {
+                  "site": "[\"acquisitionSite\",\"Underworld\",\"G\",\"[\\\"occurrence\\\",\\\"Underworld\\\",\\\"G\\\",\\\"golden-g-b3-e2\\\"]\",\"roomRewardPickup\"]",
+                  "entry": "[\"acquisitionEntry\",\"Underworld\",\"G\",\"[\\\"acquisitionSite\\\",\\\"Underworld\\\",\\\"G\\\",\\\"[\\\\\\\"occurrence\\\\\\\",\\\\\\\"Underworld\\\\\\\",\\\\\\\"G\\\\\\\",\\\\\\\"golden-g-b3-e2\\\\\\\"]\\\",\\\"roomRewardPickup\\\"]\",\"self\"]"
+                }
+              }
+            ],
             "window": { "kind": "standard", "phase": "afterCombat" }
           }
         ],
         "dependencies": [],
         "obligations": [
           {
-            "owner": "[\"encounterPhase\",\"Underworld\",\"G\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-g-b3-e1\"},\"Encounter\"]",
+            "owner": "[\"acquisitionRole\",\"Underworld\",\"G\",\"[\\\"incomingReward\\\",\\\"Underworld\\\",\\\"G\\\",\\\"golden-g-b3-e2\\\"]\",\"self\"]",
             "checkpoint": "exitUsable"
           }
         ]
       },
       "doors": {
-        "owner": "[\"exitDecision\",\"Underworld\",\"G\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-g-b3-e1\"}]",
-        "kind": "batch",
-        "targets": [
-          {
-            "exitKey": "exit1",
-            "index": 1,
-            "room": { "id": "golden-g-b4-e1", "biomeKey": "G", "gameName": "G_Combat10" },
-            "reward": {
-              "rewardType": "MetaCardPointsCommonBigDrop",
-              "producerLifecycleKey": "RoomReward",
-              "resolvedStoreKey": "MetaProgress"
-            }
-          }
-        ],
-        "resolvedSharedRewardStoreKey": "MetaProgress"
+        "owner": "[\"exitDecision\",\"Underworld\",\"G\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-g-b3-e2\"}]",
+        "kind": "fixed",
+        "target": { "id": "golden-g-b4-e1", "biomeKey": "G", "gameName": "G_Combat10" }
       },
       "diagnostics": {
         "roomEntered": {
           "frame": 34,
-          "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"G\",\"golden-g-b3-e1\",\"roomEntered\"]",
+          "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"G\",\"golden-g-b3-e2\",\"roomEntered\"]",
           "checkpoint": "roomEntered",
           "replace": {}
         },
         "beforeRoomExit": {
           "frame": 35,
-          "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"G\",\"golden-g-b3-e1\",\"beforeRoomExit\"]",
+          "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"G\",\"golden-g-b3-e2\",\"beforeRoomExit\"]",
           "checkpoint": "beforeRoomExit",
           "replace": {
             "counters": {
               "biomeDepthCache": 5,
-              "biomeEncounterDepth": 3,
-              "routeEncounterDepth": 14,
+              "biomeEncounterDepth": 4,
+              "routeEncounterDepth": 15,
               "roomHistoryOrdinal": 18
             },
             "bags": [
@@ -2448,54 +2466,9 @@
               },
               { "storeKey": "TartarusRewards", "remaining": { "kind": "exact", "count": 9 } },
               { "storeKey": "TyphonBossRewards", "remaining": { "kind": "exact", "count": 6 } }
-            ],
-            "traits": {
-              "equipped": [
-                { "traitKey": "ApolloWeaponBoon", "rarity": "Common", "level": 2 },
-                { "traitKey": "ZeusSpecialBoon", "rarity": "Common", "level": 1 },
-                { "traitKey": "HeraCastBoon", "rarity": "Common", "level": 1 },
-                { "traitKey": "StaffDoubleAttackTrait", "hammerRank": "RankI" },
-                { "traitKey": "HestiaSprintBoon", "rarity": "Common", "level": 1 },
-                { "traitKey": "NarcissusA" }
-              ],
-              "slots": [
-                { "slot": "Melee", "traitKey": "ApolloWeaponBoon" },
-                { "slot": "Secondary", "traitKey": "ZeusSpecialBoon" },
-                { "slot": "Ranged", "traitKey": "HeraCastBoon" },
-                { "slot": "Rush", "traitKey": "HestiaSprintBoon" },
-                { "slot": "Mana" },
-                { "slot": "Spell" }
-              ],
-              "elements": { "Aether": 0, "Earth": 0, "Air": 3, "Fire": 1, "Water": 0 },
-              "godRarityCounts": { "Common": 4 },
-              "upgradableCount": 4,
-              "bannedTraitKeys": []
-            }
+            ]
           }
         }
-      }
-    },
-    {
-      "id": "golden-g-b3-e2",
-      "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b3-e2\"]",
-      "biomeKey": "G",
-      "gameName": "G_Combat03",
-      "kind": "SingleEncounter",
-      "overview": {
-        "incomingReward": {
-          "rewardType": "MaxManaDrop",
-          "producerLifecycleKey": "RoomReward",
-          "resolvedStoreKey": "RunProgress"
-        },
-        "encounterPhases": [
-          { "slotKey": "Encounter", "encounterKey": "GeneratedG", "kind": "combat" }
-        ],
-        "requiredObjects": []
-      },
-      "timeline": { "transactions": [], "dependencies": [], "obligations": [] },
-      "doors": {
-        "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-b3-e2\"]",
-        "kind": "terminal"
       }
     },
     {
@@ -2615,8 +2588,8 @@
           "replace": {
             "counters": {
               "biomeDepthCache": 6,
-              "biomeEncounterDepth": 4,
-              "routeEncounterDepth": 15,
+              "biomeEncounterDepth": 5,
+              "routeEncounterDepth": 16,
               "roomHistoryOrdinal": 19
             },
             "bags": [
@@ -2714,8 +2687,8 @@
           "replace": {
             "counters": {
               "biomeDepthCache": 7,
-              "biomeEncounterDepth": 4,
-              "routeEncounterDepth": 15,
+              "biomeEncounterDepth": 5,
+              "routeEncounterDepth": 16,
               "roomHistoryOrdinal": 20
             },
             "bags": [
@@ -2865,8 +2838,8 @@
           "replace": {
             "counters": {
               "biomeDepthCache": 8,
-              "biomeEncounterDepth": 5,
-              "routeEncounterDepth": 16,
+              "biomeEncounterDepth": 6,
+              "routeEncounterDepth": 17,
               "roomHistoryOrdinal": 21
             },
             "bags": [
@@ -2889,7 +2862,6 @@
                 { "traitKey": "HeraCastBoon", "rarity": "Common", "level": 1 },
                 { "traitKey": "StaffDoubleAttackTrait", "hammerRank": "RankI" },
                 { "traitKey": "HestiaSprintBoon", "rarity": "Common", "level": 1 },
-                { "traitKey": "NarcissusA" },
                 { "traitKey": "HestiaManaBoon", "rarity": "Common", "level": 1 }
               ],
               "slots": [
@@ -3039,8 +3011,8 @@
           "replace": {
             "counters": {
               "biomeDepthCache": 9,
-              "biomeEncounterDepth": 6,
-              "routeEncounterDepth": 17,
+              "biomeEncounterDepth": 7,
+              "routeEncounterDepth": 18,
               "roomHistoryOrdinal": 22
             },
             "bags": [
@@ -3063,7 +3035,6 @@
                 { "traitKey": "HeraCastBoon", "rarity": "Common", "level": 1 },
                 { "traitKey": "StaffDoubleAttackTrait", "hammerRank": "RankI" },
                 { "traitKey": "HestiaSprintBoon", "rarity": "Common", "level": 1 },
-                { "traitKey": "NarcissusA" },
                 { "traitKey": "HestiaManaBoon", "rarity": "Common", "level": 1 },
                 { "traitKey": "CastProjectileBoon", "rarity": "Common", "level": 1 }
               ],
@@ -3161,8 +3132,8 @@
           "replace": {
             "counters": {
               "biomeDepthCache": 9,
-              "biomeEncounterDepth": 6,
-              "routeEncounterDepth": 17,
+              "biomeEncounterDepth": 7,
+              "routeEncounterDepth": 18,
               "roomHistoryOrdinal": 23
             }
           }
@@ -3228,8 +3199,8 @@
           "replace": {
             "counters": {
               "biomeDepthCache": 10,
-              "biomeEncounterDepth": 6,
-              "routeEncounterDepth": 17,
+              "biomeEncounterDepth": 7,
+              "routeEncounterDepth": 18,
               "roomHistoryOrdinal": 24
             }
           }
@@ -3286,8 +3257,8 @@
           "replace": {
             "counters": {
               "biomeDepthCache": 11,
-              "biomeEncounterDepth": 6,
-              "routeEncounterDepth": 17,
+              "biomeEncounterDepth": 7,
+              "routeEncounterDepth": 18,
               "roomHistoryOrdinal": 25
             }
           }
@@ -3295,5 +3266,5 @@
       }
     }
   ],
-  "planFingerprint": "3f396460"
+  "planFingerprint": "91d81a80"
 }

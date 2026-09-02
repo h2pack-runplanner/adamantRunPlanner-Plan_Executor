@@ -4,7 +4,7 @@
   "catalogVersion": "0.53.0-chaos-return-batches",
   "projectId": "golden-fg",
   "routeKey": "Underworld",
-  "startingKeepsake": { "keepsakeKey": "ManaOverTimeRefundKeepsake" },
+  "startingKeepsake": { "keepsakeKey": "BossMetaUpgradeKeepsake" },
   "extent": { "kind": "configuredPrefix", "biomeKeys": ["F", "G"], "terminalBiomeKey": "G" },
   "selectedOccurrenceIds": [
     "golden-f-start",
@@ -171,7 +171,13 @@
               "upgradableCount": 0,
               "bannedTraitKeys": []
             },
-            "arcana": { "active": [] },
+            "arcana": {
+              "active": [
+                { "key": "ChanneledCast", "origin": "manual", "rarity": "Epic" },
+                { "key": "BonusRarity", "origin": "automatic", "rarity": "Epic" },
+                { "key": "CardDraw", "origin": "automatic", "rarity": "Epic" }
+              ]
+            },
             "vows": {
               "configuredRanks": {
                 "HealingReductionShrineUpgrade": 0,
@@ -216,8 +222,8 @@
             "forfeit": "inactive",
             "chaos": { "active": [], "matured": [] },
             "keepsakes": {
-              "currentKey": "ManaOverTimeRefundKeepsake",
-              "usedKeys": ["ManaOverTimeRefundKeepsake"],
+              "currentKey": "BossMetaUpgradeKeepsake",
+              "usedKeys": ["BossMetaUpgradeKeepsake"],
               "blockedKeys": [],
               "fatedStatus": "Unknown"
             },
@@ -240,7 +246,7 @@
                 "figLeaf": null,
                 "gorgon": null,
                 "phial": null,
-                "figurine": null,
+                "figurine": { "origin": "ordinary", "status": "pending", "rarity": "Epic" },
                 "stone": null,
                 "transcendentEmbryo": null
               },
@@ -1884,7 +1890,50 @@
         ],
         "requiredObjects": []
       },
-      "timeline": { "transactions": [], "dependencies": [], "obligations": [] },
+      "timeline": {
+        "transactions": [
+          {
+            "kind": "automatic",
+            "owner": "[\"judgmentArcana\",\"Underworld\",\"F\",\"golden-f-preboss-shop:boss\",\"Encounter\"]",
+            "effect": "judgment",
+            "phaseKey": "Encounter",
+            "arcanaKeys": [
+              "HealthRegen",
+              "LowManaDamageBonus",
+              "CastCount",
+              "SorceryRegenUpgrade",
+              "CastBuff"
+            ],
+            "rarity": "Epic",
+            "window": { "kind": "bossDefeated", "phaseKey": "Encounter" }
+          },
+          {
+            "kind": "automatic",
+            "owner": "[\"figurineArcana\",\"Underworld\",\"F\",\"golden-f-preboss-shop:boss\",\"Encounter\"]",
+            "effect": "crystalFigurine",
+            "phaseKey": "Encounter",
+            "arcanaKeys": ["BonusHealth", "BonusDodge"],
+            "rarity": "Epic",
+            "window": { "kind": "bossDefeated", "phaseKey": "Encounter" }
+          }
+        ],
+        "dependencies": [
+          {
+            "owner": "[\"figurineArcana\",\"Underworld\",\"F\",\"golden-f-preboss-shop:boss\",\"Encounter\"]",
+            "afterOwner": "[\"judgmentArcana\",\"Underworld\",\"F\",\"golden-f-preboss-shop:boss\",\"Encounter\"]"
+          }
+        ],
+        "obligations": [
+          {
+            "owner": "[\"judgmentArcana\",\"Underworld\",\"F\",\"golden-f-preboss-shop:boss\",\"Encounter\"]",
+            "checkpoint": "exitUsable"
+          },
+          {
+            "owner": "[\"figurineArcana\",\"Underworld\",\"F\",\"golden-f-preboss-shop:boss\",\"Encounter\"]",
+            "checkpoint": "exitUsable"
+          }
+        ]
+      },
       "doors": {
         "owner": "[\"occurrence\",\"Underworld\",\"F\",\"golden-f-preboss-shop:boss\"]",
         "kind": "fixed",
@@ -1894,6 +1943,7 @@
           "gameName": "F_PostBoss01"
         }
       },
+      "roomExitConformance": { "facts": [{ "kind": "keepsakeEffects" }] },
       "diagnostics": {
         "roomEntered": {
           "frame": 24,
@@ -1911,6 +1961,46 @@
               "biomeEncounterDepth": 12,
               "routeEncounterDepth": 12,
               "roomHistoryOrdinal": 13
+            },
+            "arcana": {
+              "active": [
+                { "key": "ChanneledCast", "origin": "manual", "rarity": "Epic" },
+                { "key": "HealthRegen", "origin": "temporary", "rarity": "Epic" },
+                { "key": "LowManaDamageBonus", "origin": "temporary", "rarity": "Epic" },
+                { "key": "CastCount", "origin": "temporary", "rarity": "Epic" },
+                { "key": "SorceryRegenUpgrade", "origin": "temporary", "rarity": "Epic" },
+                { "key": "CastBuff", "origin": "temporary", "rarity": "Epic" },
+                { "key": "BonusHealth", "origin": "temporary", "rarity": "Epic" },
+                { "key": "BonusDodge", "origin": "temporary", "rarity": "Epic" },
+                { "key": "BonusRarity", "origin": "automatic", "rarity": "Epic" },
+                { "key": "CardDraw", "origin": "automatic", "rarity": "Epic" }
+              ]
+            },
+            "retainedEffects": {
+              "echoShopDuplicateStatus": null,
+              "keepsakes": {
+                "olympianSources": [],
+                "jeweledPom": null,
+                "experimentalHammers": [],
+                "callingCard": null,
+                "timePiece": null,
+                "figLeaf": null,
+                "gorgon": null,
+                "phial": null,
+                "figurine": { "origin": "ordinary", "status": "consumed", "rarity": "Epic" },
+                "stone": null,
+                "transcendentEmbryo": null
+              },
+              "steadyGrowth": [],
+              "hermesShrineDeliveries": [],
+              "stygianWell": {
+                "sparkUses": 0,
+                "yarnUses": 0,
+                "hymnUses": 0,
+                "discountUses": [],
+                "emptySlotUses": [],
+                "extendedUses": 0
+              }
             }
           }
         }
@@ -3204,7 +3294,32 @@
         ],
         "requiredObjects": []
       },
-      "timeline": { "transactions": [], "dependencies": [], "obligations": [] },
+      "timeline": {
+        "transactions": [
+          {
+            "kind": "automatic",
+            "owner": "[\"judgmentArcana\",\"Underworld\",\"G\",\"golden-g-preboss-shop:boss\",\"Encounter\"]",
+            "effect": "judgment",
+            "phaseKey": "Encounter",
+            "arcanaKeys": [
+              "ManaOverTime",
+              "MagicCrit",
+              "SprintShield",
+              "LastStand",
+              "MaxHealthPerRoom"
+            ],
+            "rarity": "Epic",
+            "window": { "kind": "bossDefeated", "phaseKey": "Encounter" }
+          }
+        ],
+        "dependencies": [],
+        "obligations": [
+          {
+            "owner": "[\"judgmentArcana\",\"Underworld\",\"G\",\"golden-g-preboss-shop:boss\",\"Encounter\"]",
+            "checkpoint": "exitUsable"
+          }
+        ]
+      },
       "doors": {
         "owner": "[\"occurrence\",\"Underworld\",\"G\",\"golden-g-preboss-shop:boss\"]",
         "kind": "fixed",
@@ -3231,6 +3346,25 @@
               "biomeEncounterDepth": 6,
               "routeEncounterDepth": 17,
               "roomHistoryOrdinal": 24
+            },
+            "arcana": {
+              "active": [
+                { "key": "ChanneledCast", "origin": "manual", "rarity": "Epic" },
+                { "key": "HealthRegen", "origin": "temporary", "rarity": "Epic" },
+                { "key": "LowManaDamageBonus", "origin": "temporary", "rarity": "Epic" },
+                { "key": "CastCount", "origin": "temporary", "rarity": "Epic" },
+                { "key": "SorceryRegenUpgrade", "origin": "temporary", "rarity": "Epic" },
+                { "key": "CastBuff", "origin": "temporary", "rarity": "Epic" },
+                { "key": "BonusHealth", "origin": "temporary", "rarity": "Epic" },
+                { "key": "BonusDodge", "origin": "temporary", "rarity": "Epic" },
+                { "key": "ManaOverTime", "origin": "temporary", "rarity": "Epic" },
+                { "key": "MagicCrit", "origin": "temporary", "rarity": "Epic" },
+                { "key": "SprintShield", "origin": "temporary", "rarity": "Epic" },
+                { "key": "LastStand", "origin": "temporary", "rarity": "Epic" },
+                { "key": "MaxHealthPerRoom", "origin": "temporary", "rarity": "Epic" },
+                { "key": "BonusRarity", "origin": "automatic", "rarity": "Epic" },
+                { "key": "CardDraw", "origin": "automatic", "rarity": "Epic" }
+              ]
             }
           }
         }
@@ -3295,5 +3429,5 @@
       }
     }
   ],
-  "planFingerprint": "3f396460"
+  "planFingerprint": "e878ba8c"
 }

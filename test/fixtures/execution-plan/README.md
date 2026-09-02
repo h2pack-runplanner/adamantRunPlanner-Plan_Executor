@@ -1,11 +1,7 @@
-# Gate-C producer fixtures
+# Gate B protocol-v10 mirrors
 
-`f-opening.execution.json`, `fg.execution.json`, and
-`fg-ixion-chaos.execution.json` are readable wire fixtures produced by the
-current RunPlanner-main compiler. They use execution protocol version `9` and
-cover F-only and configured F/G execution extents, including the route-start
-keepsake contract. They include closed room traces, trait and level settlements,
-and expanded Run State diagnostics. Automatic outcomes are covered by synthetic
-direct and hook witnesses because these fixture files do not contain
-automatic-outcome rows. The fixtures are intentionally copied as data; tests do
-not import the planner or its implementation.
+These five files are byte-for-byte mirrors of the Gate A.2 execution fixtures
+in RunPlanner-main: `f-opening`, `fg`, `fg-ixion-chaos`, `fg-anomaly`, and
+`automatic-boss`. They cover the F opening, F/G route, Ixion/Chaos additional
+exit, G anomaly, and automatic boss effects. They are checked-in protocol data;
+Plan Executor tests never import planner implementation code.
