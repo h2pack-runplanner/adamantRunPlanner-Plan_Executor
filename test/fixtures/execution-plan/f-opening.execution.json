@@ -1,10 +1,54 @@
 {
   "format": "run-planner-execution",
-  "protocolVersion": 12,
+  "protocolVersion": 13,
   "catalogVersion": "0.54.0-required-boss-rewards",
   "projectId": "golden-fg",
   "routeKey": "Underworld",
-  "startingLoadout": { "weaponKey": "WeaponStaffSwing", "aspectKey": "BaseStaffAspect", "arcana": [], "fear": { "configuredRanks": { "HealingReductionShrineUpgrade": 0, "ShopPricesShrineUpgrade": 0, "EnemyHealthShrineUpgrade": 0, "EnemyDamageShrineUpgrade": 0, "EnemySpeedShrineUpgrade": 0, "EnemyShieldShrineUpgrade": 0, "EnemyCountShrineUpgrade": 0, "EnemyRespawnShrineUpgrade": 0, "NextBiomeEnemyShrineUpgrade": 0, "BiomeSpeedShrineUpgrade": 0, "MinibossCountShrineUpgrade": 0, "BossDifficultyShrineUpgrade": 0, "BoonSkipShrineUpgrade": 0, "BoonManaReserveShrineUpgrade": 0, "BanUnpickedBoonsShrineUpgrade": 0, "LimitGraspShrineUpgrade": 0, "EnemyEliteShrineUpgrade": 0 }, "effectiveRanks": { "HealingReductionShrineUpgrade": 0, "ShopPricesShrineUpgrade": 0, "EnemyHealthShrineUpgrade": 0, "EnemyDamageShrineUpgrade": 0, "EnemySpeedShrineUpgrade": 0, "EnemyShieldShrineUpgrade": 0, "EnemyCountShrineUpgrade": 0, "EnemyRespawnShrineUpgrade": 0, "NextBiomeEnemyShrineUpgrade": 0, "BiomeSpeedShrineUpgrade": 0, "MinibossCountShrineUpgrade": 0, "BossDifficultyShrineUpgrade": 0, "BoonSkipShrineUpgrade": 0, "BoonManaReserveShrineUpgrade": 0, "BanUnpickedBoonsShrineUpgrade": 0, "LimitGraspShrineUpgrade": 0, "EnemyEliteShrineUpgrade": 0 } } },
+  "startingLoadout": {
+    "weaponKey": "WeaponStaffSwing",
+    "aspectKey": "BaseStaffAspect",
+    "arcana": [],
+    "fear": {
+      "configuredRanks": {
+        "HealingReductionShrineUpgrade": 0,
+        "ShopPricesShrineUpgrade": 0,
+        "EnemyHealthShrineUpgrade": 0,
+        "EnemyDamageShrineUpgrade": 0,
+        "EnemySpeedShrineUpgrade": 0,
+        "EnemyShieldShrineUpgrade": 0,
+        "EnemyCountShrineUpgrade": 0,
+        "EnemyRespawnShrineUpgrade": 0,
+        "NextBiomeEnemyShrineUpgrade": 0,
+        "BiomeSpeedShrineUpgrade": 0,
+        "MinibossCountShrineUpgrade": 0,
+        "BossDifficultyShrineUpgrade": 0,
+        "BoonSkipShrineUpgrade": 0,
+        "BoonManaReserveShrineUpgrade": 0,
+        "BanUnpickedBoonsShrineUpgrade": 0,
+        "LimitGraspShrineUpgrade": 0,
+        "EnemyEliteShrineUpgrade": 0
+      },
+      "effectiveRanks": {
+        "HealingReductionShrineUpgrade": 0,
+        "ShopPricesShrineUpgrade": 0,
+        "EnemyHealthShrineUpgrade": 0,
+        "EnemyDamageShrineUpgrade": 0,
+        "EnemySpeedShrineUpgrade": 0,
+        "EnemyShieldShrineUpgrade": 0,
+        "EnemyCountShrineUpgrade": 0,
+        "EnemyRespawnShrineUpgrade": 0,
+        "NextBiomeEnemyShrineUpgrade": 0,
+        "BiomeSpeedShrineUpgrade": 0,
+        "MinibossCountShrineUpgrade": 0,
+        "BossDifficultyShrineUpgrade": 0,
+        "BoonSkipShrineUpgrade": 0,
+        "BoonManaReserveShrineUpgrade": 0,
+        "BanUnpickedBoonsShrineUpgrade": 0,
+        "LimitGraspShrineUpgrade": 0,
+        "EnemyEliteShrineUpgrade": 0
+      }
+    }
+  },
   "startingKeepsake": { "keepsakeKey": "ManaOverTimeRefundKeepsake" },
   "extent": { "kind": "configuredPrefix", "biomeKeys": ["F"], "terminalBiomeKey": "F" },
   "selectedOccurrenceIds": [
@@ -1928,6 +1972,7 @@
           {
             "kind": "fountainUse",
             "owner": "[\"roomAction\",\"Underworld\",\"F\",\"golden-f-preboss-shop:postboss\",\"[\\\"useFountain\\\"]\"]",
+            "interactionKey": "fountain",
             "window": { "kind": "standard", "phase": "afterCombat" }
           }
         ],
@@ -1966,5 +2011,5 @@
       }
     }
   ],
-  "planFingerprint": "e74b8684"
+  "planFingerprint": "9bf76b08"
 }

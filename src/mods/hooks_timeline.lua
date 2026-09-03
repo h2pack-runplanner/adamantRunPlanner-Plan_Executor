@@ -78,38 +78,35 @@ local function authoredTraitOption(row, offer, itemData)
     return nil
 end
 
-local function currentIndex(room, state)
-    local current = room.current(state)
-    return current and current.bindings or nil
-end
-
-local function incomingRow(room, session, state, native)
+local function incomingHandle(room, _, state, native)
     local current = room.current(state)
     if current == nil then return nil end
     local reward = current.occurrence.overview.incomingReward
     if reward == nil then return nil end
-    local key = reward.producerLifecycleKey .. "\0" .. reward.rewardType
-    local producer = adapter.lookup(current.bindings, "producer", key)
+    local producer = room.resolve(state, current, {
+        kind = "producer", producerLifecycleKey = reward.producerLifecycleKey, rewardType = reward.rewardType,
+    })
     local gameName = type(native) == "table" and (native.Name or native.ItemName or native.LootName) or nil
-    local materialized, errorValue = adapter.materialized(current.bindings, producer, gameName, native)
-    if errorValue then session.mismatch(state, errorValue.checkpoint, errorValue.expected, errorValue.observed) end
-    return materialized
+    return room.bind(state, current, room.resolve(state, current, {
+        kind = "materialized", source = producer, gameName = gameName,
+    }), native)
 end
 
-local function resolveTraitFallback(session, state, row, native)
-    if row == nil or row.node == false then return row end
-    for _, fallback in ipairs(row.node.runtimeFallbacks or {}) do
+local function resolveTraitFallback(session, state, handle, payload, native)
+    if handle == nil or payload == nil then return handle, payload end
+    for _, fallback in ipairs(payload.transaction.runtimeFallbacks or {}) do
         if fallback.availabilityContact == "traitEligibility" then
-            local _, resolved = session.resolveFallback(state, row, "traitEligibility", fallback, function(key)
+            local _, resolved, resolvedPayload = session.resolveFallback(state, handle, payload,
+                "traitEligibility", fallback, function(key)
                 local declaration = _G.TraitData and _G.TraitData[key]
                 return declaration ~= nil and (type(_G.IsTraitEligible) ~= "function"
                     or _G.IsTraitEligible(declaration) == true)
             end, native)
             if resolved == nil then return nil end
-            row = resolved
+            handle, payload = resolved, resolvedPayload
         end
     end
-    return row
+    return handle, payload
 end
 
 function hooks.attach(module, session, getState, report, room)
@@ -139,42 +136,48 @@ function hooks.attach(module, session, getState, report, room)
         local name = type(encounter) == "table" and (encounter.Name or encounter.EncounterName) or nil
         name = name or type(source) == "table" and (source.EncounterName or source.Name) or nil
         for _, phase in ipairs(current.occurrence.overview.encounterPhases or {}) do
-            if phase.encounterKey == name then return adapter.phase(current.bindings, phase.slotKey, source) end
+            if phase.encounterKey == name then
+                return room.bind(state, current,
+                    room.resolve(state, current, { kind = "phase", phaseKey = phase.slotKey }), source)
+            end
         end
         return nil
     end
 
     local function nemesisRow(state, source)
-        local row = interactionRow(state, source)
-        local resolution = row and row.node and row.node.resolution
-        if resolution and resolution.kind == "nemesisRandomEvent" then return row, resolution.outcome end
+        local handle = interactionRow(state, source)
+        local payload = handle and roomCoordinator.begin(state, handle) or nil
+        local resolution = payload and payload.transaction.resolution
+        if resolution and resolution.kind == "nemesisRandomEvent" then return handle, payload, resolution.outcome end
         return nil
     end
 
     local function childFor(state, source, kind)
         local current = roomCoordinator.current(state)
-        local sourceRow = adapter.bound(current and current.bindings, source)
-            or incomingRow(roomCoordinator, session, state, source)
-        local sourceRole = adapter.sourceRole(sourceRow, source and source.Name)
-        local child = current and adapter.produced(current.bindings, sourceRow, sourceRole)
-        if child and child.detail and child.detail.producer
-            and child.detail.producer.kind == kind then
-            return sourceRow, child
+        local sourceHandle = roomCoordinator.bound(state, current, source)
+            or incomingHandle(roomCoordinator, session, state, source)
+        local sourceRole = roomCoordinator.sourceRole(state, current, sourceHandle, source and source.Name)
+        local child = roomCoordinator.resolve(state, current,
+            { kind = "produced", source = sourceHandle, role = sourceRole })
+        local payload = child and roomCoordinator.begin(state, child) or nil
+        if payload and payload.detail and payload.detail.producer and payload.detail.producer.kind == kind then
+            return sourceHandle, child, payload
         end
-        return sourceRow, nil
+        return sourceHandle, nil
     end
 
     local function attachNpcTraitChoice(functionName, giver)
         module.hooks.wrap(functionName, "execution-v10-npc-trait-offer", function(_, runtime, base, source,
             args, screen)
             local state = getState(runtime)
-            local row = interactionRow(state, source)
-            local resolution = row and row.node and row.node.resolution
+            local handle = interactionRow(state, source)
+            local payload = handle and roomCoordinator.begin(state, handle) or nil
+            local resolution = payload and payload.transaction.resolution
             if resolution and resolution.kind == "traitOffer" and resolution.offer.giver == giver then
-                row = resolveTraitFallback(session, state, row, source)
-                if row ~= nil and adapter.applyNpcTraitOffer(row, args) then
-                    pendingTrait = { row = row, source = source }
-                elseif row ~= nil then
+                handle, payload = resolveTraitFallback(session, state, handle, payload, source)
+                if payload ~= nil and adapter.applyNpcTraitOffer(payload, args) then
+                    pendingTrait = { handle = handle, payload = payload, source = source }
+                elseif payload ~= nil then
                     session.mismatch(state, "npc-trait-offer", "published " .. giver .. " trait offer", nil)
                 end
             end
@@ -186,25 +189,27 @@ function hooks.attach(module, session, getState, report, room)
 
     module.hooks.wrap("UseLoot", "execution-v10-use-loot", function(_, runtime, base, usee, args, user)
         local state = getState(runtime)
-        local row = adapter.bound(currentIndex(roomCoordinator, state), usee)
-            or incomingRow(roomCoordinator, session, state, usee)
-        if row == nil then return base(usee, args, user) end
-        row = resolveTraitFallback(session, state, row, usee)
-        if row == nil then report(runtime); return base(usee, args, user) end
-        usee.__runPlannerTimelineRow = row
+        local current = roomCoordinator.current(state)
+        local handle = roomCoordinator.bound(state, current, usee)
+            or incomingHandle(roomCoordinator, session, state, usee)
+        local payload = handle and roomCoordinator.begin(state, handle) or nil
+        if payload == nil then return base(usee, args, user) end
+        handle, payload = resolveTraitFallback(session, state, handle, payload, usee)
+        if payload == nil then report(runtime); return base(usee, args, user) end
+        usee.__runPlannerTimelineHandle = handle
         local _, seaStarChild = childFor(state, usee, "seaStarDuplicate")
         if seaStarChild then pendingSeaStar = { source = usee, child = seaStarChild } end
-        local expected, traitOffer = adapter.expectedTrait(row)
+        local expected, traitOffer = adapter.expectedTrait(payload)
         if expected ~= nil then
-            adapter.applyTraitOffer(row, usee)
-            pendingTrait = { row = row, source = usee }
+            adapter.applyTraitOffer(payload, usee)
+            pendingTrait = { handle = handle, payload = payload, source = usee }
         elseif traitOffer and traitOffer.kind == "chaos" then
-            pendingTrait = { row = row, source = usee }
-        elseif adapter.applyLevelResolution(row, usee) then
-            pendingLevel = { row = row, source = usee }
+            pendingTrait = { handle = handle, payload = payload, source = usee }
+        elseif adapter.applyLevelResolution(payload, usee) then
+            pendingLevel = { handle = handle, payload = payload, source = usee }
         end
         if expected == nil and pendingTrait == nil and pendingLevel == nil then
-            pendingSimple = { row = row, source = usee, gameName = usee.Name }
+            pendingSimple = { handle = handle, payload = payload, source = usee, gameName = usee.Name }
         end
         local result = base(usee, args, user)
         pendingSeaStar = nil
@@ -214,29 +219,31 @@ function hooks.attach(module, session, getState, report, room)
 
     module.hooks.wrap("UseConsumableItem", "execution-v10-use-consumable", function(_, runtime, base, item, args, user)
         local state = getState(runtime)
-        local index = currentIndex(roomCoordinator, state)
-        local row = adapter.bound(index, item) or incomingRow(roomCoordinator, session, state, item)
+        local current = roomCoordinator.current(state)
+        local handle = roomCoordinator.bound(state, current, item)
+            or incomingHandle(roomCoordinator, session, state, item)
+        local payload = handle and roomCoordinator.begin(state, handle) or nil
         local originalUseFunctionArgs
         local carriesDirectLevel = false
-        if row ~= nil then
-            local materialized, errorValue = adapter.materialized(index, row, item.Name, item)
-            if errorValue ~= nil then
-                session.mismatch(state, errorValue.checkpoint, errorValue.expected, errorValue.observed)
-            elseif materialized ~= nil then
-                row = materialized
+        if payload ~= nil then
+            local materialized = roomCoordinator.resolve(state, current,
+                { kind = "materialized", source = handle, gameName = item.Name })
+            if materialized ~= nil then
+                handle = roomCoordinator.bind(state, current, materialized, item)
+                payload = handle and roomCoordinator.begin(state, handle) or payload
             end
-            local terminal = row.detail ~= nil
-            for _, role in ipairs(row.node and row.node.roles or {}) do
-                if role ~= row.detail then terminal = false end
+            local terminal = payload.detail ~= nil
+            for _, role in ipairs(payload.transaction.roles or {}) do
+                if role ~= payload.detail then terminal = false end
             end
-            if terminal and row.detail.levelResolution ~= nil then
+            if terminal and payload.detail.levelResolution ~= nil then
                 originalUseFunctionArgs = item.UseFunctionArgs
                 item.UseFunctionArgs = {}
                 for key, value in pairs(originalUseFunctionArgs or {}) do item.UseFunctionArgs[key] = value end
-                item.UseFunctionArgs.__runPlannerTimelineRow = row
+                item.UseFunctionArgs.__runPlannerTimelineHandle = handle
                 carriesDirectLevel = true
             elseif terminal then
-                pendingSimple = { row = row, source = item, gameName = item.Name }
+                pendingSimple = { handle = handle, payload = payload, source = item, gameName = item.Name }
             end
         end
         local result = base(item, args, user)
@@ -247,8 +254,9 @@ function hooks.attach(module, session, getState, report, room)
 
     module.hooks.wrap("AddStackToTraits", "execution-v10-direct-level", function(_, runtime, base, source, args)
         local directArgs = args or source
-        local row = type(directArgs) == "table" and directArgs.__runPlannerTimelineRow or nil
-        local resolution = row and row.detail and row.detail.levelResolution or nil
+        local handle = type(directArgs) == "table" and directArgs.__runPlannerTimelineHandle or nil
+        local payload = handle and roomCoordinator.begin(getState(runtime), handle) or nil
+        local resolution = payload and payload.detail and payload.detail.levelResolution or nil
         if resolution == nil then return base(source, args) end
 
         local threadedDispatch = directArgs.Thread == true
@@ -256,7 +264,7 @@ function hooks.attach(module, session, getState, report, room)
         local trait = target and findTrait(target) or nil
         if target ~= nil and trait == nil then
             local state = getState(runtime)
-            session.complete(state, row, false, resolution, target)
+            session.complete(state, handle, false, resolution, target)
             report(runtime)
             return base(source, args)
         end
@@ -268,7 +276,8 @@ function hooks.attach(module, session, getState, report, room)
         local result = base(source, args)
         if not threadedDispatch then
             local state = getState(runtime)
-            session.complete(state, row, adapter.verifyLevel(row, target, before, heroTraits()), resolution, target)
+            session.complete(state, handle, adapter.verifyLevel(payload, target, before, heroTraits()),
+                resolution, target)
             report(runtime)
         end
         return result
@@ -279,8 +288,8 @@ function hooks.attach(module, session, getState, report, room)
         if pending == nil or pending.source ~= item then return end
         pendingSimple = nil
         local state = getState(runtime)
-        session.complete(state, pending.row, adapter.verifySimple(pending.row, pending.gameName),
-            pending.row.detail, pending.gameName)
+        session.complete(state, pending.handle, adapter.verifySimple(pending.payload, pending.gameName),
+            pending.payload.detail, pending.gameName)
         report(runtime)
     end
 
@@ -301,19 +310,19 @@ function hooks.attach(module, session, getState, report, room)
     module.hooks.wrap("SpawnRoomReward", "execution-v10-bind-room-reward", function(_, runtime, base, source, args)
         local result = base(source, args)
         local state = getState(runtime)
-        incomingRow(roomCoordinator, session, state, result)
+        incomingHandle(roomCoordinator, session, state, result)
         return result
     end)
 
     module.hooks.wrap("ConvertMetaRewardPresentation", "execution-v10-artificer-source", function(_, runtime, base,
         target)
         local state = getState(runtime)
-        local sourceRow, child = childFor(state, target, "artificerReplacement")
+        local sourceHandle, child, payload = childFor(state, target, "artificerReplacement")
         if child == nil then return base(target) end
         pendingProduced[target.ObjectId] = child
-        pendingRewardSelection = child
+        pendingRewardSelection = payload
         local result = base(target)
-        session.complete(state, sourceRow, true)
+        session.complete(state, sourceHandle, true)
         report(runtime)
         return result
     end)
@@ -333,7 +342,7 @@ function hooks.attach(module, session, getState, report, room)
         local child = sourceId and pendingProduced[sourceId] or pendingSeaStar and pendingSeaStar.child
         if child and result then
             local current = roomCoordinator.current(state)
-            adapter.bind(current and current.bindings, child, result)
+            roomCoordinator.bind(state, current, child, result)
         end
     end
 
@@ -350,11 +359,9 @@ function hooks.attach(module, session, getState, report, room)
         local state = getState(runtime)
         if unwrappedTraitRow ~= nil and result ~= nil then
             local current = roomCoordinator.current(state)
-            local row, errorValue = adapter.materialized(current and current.bindings,
-                unwrappedTraitRow, result.Name, result)
-            if errorValue ~= nil then
-                session.mismatch(state, errorValue.checkpoint, errorValue.expected, errorValue.observed)
-            elseif row == nil then
+            local handle = roomCoordinator.resolve(state, current,
+                { kind = "materialized", source = unwrappedTraitRow, gameName = result.Name })
+            if roomCoordinator.bind(state, current, handle, result) == nil then
                 session.mismatch(state, "timeline-binding", "published mystery-boon source", result.Name)
             end
         end
@@ -369,10 +376,10 @@ function hooks.attach(module, session, getState, report, room)
         local current = roomCoordinator.current(state)
         local prior = unwrappedTraitRow
         local priorSource = unwrappedSourceKey
-        unwrappedTraitRow = adapter.bound(current and current.bindings, source)
+        unwrappedTraitRow = roomCoordinator.bound(state, current, source)
         unwrappedSourceKey = nil
-        for _, role in ipairs(unwrappedTraitRow and unwrappedTraitRow.node
-            and unwrappedTraitRow.node.roles or {}) do
+        local payload = unwrappedTraitRow and roomCoordinator.begin(state, unwrappedTraitRow) or nil
+        for _, role in ipairs(payload and payload.transaction.roles or {}) do
             if role.lifecyclePoint == "afterUnwrap" then
                 unwrappedSourceKey = role.gameName
                 break
@@ -395,12 +402,14 @@ function hooks.attach(module, session, getState, report, room)
     module.hooks.wrap("CreateBoonLootButtons", "execution-v10-trait-screen", function(_, runtime, base, screen,
         lootData, reroll, args)
         local state = getState(runtime)
-        local row = adapter.bound(currentIndex(roomCoordinator, state), lootData)
-            or (pendingTrait and pendingTrait.row) or incomingRow(roomCoordinator, session, state, lootData)
-        if row ~= nil then
-            lootData.__runPlannerTimelineRow = row
-            local _, offer = adapter.expectedTrait(row)
-            if offer and offer.kind ~= "chaos" then adapter.applyTraitOffer(row, lootData) end
+        local current = roomCoordinator.current(state)
+        local handle = roomCoordinator.bound(state, current, lootData)
+            or (pendingTrait and pendingTrait.handle) or incomingHandle(roomCoordinator, session, state, lootData)
+        local payload = handle and roomCoordinator.begin(state, handle) or nil
+        if payload ~= nil then
+            lootData.__runPlannerTimelineHandle = handle
+            local _, offer = adapter.expectedTrait(payload)
+            if offer and offer.kind ~= "chaos" then adapter.applyTraitOffer(payload, lootData) end
         end
         return base(screen, lootData, reroll, args)
     end)
@@ -424,14 +433,14 @@ function hooks.attach(module, session, getState, report, room)
         args)
         if nemesisSpawnDepth == 0 then return base(source, args) end
         local state = getState(runtime)
-        local row, outcome = nemesisRow(state, source)
+        local handle, _, outcome = nemesisRow(state, source)
         local prefixes = {
             freeItem = "NemesisGetFreeItem", goldTrade = "NemesisBuyItem",
             damageTrade = "NemesisTakeDamageForItem", traitTrade = "NemesisGiveTraitForItem",
             damageContest = "NemesisDamageContest",
         }
         local original, prefix = source and source.InteractTextLineSets, outcome and prefixes[outcome.kind]
-        if row == nil or type(original) ~= "table" or prefix == nil then return base(source, args) end
+        if handle == nil or type(original) ~= "table" or prefix == nil then return base(source, args) end
         local filtered = {}
         for key, value in pairs(original) do
             if type(key) == "string" and key:sub(1, #prefix) == prefix then filtered[key] = value end
@@ -452,8 +461,8 @@ function hooks.attach(module, session, getState, report, room)
     module.hooks.wrap("NemesisTradeChoice", "execution-v10-nemesis-trade", function(_, runtime, base, source, args,
         screen)
         local state = getState(runtime)
-        local row, outcome = nemesisRow(state, source)
-        if row and outcome and outcome.kind == "traitTrade" and type(args) == "table" then
+        local handle, payload, outcome = nemesisRow(state, source)
+        if handle and outcome and outcome.kind == "traitTrade" and type(args) == "table" then
             local retained = {}
             for _, option in ipairs(args.GiveOptions or {}) do
                 if option.Name == outcome.traitKey or option.TraitName == outcome.traitKey then
@@ -464,14 +473,14 @@ function hooks.attach(module, session, getState, report, room)
             else args.GiveOptions = retained end
         end
         local result = base(source, args, screen)
-        if row and outcome then
+        if handle and outcome then
             local accepted = source and source.Accepted == true
             if (outcome.response == "accept") ~= accepted then
                 session.mismatch(state, "nemesis-trade-response", outcome.response, accepted)
             elseif outcome.kind == "traitTrade" and accepted then
-                pendingNemesis = { row = row, traitKey = outcome.traitKey }
+                pendingNemesis = { handle = handle, payload = payload, traitKey = outcome.traitKey }
             else
-                session.complete(state, row, true)
+                session.complete(state, handle, true)
             end
         end
         report(runtime)
@@ -484,7 +493,8 @@ function hooks.attach(module, session, getState, report, room)
         if pendingNemesis then
             local state, pending = getState(runtime), pendingNemesis
             pendingNemesis = nil
-            session.complete(state, pending.row, traitName == pending.traitKey, pending.row.node, traitName)
+            session.complete(state, pending.handle, traitName == pending.traitKey,
+                pending.payload.transaction, traitName)
             report(runtime)
         end
         return result
@@ -498,13 +508,13 @@ function hooks.attach(module, session, getState, report, room)
         npcRewardSource = priorSource
         if not ok then error(result, 0) end
         local state = getState(runtime)
-        local row, outcome = nemesisRow(state, source)
-        if row and outcome and outcome.kind == "damageContest" then
+        local handle, payload, outcome = nemesisRow(state, source)
+        if handle and outcome and outcome.kind == "damageContest" then
             local details = source.DamageContestArgs or {}
             local success = type(source.DamageContestAmount) == "number"
                 and type(details.DamageGoal) == "number"
                 and source.DamageContestAmount >= details.DamageGoal
-            session.complete(state, row, (outcome.result == "success") == success, row.node, success)
+            session.complete(state, handle, (outcome.result == "success") == success, payload.transaction, success)
         end
         report(runtime)
         return result
@@ -524,11 +534,12 @@ function hooks.attach(module, session, getState, report, room)
         base, args, choice, line)
         local state = getState(runtime)
         local source = npcRewardSource or type(args) == "table" and args.Source or nil
-        local row, outcome = nemesisRow(state, source)
-        if row and outcome and outcome.runtimeFallbacks then
+        local handle, payload, outcome = nemesisRow(state, source)
+        if handle and outcome and outcome.runtimeFallbacks then
             for _, fallback in ipairs(outcome.runtimeFallbacks) do
                 if fallback.availabilityContact == "npcConsumableSelection" then
-                    local key = session.resolveFallback(state, row, "npcConsumableSelection", fallback,
+                    local key, rebound, resolved = session.resolveFallback(state, handle, payload,
+                        "npcConsumableSelection", fallback,
                         function(candidate)
                             for _, item in ipairs(args.Consumables or {}) do
                                 if item.Name == candidate or item.ItemName == candidate then return true end
@@ -536,6 +547,7 @@ function hooks.attach(module, session, getState, report, room)
                             return false
                         end)
                     if key == nil then report(runtime); return base(args, choice, line) end
+                    handle, payload = rebound, resolved
                     local chosen = {}
                     for _, item in ipairs(args.Consumables or {}) do
                         if item.Name == key or item.ItemName == key then chosen[#chosen + 1] = item end
@@ -543,7 +555,7 @@ function hooks.attach(module, session, getState, report, room)
                     args.Consumables = chosen
                 end
             end
-            pendingNemesis = { row = row, reward = true }
+            pendingNemesis = { handle = handle, payload = payload, reward = true }
         end
         local result = base(args, choice, line)
         report(runtime)
@@ -557,16 +569,18 @@ function hooks.attach(module, session, getState, report, room)
             pendingNemesis = nil
             local produced = type(args) == "table" and type(args.Consumables) == "table"
                 and #args.Consumables > 0
-            session.complete(getState(runtime), pending.row, produced, pending.row.node, args)
+            session.complete(getState(runtime), pending.handle, produced, pending.payload.transaction, args)
         end
         report(runtime)
         return result
     end)
 
-    module.hooks.wrap("CreateUpgradeChoiceButton", "execution-v10-trait-option", function(_, _runtime, base, screen,
+    module.hooks.wrap("CreateUpgradeChoiceButton", "execution-v10-trait-option", function(_, runtime, base, screen,
         lootData, itemIndex, itemData, args)
-        local row = lootData and lootData.__runPlannerTimelineRow or pendingTrait and pendingTrait.row
-        local _, offer = adapter.expectedTrait(row)
+        local handle = lootData and lootData.__runPlannerTimelineHandle or pendingTrait and pendingTrait.handle
+        local payload = handle and roomCoordinator.begin(getState(runtime), handle)
+            or pendingTrait and pendingTrait.payload
+        local _, offer = adapter.expectedTrait(payload)
         if offer and offer.kind == "chaos" then
             local option = offer.curseOptions[itemIndex]
             if option then
@@ -582,8 +596,8 @@ function hooks.attach(module, session, getState, report, room)
                 end
             end
         elseif offer and type(offer.options) == "table" then
-            if itemIndex == 1 then alignBlockedTraitOption(screen, lootData, row, offer) end
-            local option = authoredTraitOption(row, offer, itemData)
+            if itemIndex == 1 then alignBlockedTraitOption(screen, lootData, payload, offer) end
+            local option = authoredTraitOption(payload, offer, itemData)
             if option == nil then return base(screen, lootData, itemIndex, itemData, args) end
             itemData.Rarity, itemData.StackNum = option.rarity, option.effectiveLevel
             if option.replacement then
@@ -618,11 +632,14 @@ function hooks.attach(module, session, getState, report, room)
         return result
     end)
 
-    module.hooks.wrap("SetTransformingTraitsOnLoot", "execution-v10-chaos-reservation", function(_, _, base, lootData,
+    module.hooks.wrap("SetTransformingTraitsOnLoot", "execution-v10-chaos-reservation",
+        function(_, runtime, base, lootData,
         choices)
         local result = base(lootData, choices)
-        local row = lootData and lootData.__runPlannerTimelineRow or pendingTrait and pendingTrait.row
-        local _, offer = adapter.expectedTrait(row)
+        local handle = lootData and lootData.__runPlannerTimelineHandle or pendingTrait and pendingTrait.handle
+        local payload = handle and roomCoordinator.begin(getState(runtime), handle)
+            or pendingTrait and pendingTrait.payload
+        local _, offer = adapter.expectedTrait(payload)
         if offer == nil or offer.kind ~= "chaos" or type(lootData.UpgradeOptions) ~= "table" then return result end
         local selectedIndex = tonumber(offer.selected:match("(%d+)$"))
         local selected = selectedIndex and lootData.UpgradeOptions[selectedIndex]
@@ -653,15 +670,15 @@ function hooks.attach(module, session, getState, report, room)
         if pendingLevel ~= nil then
             local pending = pendingLevel
             pendingLevel = nil
-            session.complete(state, pending.row,
-                adapter.verifyLevel(pending.row, pending.selected, pending.before, heroTraits()),
-                pending.row.detail.levelResolution, pending.selected)
+            session.complete(state, pending.handle,
+                adapter.verifyLevel(pending.payload, pending.selected, pending.before, heroTraits()),
+                pending.payload.detail.levelResolution, pending.selected)
         elseif pendingTrait ~= nil then
             local pending = pendingTrait
             pendingTrait = nil
-            session.complete(state, pending.row,
-                adapter.verifyTrait(pending.row, pending.selected, heroTraits()),
-                adapter.expectedTrait(pending.row), pending.selected)
+            session.complete(state, pending.handle,
+                adapter.verifyTrait(pending.payload, pending.selected, heroTraits()),
+                adapter.expectedTrait(pending.payload), pending.selected)
         end
         report(runtime)
         return result
@@ -670,43 +687,50 @@ function hooks.attach(module, session, getState, report, room)
     module.hooks.wrap("AddRarityToTraits", "execution-v10-steady-growth", function(_, runtime, base, source, args)
         local state = getState(runtime)
         local current = roomCoordinator.current(state)
-        local phase = current and current.window:match("^encounterEnd:(.+)$")
-        local row = phase and adapter.automatic(current.bindings, "steadyGrowth", phase) or nil
-        if row and type(args) == "table" then
-            local trait = findTrait(row.node.target)
+        local phase = roomCoordinator.activePhase(state, "encounterEnd")
+        local handle = phase and roomCoordinator.resolve(state, current,
+            { kind = "automatic", effect = "steadyGrowth", phaseKey = phase }) or nil
+        local payload = handle and roomCoordinator.begin(state, handle) or nil
+        if payload and type(args) == "table" then
+            local trait = findTrait(payload.transaction.target)
             if trait then args.ForceUpgrade = { trait } end
         end
         local result = base(source, args)
-        if row then
-            session.complete(state, row, adapter.verifyAutomatic(row, {
+        if payload then
+            session.complete(state, handle, adapter.verifyAutomatic(payload, {
                 target = type(result) == "table" and result.Name or nil,
                 rarity = type(result) == "table" and result.Rarity or nil,
-            }), row.node, result)
+            }), payload.transaction, result)
         end
         report(runtime)
         return result
     end)
 
-    module.hooks.wrap("AddRandomChaosBlessing", "execution-v12-embryo", function(_, runtime, base, rarity)
+    module.hooks.wrap("AddRandomChaosBlessing", "execution-v13-embryo", function(_, runtime, base, rarity)
         local state = getState(runtime)
         local current = roomCoordinator.current(state)
-        local phase = current and current.window:match("^encounterEnd:(.+)$")
-        local row = phase and adapter.automatic(current.bindings, "transcendentEmbryo", phase) or nil
-        embryoTarget = row and row.node.target or nil
-        embryoContext = row and row.node or nil
-        local ok, result = pcall(base, row and row.node.rarity or rarity)
+        local phase = roomCoordinator.activePhase(state, "encounterEnd")
+        local handle = nil
+        if phase then
+            handle = roomCoordinator.resolve(state, current,
+                { kind = "automatic", effect = "transcendentEmbryo", phaseKey = phase })
+        end
+        local payload = handle and roomCoordinator.begin(state, handle) or nil
+        embryoTarget = payload and payload.transaction.target or nil
+        embryoContext = payload and payload.transaction or nil
+        local ok, result = pcall(base, payload and payload.transaction.rarity or rarity)
         embryoTarget = nil
         embryoContext = nil
         if not ok then error(result, 0) end
-        if row then
-            session.complete(state, row, adapter.verifyAutomatic(row, {
+        if payload then
+            session.complete(state, handle, adapter.verifyAutomatic(payload, {
                 target = type(result) == "table" and (result.Name or result.TraitName) or result,
                 rarity = type(result) == "table" and result.Rarity or nil,
                 blessingValues = type(result) == "table"
                     and chaos.blessingValues(result,
                         type(result) == "table" and (result.Name or result.TraitName) or result)
                     or nil,
-            }), row.node, result)
+            }), payload.transaction, result)
         end
         report(runtime)
         return result
@@ -739,20 +763,22 @@ function hooks.attach(module, session, getState, report, room)
         if bossScope == nil then return base(count, args) end
         local effect = type(args) == "table" and args.RarityLevel ~= nil
             and "crystalFigurine" or "judgment"
-        local row = adapter.automatic(bossScope.current.bindings, effect, bossScope.phaseKey)
-        if row == nil then return base(count, args) end
+        local handle = roomCoordinator.resolve(bossScope.state, bossScope.current,
+            { kind = "automatic", effect = effect, phaseKey = bossScope.phaseKey })
+        local payload = handle and roomCoordinator.begin(bossScope.state, handle) or nil
+        if payload == nil then return base(count, args) end
         local prior = arcanaQueue
-        arcanaQueue = { keys = row.node.arcanaKeys, index = 1 }
+        arcanaQueue = { keys = payload.transaction.arcanaKeys, index = 1 }
         local ok, result = pcall(base, count, args)
         arcanaQueue = prior
         if not ok then error(result, 0) end
-        local observed = { arcanaKeys = {}, rarity = row.node.rarity }
+        local observed = { arcanaKeys = {}, rarity = payload.transaction.rarity }
         local rarityOrder = _G.TraitRarityData and _G.TraitRarityData.RarityUpgradeOrder or {}
-        for _, key in ipairs(row.node.arcanaKeys) do
+        for _, key in ipairs(payload.transaction.arcanaKeys) do
             local stateEntry = _G.GameState and _G.GameState.MetaUpgradeState
                 and _G.GameState.MetaUpgradeState[key]
             local rarity = stateEntry and rarityOrder[stateEntry.RarityLevel or stateEntry.Level or 1]
-            if not stateEntry or not stateEntry.Equipped or rarity ~= row.node.rarity
+            if not stateEntry or not stateEntry.Equipped or rarity ~= payload.transaction.rarity
                 or not (_G.CurrentRun and _G.CurrentRun.TemporaryMetaUpgrades
                     and _G.CurrentRun.TemporaryMetaUpgrades[key]) then
                 observed = { arcanaKeys = {}, rarity = rarity }
@@ -760,7 +786,8 @@ function hooks.attach(module, session, getState, report, room)
             end
             observed.arcanaKeys[#observed.arcanaKeys + 1] = key
         end
-        session.complete(bossScope.state, row, adapter.verifyAutomatic(row, observed), row.node, observed)
+        session.complete(bossScope.state, handle, adapter.verifyAutomatic(payload, observed),
+            payload.transaction, observed)
         report(runtime)
         return result
     end)

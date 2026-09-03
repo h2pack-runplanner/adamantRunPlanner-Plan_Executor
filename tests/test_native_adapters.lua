@@ -1,6 +1,7 @@
 -- luacheck: globals TestNativeAdapters
 local lu = require("luaunit")
 local adapters = require("mods/native_timeline_adapters")
+local bindings = require("mods.room.timeline.bindings")
 local readers = require("mods.room.conformance.readers")
 
 TestNativeAdapters = {}
@@ -8,6 +9,10 @@ TestNativeAdapters = {}
 local contacts = {
     "traitEligibility", "storeInventoryGeneration", "storePurchase", "npcConsumableSelection",
 }
+
+local function resolved(index, contact)
+    return assert(bindings.resolve(index, contact))
+end
 
 local function occurrence(contact)
     return {
@@ -30,26 +35,26 @@ end
 
 function TestNativeAdapters.testEveryClosedFallbackContactBindsOnePublishedOwner()
     for _, contact in ipairs(contacts) do
-        local index = assert(adapters.index(occurrence(contact)))
+        local index = assert(bindings.index(occurrence(contact)))
         local relation = {
             availabilityContact = contact, preferredKey = "preferred", fallbackKey = "fallback",
         }
-        local owner = adapters.offer(index, "offer")
-        local key, row = adapters.resolveFallback(index, owner, contact, relation,
+        local owner = resolved(index, { kind = "offer", offerKey = "offer" })
+        local key, row = adapters.resolveFallback(bindings.payload(owner), contact, relation,
             function(candidate) return candidate == "preferred" end, {})
         lu.assertEquals(key, "preferred")
-        lu.assertEquals(row.node.owner, "owner")
+        lu.assertEquals(row.transaction.owner, "owner")
 
-        index = assert(adapters.index(occurrence(contact)))
-        owner = adapters.offer(index, "offer")
-        key, row = adapters.resolveFallback(index, owner, contact, relation,
+        index = assert(bindings.index(occurrence(contact)))
+        owner = resolved(index, { kind = "offer", offerKey = "offer" })
+        key, row = adapters.resolveFallback(bindings.payload(owner), contact, relation,
             function(candidate) return candidate == "fallback" end, {})
         lu.assertEquals(key, "fallback")
         lu.assertEquals(row.realizedKey, "fallback")
 
-        index = assert(adapters.index(occurrence(contact)))
-        owner = adapters.offer(index, "offer")
-        lu.assertNil(adapters.resolveFallback(index, owner, contact, relation,
+        index = assert(bindings.index(occurrence(contact)))
+        owner = resolved(index, { kind = "offer", offerKey = "offer" })
+        lu.assertNil(adapters.resolveFallback(bindings.payload(owner), contact, relation,
             function() return false end, {}))
     end
 end
@@ -60,7 +65,7 @@ function TestNativeAdapters.testIndexesRejectAmbiguousPublishedKeys()
         owner = "other", kind = "acquisition", offerKey = "offer",
         window = { kind = "standard", phase = "beforeCombat" },
     }
-    local index, errorValue = adapters.index(item)
+    local index, errorValue = bindings.index(item)
     lu.assertNil(index)
     lu.assertEquals(errorValue.checkpoint, "timeline-binding")
 end
@@ -72,35 +77,38 @@ function TestNativeAdapters.testSameFallbackRelationCanBelongToDistinctOffers()
         window = { kind = "standard", phase = "beforeCombat" },
         runtimeFallbacks = item.transactionsByOwner.owner.runtimeFallbacks,
     }
-    local index = assert(adapters.index(item))
+    local index = assert(bindings.index(item))
     local relation = item.transactionsByOwner.owner.runtimeFallbacks[1]
-    local first = adapters.offer(index, "offer")
-    local second = adapters.offer(index, "other-offer")
-    local _, firstRow = adapters.resolveFallback(index, first, "traitEligibility", relation,
+    local first = resolved(index, { kind = "offer", offerKey = "offer" })
+    local second = resolved(index, { kind = "offer", offerKey = "other-offer" })
+    local _, firstRow = adapters.resolveFallback(bindings.payload(first), "traitEligibility", relation,
         function(candidate) return candidate == "preferred" end, {})
-    local _, secondRow = adapters.resolveFallback(index, second, "traitEligibility", relation,
+    local _, secondRow = adapters.resolveFallback(bindings.payload(second), "traitEligibility", relation,
         function(candidate) return candidate == "fallback" end, {})
-    lu.assertEquals(firstRow.node.owner, "owner")
-    lu.assertEquals(secondRow.node.owner, "other")
+    lu.assertEquals(firstRow.transaction.owner, "owner")
+    lu.assertEquals(secondRow.transaction.owner, "other")
 end
 
 function TestNativeAdapters.testOutcomeVerifiersRequirePublishedFields()
-    local index = assert(adapters.index(occurrence("traitEligibility")))
-    local row = adapters.offer(index, "offer", {})
-    row.node.kind, row.node.generationKey, row.node.twistResultKey = "wellPurchase", "initial:left", "Twist"
-    lu.assertTrue(adapters.verifyWell(row, "initial:left", "offer", "Twist"))
+    local index = assert(bindings.index(occurrence("traitEligibility")))
+    local row = resolved(index, { kind = "offer", offerKey = "offer" })
+    row.transaction.kind, row.transaction.generationKey = "wellPurchase", "initial:left"
+    row.transaction.twistResultKey = "Twist"
+    local payload = bindings.payload(row)
+    lu.assertTrue(adapters.verifyWell(payload, "initial:left", "offer", "Twist"))
     row.realizedKey = "fallback"
-    lu.assertTrue(adapters.verifyWell(row, "initial:left", "fallback", "Twist"))
-    lu.assertEquals(adapters.effectiveOfferKey(row), "fallback")
-    lu.assertFalse(adapters.verifyWell(row, "initial:right", "offer", "Twist"))
-    row.node.kind, row.node.slotKey, row.node.traitKey = "poolSale", "slot", "trait"
-    lu.assertTrue(adapters.verifyPool(row, "slot", "trait"))
-    lu.assertFalse(adapters.verifyPool(row, "slot", "other"))
+    payload.realizedKey = "fallback"
+    lu.assertTrue(adapters.verifyWell(payload, "initial:left", "fallback", "Twist"))
+    lu.assertEquals(adapters.effectiveOfferKey(payload), "fallback")
+    lu.assertFalse(adapters.verifyWell(payload, "initial:right", "offer", "Twist"))
+    row.transaction.kind, row.transaction.slotKey, row.transaction.traitKey = "poolSale", "slot", "trait"
+    lu.assertTrue(adapters.verifyPool(payload, "slot", "trait"))
+    lu.assertFalse(adapters.verifyPool(payload, "slot", "other"))
 end
 
 function TestNativeAdapters.testChaosSelectionVerifiesTheNativeCurseAndEmbeddedBlessingPair()
     local row = {
-        node = {},
+        transaction = {},
         detail = {
             traitOffer = {
                 kind = "chaos",
@@ -137,13 +145,15 @@ function TestNativeAdapters.testMaterializationBindsTheExactPublishedRole()
         { role = "loot", lifecyclePoint = "pickup", kind = "loot", gameName = "ApolloUpgrade" },
         { role = "resource", lifecyclePoint = "pickup", kind = "resource", gameName = "MetaCurrencyDrop" },
     }
-    local index = assert(adapters.index(item))
-    local producer = adapters.offer(index, "offer")
-    local loot = adapters.materialized(index, producer, "ApolloUpgrade", {})
-    local consumable = adapters.materialized(index, producer, "MetaCurrencyDrop", {})
+    local index = assert(bindings.index(item))
+    local producer = resolved(index, { kind = "offer", offerKey = "offer" })
+    local loot = assert(bindings.resolve(index,
+        { kind = "materialized", gameName = "ApolloUpgrade" }, producer))
+    local consumable = assert(bindings.resolve(index,
+        { kind = "materialized", gameName = "MetaCurrencyDrop" }, producer))
     lu.assertEquals(loot.detail.role, "loot")
     lu.assertEquals(consumable.detail.role, "resource")
-    lu.assertNil(adapters.materialized(index, producer, "UnknownDrop", {}))
+    lu.assertNil(bindings.resolve(index, { kind = "materialized", gameName = "UnknownDrop" }, producer))
 end
 
 function TestNativeAdapters.testProducedAcquisitionUsesItsPublishedSourceOwnerNotTimelineOwner()
@@ -169,10 +179,10 @@ function TestNativeAdapters.testProducedAcquisitionUsesItsPublishedSourceOwnerNo
             },
         },
     }
-    local index = assert(adapters.index(item))
-    local source = adapters.lookup(index, "owner", "owner")
-    local child = adapters.produced(index, source, "self")
-    lu.assertEquals(child.node.owner, "child-action")
+    local index = assert(bindings.index(item))
+    local source = resolved(index, { kind = "offer", offerKey = "offer" })
+    local child = bindings.resolve(index, { kind = "produced", role = "self" }, source)
+    lu.assertEquals(child.transaction.owner, "child-action")
     lu.assertEquals(child.detail.gameName, "RoomRewardConsolationPrize")
 end
 
@@ -242,7 +252,7 @@ end
 
 function TestNativeAdapters.testEmbryoAutomaticComparisonIncludesExactBlessingValues()
     local row = {
-        node = {
+        transaction = {
             kind = "automatic", effect = "transcendentEmbryo", target = "ChaosWeaponBlessing",
             rarity = "Epic", blessingValues = { damageBonus = 0.7 },
         },

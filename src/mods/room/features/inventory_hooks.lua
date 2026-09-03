@@ -26,6 +26,13 @@ local function mismatch(session, state, errorValue)
     end
 end
 
+local function materializedHandle(state, active, room, root, itemKey)
+    if root == nil or itemKey == nil then return root end
+    return room.resolve(state, active, {
+        kind = "materialized", source = root, gameName = itemKey,
+    }) or root
+end
+
 function hooks.attach(module, session, getState, report, room, route)
     local inventorySources
     local refillScope
@@ -71,12 +78,14 @@ function hooks.attach(module, session, getState, report, room, route)
             refillScope ~= nil,
             function(fallback, defaultKey, offer)
                 if fallback.availabilityContact ~= "storeInventoryGeneration" then return defaultKey end
-                local row = active and (adapter.offer(active.bindings, offer.offerKey)
-                    or adapter.generation(active.bindings, offer.generationKey))
-                local key = session.resolveFallback(state, row, "storeInventoryGeneration", fallback,
+                local handle = active and room.resolve(state, active, offer.offerKey
+                    and { kind = "offer", offerKey = offer.offerKey }
+                    or { kind = "generation", generationKey = offer.generationKey })
+                local payload = handle and room.begin(state, handle) or nil
+                local key = session.resolveFallback(state, handle, payload, "storeInventoryGeneration", fallback,
                     function(candidate)
                         return carriers.available(args and args.StoreData, candidate, args)
-                    end)
+                    end, nil, active)
                 return key
             end)
         if errorValue then mismatch(session, state, errorValue); report(runtime); return base(args) end
@@ -124,8 +133,9 @@ function hooks.attach(module, session, getState, report, room, route)
         args)
         local state = getState(runtime)
         local active = current(session, state, room, route)
-        local row = active and adapter.generation(active.bindings, "travelDealRefill")
-        if row ~= nil and room.readyOwner(state, row.node.owner) ~= true then
+        local handle = active and room.resolve(state, active,
+            { kind = "generation", generationKey = "travelDealRefill" })
+        if handle ~= nil and room.begin(state, handle) == nil then
             report(runtime)
             return base(index, kitId, args)
         end
@@ -147,16 +157,20 @@ function hooks.attach(module, session, getState, report, room, route)
             local generationKey = itemData.__runPlannerGenerationKey
             local bindingKey = itemData.__runPlannerOfferKey or itemData.Name or itemData.ItemName
             local itemKey = itemData.Name or itemData.ItemName or bindingKey
-            local row = generationKey and adapter.generation(active.bindings, generationKey, result)
-                or bindingKey and adapter.offer(active.bindings, bindingKey, result) or nil
-            if row and row.node and row.node.kind == "wellRefill" then
-                local verified = adapter.verifyWell(row, generationKey, itemKey,
+            local handle = generationKey and room.resolve(state, active,
+                { kind = "generation", generationKey = generationKey })
+                or bindingKey and room.resolve(state, active, { kind = "offer", offerKey = bindingKey }) or nil
+            handle = materializedHandle(state, active, room, handle, itemKey)
+            handle = room.bind(state, active, handle, result)
+            local payload = handle and room.begin(state, handle) or nil
+            if payload and payload.transaction.kind == "wellRefill" then
+                local verified = adapter.verifyWell(payload, generationKey, itemKey,
                     itemData.__runPlannerTwistResultKey)
-                session.complete(state, row, verified, row.node, itemKey)
+                session.complete(state, handle, verified, payload.transaction, itemKey)
             end
-            if type(result) == "table" and result.ObjectId ~= nil and row ~= nil then
+            if type(result) == "table" and result.ObjectId ~= nil and handle ~= nil then
                 worldItemsById[result.ObjectId] = {
-                    row = row, bindingKey = bindingKey, itemKey = itemKey,
+                    handle = handle, bindingKey = bindingKey, itemKey = itemKey,
                 }
             end
         end

@@ -26,6 +26,28 @@ local function capture()
     }, names, callbacks
 end
 
+local fakePayloads = setmetatable({}, { __mode = "k" })
+local fakeHandles = setmetatable({}, { __mode = "k" })
+
+local function fakeHandle(row)
+    if row == nil or fakePayloads[row] ~= nil then return row end
+    local handle = fakeHandles[row]
+    if handle == nil then
+        handle = {}
+        fakeHandles[row] = handle
+        fakePayloads[handle] = {
+            transaction = row.transaction,
+            detail = row.detail,
+            realizedKey = row.realizedKey,
+        }
+    end
+    return handle
+end
+
+local function fakePayload(handle)
+    return fakePayloads[handle]
+end
+
 local function stub()
     return {
         current = function() end,
@@ -33,9 +55,53 @@ local function stub()
         proveOverview = function() end,
         additionalRoom = function() end,
         feature = function() end,
-        readyOwner = function() return true end,
         mismatch = function() end,
+        bound = function(_, context, native)
+            return context and context.bound and context.bound(native) or nil
+        end,
+        sourceRole = function(_, context, handle, gameName)
+            return context and context.sourceRole and context.sourceRole(fakePayload(handle), gameName) or nil
+        end,
+        resolve = function(_, context, contact)
+            return context and context.resolve and context.resolve(contact) or nil
+        end,
+        bind = function(_, context, handle, native)
+            return context and context.bind and context.bind(handle, native) or handle
+        end,
+        begin = function(_, handle)
+            return fakePayload(handle)
+        end,
+        activePhase = function() return nil end,
     }
+end
+
+-- This composition harness intentionally knows no Timeline contact namespaces.
+-- Each witness supplies its one expected opaque handle relation explicitly.
+local function opaque(active, resolve, initial)
+    local native = {}
+    for value, handle in pairs(initial or {}) do native[value] = fakeHandle(handle) end
+    active.resolve = function(contact)
+        local forwarded = contact
+        if contact and contact.source then
+            forwarded = {}
+            for key, value in pairs(contact) do forwarded[key] = value end
+            forwarded.source = fakePayload(contact.source)
+        end
+        return fakeHandle(resolve(forwarded))
+    end
+    active.bound = function(value) return native[value] end
+    active.bind = function(handle, value)
+        handle = fakeHandle(handle)
+        if handle ~= nil and value ~= nil then native[value] = handle end
+        return handle
+    end
+    active.sourceRole = function(payload, gameName)
+        for _, role in ipairs(payload and payload.transaction and payload.transaction.roles or {}) do
+            if role.gameName == gameName then return role.role end
+        end
+    end
+    active.bindingFor = function(value) return native[value] end
+    return active
 end
 
 local navigationEntryStub = {
@@ -566,7 +632,7 @@ function TestHookCompositionV10.testProducedRewardSelectionDoesNotReuseTheIncomi
         },
     }
     local produced = {
-        node = {
+        transaction = {
             owner = "artificer-boon",
             reward = { rewardType = "Boon", source = "ZeusUpgrade" },
         },
@@ -574,20 +640,18 @@ function TestHookCompositionV10.testProducedRewardSelectionDoesNotReuseTheIncomi
     }
     local target = { ObjectId = 19, Name = "MetaCurrencyDrop" }
     local source = {
-        node = {
+        transaction = {
             owner = "minor-source", sourceOwner = "incoming-reward",
             roles = { { role = "self", lifecyclePoint = "roomRewardPickup", gameName = "MetaCurrencyDrop" } },
         },
         detail = { role = "self", gameName = "MetaCurrencyDrop" },
     }
     local state = { state = "synchronized", plan = { occurrencesById = { target = occurrence } } }
-    local active = {
-        occurrence = occurrence,
-        bindings = {
-            native = { [target] = source },
-            produced = { ["incoming-reward\0self"] = produced },
-        },
-    }
+    local active = opaque({ occurrence = occurrence }, function(contact)
+        if contact.kind == "producer" then return source end
+        if contact.kind == "materialized" then return source end
+        if contact.kind == "produced" and contact.role == "self" then return produced end
+    end, { [target] = source })
     local session = stub()
     session.current = function() return active end
     session.complete = function() return true end
@@ -630,7 +694,7 @@ function TestHookCompositionV10.testArtificerConversionQueuesItsPublishedProduce
     local module, _, callbacks = capture()
     local target = { ObjectId = 19, Name = "MetaCurrencyDrop" }
     local source = {
-        node = {
+        transaction = {
             owner = "minor-source",
             sourceOwner = "incoming-reward",
             roles = {
@@ -640,15 +704,12 @@ function TestHookCompositionV10.testArtificerConversionQueuesItsPublishedProduce
         detail = { role = "self", gameName = "MetaCurrencyDrop" },
     }
     local child = {
-        node = { owner = "artificer-boon", reward = { rewardType = "Boon", source = "ZeusUpgrade" } },
+        transaction = { owner = "artificer-boon", reward = { rewardType = "Boon", source = "ZeusUpgrade" } },
         detail = { producer = { kind = "artificerReplacement" } },
     }
-    local active = {
-        bindings = {
-            native = { [target] = source },
-            produced = { ["incoming-reward\0self"] = child },
-        },
-    }
+    local active = opaque({}, function(contact)
+        if contact.kind == "produced" and contact.role == "self" then return child end
+    end, { [target] = source })
     local selected, completed
     local session = stub()
     session.current = function() return active end
@@ -670,7 +731,7 @@ function TestHookCompositionV10.testArtificerConversionQueuesItsPublishedProduce
 
     lu.assertTrue(called)
     lu.assertEquals(selected, "Boon")
-    lu.assertEquals(completed.row, source)
+    lu.assertEquals(fakePayload(completed.row), source)
     lu.assertTrue(completed.verified)
 end
 
@@ -704,12 +765,13 @@ function TestHookCompositionV10.testWorldShopCompletionUsesCurrentRoomPurchaseCo
     local module, _, callbacks = capture()
     local completed
     local node = { owner = "shop", kind = "shopPurchase", offerKey = "Boon" }
-    local active = {
+    local active = opaque({
         occurrence = { overview = { shop = { offers = {
             { offerKey = "Boon", optionKey = "BlindBoxLoot" },
         } } } },
-        bindings = { offer = { Boon = { node = node } }, generation = {}, native = {} },
-    }
+    }, function(contact)
+        if contact.kind == "offer" and contact.offerKey == "Boon" then return { transaction = node } end
+    end)
     local session = stub()
     session.current = function() return active end
     session.complete = function(_, row, verified)
@@ -730,28 +792,27 @@ function TestHookCompositionV10.testWorldShopCompletionUsesCurrentRoomPurchaseCo
         _G.CurrentRun.CurrentRoom.StoreItemsPurchased = _G.CurrentRun.CurrentRoom.StoreItemsPurchased + 1
     end, { Id = 7 })
     _G.CurrentRun = priorRun
-    lu.assertEquals(completed.row.node.owner, "shop")
+    lu.assertEquals(fakePayload(completed.row).transaction.owner, "shop")
     lu.assertTrue(completed.verified)
 end
 
 function TestHookCompositionV10.testSuccessfulNativeKeepsakeEquipCompletesTheRackTransaction()
     local module, _, callbacks = capture()
     local completed
-    local node = { owner = "rack", kind = "keepsakeChange", keepsakeKey = "GoldifyKeepsake" }
-    local row = { node = node }
-    local active = {
-        occurrence = { transactionsByOwner = { rack = node } },
-        bindings = {
-            keepsake = { GoldifyKeepsake = row }, owner = { rack = row }, native = {},
-        },
+    local node = {
+        owner = "rack", kind = "keepsakeChange", keepsakeKey = "GoldifyKeepsake",
+        window = { kind = "standard", phase = "beforeCombat" }, equipResults = {},
     }
-    local state = { initialized = true, state = "synchronized", room = { current = active }, route = {} }
+    local occurrence = { transactionsByOwner = { rack = node }, timeline = { dependencies = {}, obligations = {} } }
+    local plan = { occurrencesById = { one = occurrence } }
+    local state = { initialized = true, state = "synchronized", plan = plan, route = {} }
+    state.room = roomCoordinatorModule.new(plan, function() end, {})
+    assert(roomCoordinatorModule.enter(state, occurrence))
     local session = stub()
     session.defineCache = function() end
     session.get = function() return state end
-    session.current = function() return active end
-    session.complete = function(_, actualRow, verified)
-        completed = { row = actualRow, verified = verified }
+    session.complete = function(_, handle, verified)
+        completed = { handle = handle, verified = verified }
         return true
     end
     local priorImport = _G.import
@@ -762,7 +823,7 @@ function TestHookCompositionV10.testSuccessfulNativeKeepsakeEquipCompletesTheRac
     callbacks.EquipKeepsake(nil, {}, function() return true end, {}, "GoldifyKeepsake", {})
     _G.import = priorImport
 
-    lu.assertEquals(completed.row, row)
+    lu.assertNotNil(completed.handle)
     lu.assertTrue(completed.verified)
 end
 
@@ -779,12 +840,19 @@ function TestHookCompositionV10.testMysteryBoonPurchaseWaitsForItsTraitResolutio
             },
         },
     }
-    local active = {
+    local root = { transaction = node }
+    local box = { transaction = node, detail = node.roles[1] }
+    local source = { transaction = node, detail = node.roles[2] }
+    local active = opaque({
         occurrence = { id = "shop", overview = { shop = { offers = {
             { offerKey = "Boon", optionKey = "BlindBoxLoot" },
         } } } },
-        bindings = { offer = { Boon = { node = node } }, generation = {}, native = {} },
-    }
+    }, function(contact)
+        if contact.kind == "offer" and contact.offerKey == "Boon" then return root end
+        if contact.kind == "materialized" and contact.source and contact.source.transaction == node then
+            return contact.gameName == "BlindBoxLoot" and box or contact.gameName == "HeraUpgrade" and source or nil
+        end
+    end)
     local session = stub()
     session.current = function() return active end
     session.complete = function() completed = completed + 1 end
@@ -800,28 +868,37 @@ function TestHookCompositionV10.testMysteryBoonPurchaseWaitsForItsTraitResolutio
     }
     local item = { Name = "BlindBoxLoot", __runPlannerOfferKey = "Boon" }
     local world = { ObjectId = 8 }
+    local hiddenSource = { Name = "HeraUpgrade" }
     callbacks.SpawnStoreItemInWorld(nil, {}, function() return world end, item, nil)
     callbacks.RemoveStoreItem(nil, {}, function()
         _G.CurrentRun.CurrentRoom.StoreItemsPurchased = 1
     end, { Id = 8 })
     callbacks.UseConsumableItem(nil, {}, function(nativeItem)
         callbacks.ConsumableUsedPresentation(nil, {}, function() return true end, _G.CurrentRun, nativeItem, {})
+        callbacks.UnwrapRandomLoot(nil, {}, function()
+            callbacks.GiveLoot(nil, {}, function(args)
+                lu.assertEquals(args.ForceLootName, "HeraUpgrade")
+                return callbacks.CreateLoot(nil, {}, function() return hiddenSource end,
+                    { Name = args.ForceLootName })
+            end, {})
+        end, nativeItem)
     end, world, {}, {})
     _G.CurrentRun = priorRun
 
     lu.assertEquals(completed, 0)
+    lu.assertEquals(fakePayload(active.bindingFor(world)), fakePayload(fakeHandle(box)))
+    lu.assertEquals(fakePayload(active.bindingFor(hiddenSource)), fakePayload(fakeHandle(source)))
 end
 
 function TestHookCompositionV10.testDestinationShopInventoryUsesTheNextOccurrenceBeforeRoomEntry()
     local module, _, callbacks = capture()
-    local shop = {
+    local shop = opaque({
         occurrence = { id = "shop", overview = { shop = { offers = {
             { offerKey = "Boon", optionKey = "BlindBoxLoot" },
             { offerKey = "MajorNonBoon", optionKey = "ArmorBoost" },
             { offerKey = "Minor", optionKey = "MaxManaDrop" },
         } } } },
-        bindings = { offer = {}, generation = {}, native = {} },
-    }
+    }, function() return nil end)
     local session = stub()
     session.current = function() return nil end
     session.prepare = function(_, value)
@@ -857,12 +934,11 @@ function TestHookCompositionV10.testProcessedWellButtonRetainsItsExactGeneration
         owner = "well-left", kind = "wellPurchase", generationKey = "initial:secondLeft",
         offerKey = "TemporaryEmptySlotDamageTrait", twistResultKey = nil,
     }
-    local active = {
-        bindings = {
-            generation = { ["initial:secondLeft"] = { node = node } },
-            offer = { TemporaryEmptySlotDamageTrait = { node = node } }, native = {},
-        },
-    }
+    local well = { transaction = node }
+    local active = opaque({}, function(contact)
+        if contact.kind == "generation" and contact.generationKey == "initial:secondLeft" then return well end
+        if contact.kind == "offer" and contact.offerKey == "TemporaryEmptySlotDamageTrait" then return well end
+    end)
     local session = stub()
     session.current = function() return active end
     session.complete = function(_, row, verified)
@@ -895,18 +971,19 @@ function TestHookCompositionV10.testProcessedWellButtonRetainsItsExactGeneration
     end, screen, screen.Components.PurchaseButton1, {})
     _G.CurrentRun = priorRun
 
-    lu.assertEquals(completed.row.node.owner, "well-left")
+    lu.assertEquals(fakePayload(completed.row).transaction.owner, "well-left")
     lu.assertTrue(completed.verified)
 end
 
 function TestHookCompositionV10.testTravelDealRefillKeepsSlotBindingSeparateFromReplacementItem()
     local module, _, callbacks = capture()
-    local completed, readyOwner, refilled
+    local completed, refilled
     local node = {
         owner = "travel-refill", kind = "wellRefill", generationKey = "travelDealRefill",
         offerKey = "ShopHermesUpgrade",
     }
-    local active = {
+    local refill = { transaction = node }
+    local active = opaque({
         occurrence = { overview = { shop = {
             offers = { { offerKey = "Boon", optionKey = "BlindBoxLoot" } },
             travelDealRefill = {
@@ -914,17 +991,11 @@ function TestHookCompositionV10.testTravelDealRefillKeepsSlotBindingSeparateFrom
                 reward = { rewardType = "ShopHermesUpgrade" },
             },
         } } },
-        bindings = {
-            generation = { travelDealRefill = { node = node } }, offer = {}, native = {},
-        },
-    }
+    }, function(contact)
+        if contact.kind == "generation" and contact.generationKey == "travelDealRefill" then return refill end
+    end)
     local session = stub()
     session.current = function() return active end
-    session.readyOwner = function(_, owner)
-        lu.assertNil(completed)
-        readyOwner = owner
-        return true
-    end
     session.complete = function(_, row, verified)
         lu.assertTrue(refilled)
         completed = { row = row, verified = verified }
@@ -945,8 +1016,7 @@ function TestHookCompositionV10.testTravelDealRefillKeepsSlotBindingSeparateFrom
         callbacks.SpawnStoreItemInWorld(nil, {}, function() return { ObjectId = 73 } end, item, 10)
     end, 1, 10, {})
 
-    lu.assertEquals(readyOwner, "travel-refill")
-    lu.assertEquals(completed.row.node.owner, "travel-refill")
+    lu.assertEquals(fakePayload(completed.row).transaction.owner, "travel-refill")
     lu.assertTrue(completed.verified)
 end
 
@@ -954,9 +1024,9 @@ function TestHookCompositionV10.testSynchronousLootAndChaosChoiceCompleteBoundOw
     local module, _, callbacks = capture()
     local completed = {}
     local loot = { Name = "Onion" }
-    local simple = { node = { owner = "onion" }, detail = { gameName = "Onion" } }
+    local simple = { transaction = { owner = "onion" }, detail = { gameName = "Onion" } }
     local chaos = {
-        node = {
+        transaction = {
             owner = "chaos",
             resolution = {
                 kind = "traitOffer",
@@ -968,7 +1038,7 @@ function TestHookCompositionV10.testSynchronousLootAndChaosChoiceCompleteBoundOw
             },
         },
     }
-    local active = { bindings = { native = { [loot] = simple } } }
+    local active = opaque({}, function() return nil end, { [loot] = simple })
     local session = stub()
     session.current = function() return active end
     session.complete = function(_, row, verified)
@@ -979,11 +1049,11 @@ function TestHookCompositionV10.testSynchronousLootAndChaosChoiceCompleteBoundOw
     callbacks.UseLoot(nil, {}, function()
         callbacks.HandleLootPickup(nil, {}, function() return true end, {}, loot, {})
     end, loot, {}, {})
-    lu.assertEquals(completed[1].row.node.owner, "onion")
+    lu.assertEquals(fakePayload(completed[1].row).transaction.owner, "onion")
     lu.assertTrue(completed[1].verified)
 
     local chaosLoot = { Name = "ChaosBoon" }
-    active.bindings.native[chaosLoot] = chaos
+    active.bind(chaos, chaosLoot)
     local priorRun = _G.CurrentRun
     _G.CurrentRun = { Hero = { Traits = {} } }
     callbacks.UseLoot(nil, {}, function()
@@ -995,7 +1065,7 @@ function TestHookCompositionV10.testSynchronousLootAndChaosChoiceCompleteBoundOw
         end, {}, { Data = { Name = "ChaosNoMoneyCurse" } }, {})
     end, chaosLoot, {}, {})
     _G.CurrentRun = priorRun
-    lu.assertEquals(completed[2].row.node.owner, "chaos")
+    lu.assertEquals(fakePayload(completed[2].row).transaction.owner, "chaos")
     lu.assertTrue(completed[2].verified)
 end
 
@@ -1021,7 +1091,15 @@ function TestHookCompositionV10.testMysteryBoonBindsItsUnwrappedSourceTraitOffer
             },
         },
     }
-    local active = { bindings = { native = { [box] = { node = node } } } }
+    local root = { transaction = node }
+    local boxHandle = { transaction = node, detail = node.roles[1] }
+    local sourceHandle = { transaction = node, detail = node.roles[2] }
+    local active = opaque({}, function(contact)
+        if contact.kind == "materialized" and contact.source and contact.source.transaction == node then
+            return contact.gameName == "BlindBoxLoot" and boxHandle
+                or contact.gameName == "HeraUpgrade" and sourceHandle or nil
+        end
+    end, { [box] = root })
     local session = stub()
     session.current = function() return active end
     timeline.attach(module, session, function() return {} end, function() end, session)
@@ -1066,13 +1144,14 @@ function TestHookCompositionV10.testEachNativeNpcChoiceFunctionBindsItsPublished
                 },
             },
         }
-        local row = { node = node }
-        local active = {
+        local row = { transaction = node }
+        local active = opaque({
             occurrence = { overview = { encounterPhases = {
                 { slotKey = "Encounter", encounterKey = giver .. "Encounter" },
             } } },
-            bindings = { phase = { Encounter = row }, native = {} },
-        }
+        }, function(contact)
+            if contact.kind == "phase" and contact.phaseKey == "Encounter" then return row end
+        end)
         local completed
         local session = stub()
         session.current = function() return active end
@@ -1104,7 +1183,7 @@ function TestHookCompositionV10.testEachNativeNpcChoiceFunctionBindsItsPublished
             return true
         end, {}, args, {})
         _G.CurrentRun = priorRun
-        lu.assertEquals(completed.row, row, functionName)
+        lu.assertEquals(fakePayload(completed.row), row, functionName)
         lu.assertTrue(completed.verified, functionName)
     end
 end
@@ -1112,7 +1191,7 @@ end
 function TestHookCompositionV10.testNativeTraitOrderRetainsAuthoredMetadataAndRejectedIdentity()
     local module, _, callbacks = capture()
     local row = {
-        node = {
+        transaction = {
             owner = "aphrodite",
             resolution = {
                 kind = "traitOffer",
@@ -1130,7 +1209,7 @@ function TestHookCompositionV10.testNativeTraitOrderRetainsAuthoredMetadataAndRe
         },
     }
     local loot = {
-        __runPlannerTimelineRow = row,
+        __runPlannerTimelineHandle = fakeHandle(row),
         UpgradeOptions = {
             { ItemName = "AphroditeSpecialBoon" },
             { ItemName = "AphroditeCastBoon" },
@@ -1171,17 +1250,16 @@ function TestHookCompositionV10.testIncidentalConsumableDoesNotClaimTheIncomingR
             { role = "self", lifecyclePoint = "roomRewardPickup", gameName = "WeaponUpgrade" },
         },
     }
-    local active = {
+    local active = opaque({
         occurrence = {
             overview = {
                 incomingReward = { producerLifecycleKey = "RoomReward", rewardType = "WeaponUpgrade" },
             },
         },
-        bindings = {
-            producer = { ["RoomReward\0WeaponUpgrade"] = { node = node } },
-            native = {},
-        },
-    }
+    }, function(contact)
+        if contact.kind == "producer" and contact.producerLifecycleKey == "RoomReward"
+            and contact.rewardType == "WeaponUpgrade" then return { transaction = node } end
+    end)
     local session = stub()
     session.current = function() return active end
     session.complete = function(_, row, verified)
@@ -1194,7 +1272,7 @@ function TestHookCompositionV10.testIncidentalConsumableDoesNotClaimTheIncomingR
     callbacks.ConsumableUsedPresentation(nil, {}, function() return true end, {}, consolation, {})
 
     lu.assertEquals(completed, {})
-    lu.assertNil(active.bindings.native[consolation])
+    lu.assertNil(active.bindingFor(consolation))
 end
 
 function TestHookCompositionV10.testBossWindowUsesTheRoomCoordinator()
@@ -1225,7 +1303,7 @@ function TestHookCompositionV10.testDirectConsumableLevelResolutionForcesAndComp
     local target = { Name = "ZeusWeaponBoon", StackNum = 2 }
     local other = { Name = "ApolloSpecialBoon", StackNum = 4 }
     local row = {
-        node = { owner = "pom-slice", kind = "shopPurchase", offerKey = "Minor", roles = {} },
+        transaction = { owner = "pom-slice", kind = "shopPurchase", offerKey = "Minor", roles = {} },
         detail = {
             gameName = "GiftDrop",
             levelResolution = {
@@ -1233,16 +1311,19 @@ function TestHookCompositionV10.testDirectConsumableLevelResolutionForcesAndComp
             },
         },
     }
-    row.node.roles = { row.detail }
+    row.transaction.roles = { row.detail }
     local item = {
         Name = "StoreRewardRandomStack", __runPlannerOfferKey = "Minor",
         UseFunctionArgs = { Thread = true, NumTraits = 1, NumStacks = 9 },
     }
     row.detail.gameName = item.Name
-    local active = {
+    local active = opaque({
         occurrence = { overview = {} },
-        bindings = { offer = { Minor = row }, native = { [item] = row } },
-    }
+    }, function(contact)
+        if contact.kind == "offer" and contact.offerKey == "Minor" then return row end
+        if contact.kind == "materialized" and contact.source and contact.source.transaction == row.transaction
+            and contact.gameName == item.Name then return row end
+    end, { [item] = row })
     local completions = {}
     local session = stub()
     session.current = function() return active end
@@ -1280,7 +1361,8 @@ function TestHookCompositionV10.testDirectConsumableLevelResolutionForcesAndComp
     lu.assertEquals(target.StackNum, 3)
     lu.assertEquals(other.StackNum, 4)
     lu.assertEquals(#completions, 1)
-    lu.assertEquals(completions[1].row, row)
+    lu.assertEquals(fakePayload(completions[1].row).transaction, row.transaction)
+    lu.assertEquals(fakePayload(completions[1].row).detail, row.detail)
     lu.assertTrue(completions[1].verified)
     lu.assertEquals(completions[1].observed, target.Name)
 end
@@ -1296,24 +1378,25 @@ function TestHookCompositionV10.testStoreFallbackUsesNativeCarrierEligibilityAtG
         preferredKey = "LastStandShopItem", fallbackKey = "FallbackItem",
     }
     local node = { owner = "shop", kind = "shopPurchase", offerKey = "shop", runtimeFallbacks = { purchaseFallback } }
-    local active = {
+    local active = opaque({
         occurrence = { overview = { shop = { offers = {
             { offerKey = "shop", optionKey = "LastStandShopItem", slotIndex = 0, runtimeFallbacks = { fallback } },
         } } } },
-        bindings = { offer = { shop = { node = node } }, generation = {}, native = {} },
-    }
+    }, function(contact)
+        if contact.kind == "offer" and contact.offerKey == "shop" then return { transaction = node } end
+    end)
     local mismatches, completed = {}, {}
     local session = stub()
     session.current = function() return active end
-    session.resolveFallback = function(_, row, _, relation, available)
+    session.resolveFallback = function(_, handle, payload, _, relation, available)
         local key = available(relation.preferredKey) and relation.preferredKey
             or available(relation.fallbackKey) and relation.fallbackKey or nil
         if key == nil then
             mismatches[#mismatches + 1] = relation
             return nil
         end
-        row.realizedKey = key
-        return key, row
+        payload.realizedKey = key
+        return key, handle, payload
     end
     session.complete = function(_, row, verified)
         completed[#completed + 1] = { row = row, verified = verified }

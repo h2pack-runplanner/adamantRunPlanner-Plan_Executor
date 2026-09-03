@@ -11,10 +11,11 @@ local function current(state, room)
     return room.current(state)
 end
 
-local function verifyShopBinding(row, bindingKey, itemKey)
-    if row == nil or row.node == nil or row.node.kind ~= "shopPurchase" then return false end
-    if row.realizedKey ~= nil then return row.realizedKey == itemKey end
-    return row.node.offerKey == bindingKey
+local function verifyShopBinding(payload, bindingKey, itemKey)
+    local transaction = payload and payload.transaction
+    if transaction == nil or transaction.kind ~= "shopPurchase" then return false end
+    if payload.realizedKey ~= nil then return payload.realizedKey == itemKey end
+    return transaction.offerKey == bindingKey
 end
 
 local function completesAtPurchase(node)
@@ -24,6 +25,16 @@ local function completesAtPurchase(node)
         end
     end
     return true
+end
+
+-- A world item represents its declared materialized role when one exists.
+-- The root offer/generation contact remains the fallback for transactions
+-- whose purchase has no distinct materialized carrier.
+local function materializedHandle(state, active, room, root, itemKey)
+    if root == nil or itemKey == nil then return root end
+    return room.resolve(state, active, {
+        kind = "materialized", source = root, gameName = itemKey,
+    }) or root
 end
 
 function hooks.attach(module, session, getState, report, room, inventoryBindings)
@@ -37,16 +48,22 @@ function hooks.attach(module, session, getState, report, room, inventoryBindings
         local generationKey = item and item.__runPlannerGenerationKey
         local bindingKey = item and (item.__runPlannerOfferKey or item.Name or item.ItemName)
         local itemKey = item and (item.Name or item.ItemName or bindingKey)
-        local bindings = active and active.bindings
-        local row = bindings and (generationKey and adapter.generation(bindings, generationKey, item)
-            or bindingKey and adapter.offer(bindings, bindingKey, item)) or nil
-        if row and row.node ~= false then
-            for _, fallback in ipairs(row.node.runtimeFallbacks or {}) do
+        local handle = active and room.resolve(state, active, generationKey
+            and { kind = "generation", generationKey = generationKey }
+            or { kind = "offer", offerKey = bindingKey }) or nil
+        handle = materializedHandle(state, active, room, handle, itemKey)
+        handle = room.bind(state, active, handle, item)
+        local payload = handle and room.begin(state, handle) or nil
+        if payload then
+            for _, fallback in ipairs(payload.transaction.runtimeFallbacks or {}) do
                 if fallback.availabilityContact == "storePurchase" then
-                    local key = session.resolveFallback(state, row, "storePurchase", fallback, function(candidate)
+                    local key, rebound, resolved = session.resolveFallback(state, handle, payload,
+                        "storePurchase", fallback,
+                        function(candidate)
                         return carriers.eligible(candidate, args, true)
                     end, item)
                     if key == nil then report(runtime); return base(screen, button, args) end
+                    handle, payload = rebound, resolved
                     if carriers.materialize(item, key) == nil then
                         report(runtime)
                         return base(screen, button, args)
@@ -61,13 +78,14 @@ function hooks.attach(module, session, getState, report, room, inventoryBindings
         pendingTwist = nil
         if not ok then error(result, 0) end
         local purchasesAfter = _G.CurrentRun and _G.CurrentRun.WellPurchases
-        local purchased = row ~= nil and (row.node.kind ~= "wellPurchase"
+        local transaction = payload and payload.transaction
+        local purchased = payload ~= nil and (transaction.kind ~= "wellPurchase"
             or type(purchasesBefore) ~= "number" or purchasesAfter == purchasesBefore + 1)
-        if purchased and completesAtPurchase(row.node) then
-            local verified = row.node.kind == "wellPurchase"
-                and adapter.verifyWell(row, generationKey, itemKey, item.__runPlannerTwistResultKey)
-                or verifyShopBinding(row, bindingKey, itemKey)
-            session.complete(state, row, verified, row.node, {
+        if purchased and completesAtPurchase(transaction) then
+            local verified = transaction.kind == "wellPurchase"
+                and adapter.verifyWell(payload, generationKey, itemKey, item.__runPlannerTwistResultKey)
+                or verifyShopBinding(payload, bindingKey, itemKey)
+            session.complete(state, handle, verified, transaction, {
                 generationKey = generationKey, bindingKey = bindingKey, itemKey = itemKey,
             })
         end
@@ -87,15 +105,16 @@ function hooks.attach(module, session, getState, report, room, inventoryBindings
     module.hooks.wrap("RemoveStoreItem", "execution-v10-world-shop-purchase", function(_, runtime, base, args)
         local state = getState(runtime)
         local binding = type(args) == "table" and inventoryBindings.find(args.Id) or nil
-        local row = binding and binding.row
+        local handle = binding and binding.handle
+        local payload = handle and room.begin(state, handle) or nil
         local nativeRoom = _G.CurrentRun and _G.CurrentRun.CurrentRoom
         local before = nativeRoom and nativeRoom.StoreItemsPurchased or 0
         local result = base(args)
         local after = nativeRoom and nativeRoom.StoreItemsPurchased or 0
-        if row and row.node and row.node.kind == "shopPurchase" and completesAtPurchase(row.node) then
+        if payload and payload.transaction.kind == "shopPurchase" and completesAtPurchase(payload.transaction) then
             local verified = after == before + 1
-                and verifyShopBinding(row, binding.bindingKey, binding.itemKey)
-            session.complete(state, row, verified, row.node, binding.itemKey)
+                and verifyShopBinding(payload, binding.bindingKey, binding.itemKey)
+            session.complete(state, handle, verified, payload.transaction, binding.itemKey)
         end
         if type(args) == "table" then inventoryBindings.forget(args.Id) end
         report(runtime)
@@ -108,9 +127,13 @@ function hooks.attach(module, session, getState, report, room, inventoryBindings
         local active = current(state, room)
         local slot = type(button) == "table" and button.__runPlannerPoolSlotKey
         local trait = type(button) == "table" and button.UpgradeName
-        local row = slot and active and adapter.lookup(active.bindings, "slot", slot) or nil
+        local handle = slot and active and room.resolve(state, active, { kind = "slot", slotKey = slot }) or nil
+        handle = room.bind(state, active, handle, button)
+        local payload = handle and room.begin(state, handle) or nil
         local result = base(screen, button, args)
-        if row then session.complete(state, row, adapter.verifyPool(row, slot, trait), row.node, trait) end
+        if payload then
+            session.complete(state, handle, adapter.verifyPool(payload, slot, trait), payload.transaction, trait)
+        end
         report(runtime)
         return result
     end)
@@ -118,13 +141,16 @@ function hooks.attach(module, session, getState, report, room, inventoryBindings
     module.hooks.wrap("UseHealthFountain", "execution-v10-fountain", function(_, runtime, base, source, args)
         local state = getState(runtime)
         local active = current(state, room)
-        local row
-        for _, node in pairs(active and active.occurrence.transactionsByOwner or {}) do
-            if node.kind == "fountainUse" then row = active.bindings.owner[node.owner]; break end
-        end
+        local handle = active and room.resolve(state, active,
+            { kind = "interaction", interactionKey = "fountain" })
+        handle = room.bind(state, active, handle, source)
+        local payload = handle and room.begin(state, handle) or nil
         local result = base(source, args)
-        local target = row and row.node.aromaticPhialTarget or nil
-        session.complete(state, row, adapter.verifyFountain(row, target), row and row.node, target)
+        local target = payload and payload.transaction.aromaticPhialTarget or nil
+        if payload ~= nil then
+            session.complete(state, handle, adapter.verifyFountain(payload, target),
+                payload.transaction, target)
+        end
         report(runtime)
         return result
     end)

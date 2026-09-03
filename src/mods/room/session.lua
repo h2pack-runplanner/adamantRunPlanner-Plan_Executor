@@ -1,6 +1,10 @@
--- Inner-room occurrence reconciliation. This module intentionally has no native
--- API knowledge: hooks bind an opaque published owner and report one proof.
-local roomSession = {}
+-- The inner room envelope. Timeline ordering is delegated to the local
+-- Timeline session; Overview and conformance remain coordinated by room/.
+local timeline = type(import) == "function" and import("mods/room/timeline/session.lua")
+    or require("mods.room.timeline.session")
+
+local room = {}
+local inners = setmetatable({}, { __mode = "k" })
 
 local function equal(left, right)
     if type(left) ~= type(right) then return false end
@@ -17,97 +21,48 @@ local function mismatch(session, checkpoint, expected, observed)
     return nil, session.firstMismatch
 end
 
-function roomSession.new(occurrence)
-    local prerequisites, obligations = {}, {}
-    for _, edge in ipairs(occurrence.timeline.dependencies) do
-        prerequisites[edge.owner] = prerequisites[edge.owner] or {}
-        prerequisites[edge.owner][edge.afterOwner] = true
-    end
-    for _, obligation in ipairs(occurrence.timeline.obligations) do
-        obligations[obligation.checkpoint] = obligations[obligation.checkpoint] or {}
-        obligations[obligation.checkpoint][obligation.owner] = true
-    end
-    return {
-        occurrence = occurrence, window = "roomEntered", completedOwners = {},
-        outgoingGenerated = false,
-        prerequisites = prerequisites, obligations = obligations, proofs = {},
-        firstMismatch = nil, closed = false,
+function room.new(occurrence, bindings, retainedTimeline)
+    local inner = retainedTimeline or timeline.new(occurrence, bindings)
+    local outer = {
+        occurrence = occurrence,
+        proofs = {},
+        firstMismatch = nil,
+        closed = false,
     }
+    inners[outer] = inner
+    return outer
 end
 
-function roomSession.openWindow(session, window)
+local function innerFor(session) return inners[session] end
+
+local function delegate(session, method, ...)
     if session.closed then return mismatch(session, "room-session", "open session", "closed") end
     if session.firstMismatch ~= nil then return nil, session.firstMismatch end
-    local allowed = {
-        roomEntered = true, afterCombat = true, postOutgoing = true,
-    }
-    -- Phase windows are deliberately opaque to the session, but their prefix
-    -- is not: accepting an arbitrary string here would turn a misspelled
-    -- adapter lifecycle contact into an incidental callback.
-    if type(window) ~= "string" or not (allowed[window]
-        or window:match("^encounterEnd:.+") or window:match("^bossDefeated:.+")) then
-        return mismatch(session, "lifecycle-window", "published lifecycle window", window)
-    end
-    -- Outgoing generation is a milestone, not an exclusive phase. Native
-    -- rooms may generate their doors while an after-combat pickup remains
-    -- pending, so it must not replace the active combat lifecycle window.
-    if window == "postOutgoing" then
-        session.outgoingGenerated = true
-        return true
-    end
-    session.window = window
+    local inner = innerFor(session)
+    if inner == nil then return mismatch(session, "room-session", "active timeline", "missing") end
+    local ok, errorValue = timeline[method](inner, ...)
+    if not ok then return mismatch(session, errorValue.checkpoint, errorValue.expected, errorValue.observed) end
     return true
 end
 
-function roomSession.ready(session, owner)
+function room.openWindow(session, window) return delegate(session, "open", window) end
+function room.begin(session, handle)
     if session.closed then return mismatch(session, "room-session", "open session", "closed") end
     if session.firstMismatch ~= nil then return nil, session.firstMismatch end
-    local transaction = session.occurrence.transactionsByOwner[owner]
-    -- A completed proof is adapter-bound.  Treating an unknown owner as an
-    -- incidental callback here would hide a misspelled or stale binding.
-    if transaction == nil then return mismatch(session, "transaction-owner", "published owner", owner) end
-    local expectedWindow = transaction.window
-    if expectedWindow then
-        if expectedWindow.kind == "postOutgoing" then
-            if not session.outgoingGenerated then
-                return mismatch(session, "transaction-window", "postOutgoing", session.window)
-            end
-        else
-            local expected = expectedWindow.kind == "standard"
-                and (expectedWindow.phase == "beforeCombat" and "roomEntered" or "afterCombat")
-                or expectedWindow.kind == "encounterEnd" and ("encounterEnd:" .. expectedWindow.phaseKey)
-                or "bossDefeated:" .. expectedWindow.phaseKey
-            if session.window ~= expected then
-                return mismatch(session, "transaction-window", expected, session.window)
-            end
-        end
-    end
-    for prerequisite in pairs(session.prerequisites[owner] or {}) do
-        if not session.completedOwners[prerequisite] then
-            return mismatch(session, "transaction-prerequisite", prerequisite, owner)
-        end
-    end
-    return true
+    local payload, errorValue = timeline.begin(innerFor(session), handle)
+    if errorValue == "completed" then return nil, "completed" end
+    if payload == nil then return mismatch(session, errorValue.checkpoint, errorValue.expected, errorValue.observed) end
+    return payload
 end
-
-function roomSession.complete(session, owner, _outcome)
-    local ready, errorValue = roomSession.ready(session, owner)
-    if not ready then return nil, errorValue end
-    -- The adapter verifies its own published outcome before reporting this
-    -- owner.  This session owns only atomic owner/window/dependency state.
-    session.completedOwners[owner] = true
-    return true
-end
-
--- Hooks call this deliberately for contacts they know were omitted from the
--- blocking product.  It cannot accidentally complete or mismatch an owner.
-function roomSession.incidental(session)
+function room.complete(session, handle, proof)
     if session.closed then return mismatch(session, "room-session", "open session", "closed") end
-    if session.firstMismatch ~= nil then return nil, session.firstMismatch end
-    return true
+    return delegate(session, "complete", handle, proof)
 end
+function room.incidental(session) return delegate(session, "incidental") end
+function room.checkpoint(session, checkpoint) return delegate(session, "checkpoint", checkpoint) end
+function room.activePhase(session, kind) return timeline.activePhase(innerFor(session), kind) end
 
-function roomSession.prove(session, checkpoint, expected, observed)
+function room.prove(session, checkpoint, expected, observed)
     if session.closed then return mismatch(session, "room-session", "open session", "closed") end
     if session.firstMismatch ~= nil then return nil, session.firstMismatch end
     if not equal(expected, observed) then return mismatch(session, checkpoint, expected, observed) end
@@ -115,22 +70,9 @@ function roomSession.prove(session, checkpoint, expected, observed)
     return true
 end
 
-function roomSession.checkpoint(session, checkpoint)
+function room.close(session, proveConformance)
     if session.closed then return mismatch(session, "room-session", "open session", "closed") end
-    if session.firstMismatch ~= nil then return nil, session.firstMismatch end
-    if not ({ roomEntered=true, outgoingGeneration=true, exitUsable=true, roomExit=true })[checkpoint] then
-        return mismatch(session, "checkpoint", "published checkpoint", checkpoint)
-    end
-    for owner in pairs(session.obligations[checkpoint] or {}) do
-        if not session.completedOwners[owner] then
-            return mismatch(session, "obligation:" .. checkpoint, owner, "incomplete")
-        end
-    end
-    return true
-end
-
-function roomSession.close(session, proveConformance)
-    local ok, errorValue = roomSession.checkpoint(session, "roomExit")
+    local ok, errorValue = room.checkpoint(session, "roomExit")
     if not ok then return nil, errorValue end
     if proveConformance ~= nil then
         local conformed, conformanceError = proveConformance()
@@ -139,9 +81,12 @@ function roomSession.close(session, proveConformance)
                 conformanceError.expected, conformanceError.observed)
         end
     end
+    local inner = innerFor(session)
+    local closed, closeError = timeline.close(inner)
+    if not closed then return mismatch(session, closeError.checkpoint, closeError.expected, closeError.observed) end
     session.closed = true
-    session.completedOwners = {} -- never leaks into another occurrence
+    inners[session] = nil
     return true
 end
 
-return roomSession
+return room

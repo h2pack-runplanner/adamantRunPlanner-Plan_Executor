@@ -58,8 +58,10 @@ function hooks.attach(module, data, getState, report, room)
     local function expectedEquip(state, keepsakeKey)
         if startDepth > 0 then return state.plan and state.plan.startingKeepsake.equipResults end
         local current = roomCoordinator.current(state)
-        local row = current and adapter.lookup(current.bindings, "keepsake", keepsakeKey)
-        return row and row.node.equipResults, row
+        local handle = current and roomCoordinator.resolve(state, current,
+            { kind = "keepsake", keepsakeKey = keepsakeKey })
+        local payload = handle and roomCoordinator.begin(state, handle) or nil
+        return payload and payload.transaction.equipResults, handle, payload
     end
     local function wrapEquipResult(functionName, hookId, kind)
         module.hooks.wrap(functionName, hookId, function(_, runtime, base, ...)
@@ -79,9 +81,12 @@ function hooks.attach(module, data, getState, report, room)
             return result
         end)
     end
-    wrapEquipResult(nativeFacts.keepsakeEquipContacts.experimentalHammer, "execution-v11-equip-hammer", "experimentalHammer")
-    wrapEquipResult(nativeFacts.keepsakeEquipContacts.jeweledPom, "execution-v11-equip-pom", "jeweledPom")
-    wrapEquipResult(nativeFacts.keepsakeEquipContacts.transcendentEmbryo, "execution-v11-equip-embryo", "transcendentEmbryo")
+    wrapEquipResult(nativeFacts.keepsakeEquipContacts.experimentalHammer,
+        "execution-v11-equip-hammer", "experimentalHammer")
+    wrapEquipResult(nativeFacts.keepsakeEquipContacts.jeweledPom,
+        "execution-v11-equip-pom", "jeweledPom")
+    wrapEquipResult(nativeFacts.keepsakeEquipContacts.transcendentEmbryo,
+        "execution-v11-equip-embryo", "transcendentEmbryo")
     module.hooks.wrap("AddRandomHammer", "execution-v11-equip-hammer-result", function(_, runtime, base, args)
         local result = base(args); recordEquipResult(runtime, "experimentalHammer", result); return result
     end)
@@ -101,7 +106,7 @@ function hooks.attach(module, data, getState, report, room)
         recordEquipResult(runtime, "transcendentEmbryo", result)
         return result
     end)
-    module.hooks.wrap("GetProcessedTraitData", "execution-v12-equip-embryo-values", function(_, _, base, args)
+    module.hooks.wrap("GetProcessedTraitData", "execution-v13-equip-embryo-values", function(_, _, base, args)
         local result = base(args)
         if type(args) ~= "table" or type(result) ~= "table" or embryoContext == nil then return result end
         if args.TraitName ~= embryoContext.target then return result end
@@ -116,7 +121,8 @@ function hooks.attach(module, data, getState, report, room)
             local fallback = expected.runtimeFallbacks[1]
             local function available(candidate)
                 local declaration = _G.TraitData and _G.TraitData[candidate]
-                return declaration ~= nil and (type(_G.IsTraitEligible) ~= "function" or _G.IsTraitEligible(declaration) == true)
+                return declaration ~= nil and (type(_G.IsTraitEligible) ~= "function"
+                    or _G.IsTraitEligible(declaration) == true)
             end
             key = available(fallback.preferredKey) and fallback.preferredKey
                 or available(fallback.fallbackKey) and fallback.fallbackKey or nil
@@ -127,7 +133,9 @@ function hooks.attach(module, data, getState, report, room)
             end
         end
         if key and type(values) == "table" then
-            for _, value in ipairs(values) do if traitKey(value) == key then equipScope.selectedKey = key; return value end end
+            for _, value in ipairs(values) do
+                if traitKey(value) == key then equipScope.selectedKey = key; return value end
+            end
             if startDepth > 0 then return base(values, rng) end
             data.session.mismatch(getState(runtime), "availability:traitEligibility", key, "missing candidate")
             return base(values, rng)
@@ -146,7 +154,9 @@ function hooks.attach(module, data, getState, report, room)
     module.hooks.wrap("GetRandomValue", "execution-v11-selene-layout", function(_, runtime, base, values, ...)
         if not enforcing(runtime) then return base(values, ...) end
         if treeScope and type(values) == "table" then
-            for _, value in ipairs(values) do if type(value) == "table" and value.Name == treeScope.layoutKey then return value end end
+            for _, value in ipairs(values) do
+                if type(value) == "table" and value.Name == treeScope.layoutKey then return value end
+            end
         end
         return base(values, ...)
     end)
@@ -189,7 +199,8 @@ function hooks.attach(module, data, getState, report, room)
         if not ok then error(result, 0) end
         return result
     end)
-    module.hooks.wrap("EquipKeepsake", "execution-v11-equip-keepsake", function(_, runtime, base, hero, keepsakeKey, args)
+    module.hooks.wrap("EquipKeepsake", "execution-v11-equip-keepsake", function(_, runtime, base, hero,
+        keepsakeKey, args)
         local state = getState(runtime)
         if state == nil then return base(hero, keepsakeKey, args) end
         local key = keepsakeKey or (_G.GameState and _G.GameState.LastAwardTrait)
@@ -206,17 +217,18 @@ function hooks.attach(module, data, getState, report, room)
                 return result
             end
         end
-        local expected, row = expectedEquip(state, key)
+        local expected, handle, payload = expectedEquip(state, key)
         local prior = equipScope
         equipScope = {
-            expected = expected or {}, observed = {}, row = row, key = key,
+            expected = expected or {}, observed = {}, handle = handle, payload = payload, key = key,
             traitsBefore = traitSnapshot(),
         }
         local ok, result = pcall(base, hero, keepsakeKey, args)
         local completed = equipScope; equipScope = prior
         if not ok then error(result, 0) end
-        if startDepth == 0 and row ~= nil then
-            data.session.complete(state, row, adapter.verifyKeepsake(row, key, completed.observed), row.node, key)
+        if startDepth == 0 and handle ~= nil and payload ~= nil then
+            data.session.complete(state, handle, adapter.verifyKeepsake(payload, key, completed.observed),
+                payload.transaction, key)
         end
         report(runtime); return result
     end)

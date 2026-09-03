@@ -334,13 +334,16 @@ end
 local function fountainUse(value, label)
     local record, errorMessage = p.exact(
         value,
-        { "kind", "owner", "window" },
+        { "kind", "owner", "window", "interactionKey" },
         { "aromaticPhialTarget" },
         label
     )
     if not record then return nil, errorMessage end
     local _, baseError = validateBase(record, label)
     if baseError then return nil, baseError end
+    if record.interactionKey ~= "fountain" then
+        return p.fail(label .. " has invalid fountain interaction key")
+    end
     if record.aromaticPhialTarget ~= nil
         and not p.str(record.aromaticPhialTarget, label .. ".aromaticPhialTarget") then
         return p.fail(label .. " has invalid Aromatic Phial target")

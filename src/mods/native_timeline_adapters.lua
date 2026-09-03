@@ -1,6 +1,5 @@
--- Exact occurrence-local Timeline correlation and planner-visible outcome
--- comparison. Native hook groups own when these functions are called; this
--- module owns only published-field indexes and bounded native bindings.
+-- Planner-visible outcome comparison for native hook groups. Exact
+-- occurrence-local owner correlation lives in room/timeline/bindings.lua.
 local chaos = type(import) == "function" and import("mods/chaos.lua") or require("mods/chaos")
 local timeline = {}
 
@@ -34,109 +33,6 @@ local function realizedOptionKey(row, offer, index)
     return option.key
 end
 
-local function add(index, namespace, key, node, detail)
-    if key == nil then return true end
-    local rows = index[namespace]
-    local prior = rows[key]
-    if prior ~= nil and prior.node ~= node then
-        return nil, { checkpoint = "timeline-binding", expected = "unique " .. namespace,
-            observed = key }
-    end
-    rows[key] = { node = node, detail = detail }
-    return true
-end
-
-function timeline.index(occurrence)
-    local index = {
-        owner = {}, role = {}, producer = {}, offer = {}, generation = {}, phase = {}, source = {},
-        slot = {}, keepsake = {}, automatic = {}, native = {}, produced = {},
-    }
-    for owner, node in pairs(occurrence.transactionsByOwner or {}) do
-        index.owner[owner] = { node = node }
-        local ok, errorValue
-        ok, errorValue = add(index, "offer", node.offerKey, node)
-        if not ok then return nil, errorValue end
-        ok, errorValue = add(index, "generation", node.generationKey, node)
-        if not ok then return nil, errorValue end
-        ok, errorValue = add(index, "phase", node.phaseKey, node)
-        if not ok then return nil, errorValue end
-        ok, errorValue = add(index, "source", node.sourceOwner, node)
-        if not ok then return nil, errorValue end
-        if node.producerLifecycleKey and node.reward then
-            ok, errorValue = add(index, "producer",
-                node.producerLifecycleKey .. "\0" .. node.reward.rewardType, node)
-            if not ok then return nil, errorValue end
-        end
-        ok, errorValue = add(index, "slot", node.slotKey, node)
-        if not ok then return nil, errorValue end
-        ok, errorValue = add(index, "keepsake", node.keepsakeKey, node)
-        if not ok then return nil, errorValue end
-        if node.kind == "automatic" then
-            ok, errorValue = add(index, "automatic", node.effect .. "\0" .. node.phaseKey, node)
-            if not ok then return nil, errorValue end
-        end
-        for _, role in ipairs(node.roles or {}) do
-            ok, errorValue = add(index, "role", role.lifecyclePoint .. "\0" .. role.gameName, node, role)
-            if not ok then return nil, errorValue end
-            if role.producer then
-                local producedKey = role.producer.sourceOwner .. "\0" .. role.producer.sourceRole
-                ok, errorValue = add(index, "produced", producedKey, node, role)
-                if not ok then return nil, errorValue end
-            end
-        end
-    end
-    return index
-end
-
-function timeline.produced(index, sourceRow, sourceRole, native)
-    if sourceRow == nil or sourceRow.node == nil or sourceRole == nil then return nil end
-    -- Producer relations are declared against the acquisition source (for
-    -- example the incoming reward), not the timeline action that settles one
-    -- of that source's roles. Those addresses intentionally differ.
-    local sourceOwner = sourceRow.node.sourceOwner or sourceRow.node.owner
-    local key = sourceOwner .. "\0" .. sourceRole
-    return timeline.bind(index, timeline.lookup(index, "produced", key), native)
-end
-
-function timeline.sourceRole(row, gameName)
-    if row == nil or row.node == nil then return nil end
-    if row.detail and row.detail.role then return row.detail.role end
-    for _, role in ipairs(row.node.roles or {}) do
-        if role.gameName == gameName then return role.role end
-    end
-    return nil
-end
-
-function timeline.materialized(index, sourceRow, gameName, native)
-    if sourceRow == nil or sourceRow.node == nil then return nil end
-    local matching
-    for _, role in ipairs(sourceRow.node.roles or {}) do
-        if role.gameName == gameName then
-            if matching ~= nil then
-                return nil, { checkpoint = "timeline-binding",
-                    expected = "one materialized role", observed = gameName }
-            end
-            matching = role
-        end
-    end
-    if matching == nil then return nil end
-    return timeline.bind(index, { node = sourceRow.node, detail = matching }, native)
-end
-
-function timeline.lookup(index, namespace, key)
-    return index and index[namespace] and index[namespace][key] or nil
-end
-
-function timeline.bind(index, row, native)
-    if row == nil then return nil end
-    if native ~= nil then index.native[native] = row end
-    return row
-end
-
-function timeline.bound(index, native)
-    return index and index.native[native] or nil
-end
-
 local function sameFallback(left, right)
     return type(left) == "table" and left.preferredKey == right.preferredKey
         and left.fallbackKey == right.fallbackKey
@@ -144,10 +40,10 @@ local function sameFallback(left, right)
 end
 
 local function declaredFallback(row, fallback)
-    if row == nil or row.node == nil then return true end
-    local choices = { row.node.runtimeFallbacks }
-    if row.node.resolution and row.node.resolution.outcome then
-        choices[#choices + 1] = row.node.resolution.outcome.runtimeFallbacks
+    if row == nil or row.transaction == nil then return true end
+    local choices = { row.transaction.runtimeFallbacks }
+    if row.transaction.resolution and row.transaction.resolution.outcome then
+        choices[#choices + 1] = row.transaction.resolution.outcome.runtimeFallbacks
     end
     if row.detail and row.detail.traitOffer then choices[#choices + 1] = row.detail.traitOffer.runtimeFallbacks end
     for _, list in ipairs(choices) do
@@ -158,7 +54,7 @@ local function declaredFallback(row, fallback)
     return false
 end
 
-function timeline.resolveFallback(index, row, contact, fallback, available, native)
+function timeline.resolveFallback(row, contact, fallback, available)
     local key = available(fallback.preferredKey) and fallback.preferredKey or nil
     if key == nil and available(fallback.fallbackKey) then key = fallback.fallbackKey end
     if key == nil then
@@ -168,34 +64,13 @@ function timeline.resolveFallback(index, row, contact, fallback, available, nati
     if not declaredFallback(row, fallback) then
         return nil, { checkpoint = "availability:" .. contact, expected = fallback, observed = key }
     end
-    timeline.bind(index, row, native)
     if type(row) == "table" then row.realizedKey = key end
     return key, row
 end
 
-function timeline.role(index, lifecyclePoint, gameName, native)
-    return timeline.bind(index, timeline.lookup(index, "role", lifecyclePoint .. "\0" .. gameName), native)
-end
-
-function timeline.offer(index, offerKey, native)
-    return timeline.bind(index, timeline.lookup(index, "offer", offerKey), native)
-end
-
-function timeline.generation(index, generationKey, native)
-    return timeline.bind(index, timeline.lookup(index, "generation", generationKey), native)
-end
-
-function timeline.phase(index, phaseKey, native)
-    return timeline.bind(index, timeline.lookup(index, "phase", phaseKey), native)
-end
-
-function timeline.automatic(index, effect, phaseKey, native)
-    return timeline.bind(index, timeline.lookup(index, "automatic", effect .. "\0" .. phaseKey), native)
-end
-
 function timeline.expectedTrait(row)
     if row == nil then return nil end
-    local node, role = row.node, row.detail
+    local node, role = row.transaction, row.detail
     if role and role.traitOffer then return selectedOption(role.traitOffer), role.traitOffer end
     local resolution = node.resolution
     if resolution and resolution.kind == "traitOffer" then
@@ -318,7 +193,7 @@ function timeline.verifySimple(row, gameName)
 end
 
 function timeline.verifyWell(row, generationKey, offerKey, twistResultKey)
-    local node = row and row.node
+    local node = row and row.transaction
     return node ~= nil and (node.kind == "wellPurchase" or node.kind == "wellRefill")
         and node.generationKey == generationKey
         and (row.realizedKey or node.offerKey) == offerKey
@@ -326,28 +201,28 @@ function timeline.verifyWell(row, generationKey, offerKey, twistResultKey)
 end
 
 function timeline.effectiveOfferKey(row)
-    return row and (row.realizedKey or row.node and row.node.offerKey) or nil
+    return row and (row.realizedKey or row.transaction and row.transaction.offerKey) or nil
 end
 
 function timeline.verifyPool(row, slotKey, traitKey)
-    local node = row and row.node
+    local node = row and row.transaction
     return node ~= nil and node.kind == "poolSale"
         and node.slotKey == slotKey and node.traitKey == traitKey
 end
 
 function timeline.verifyKeepsake(row, keepsakeKey, equipResults)
-    local node = row and row.node
+    local node = row and row.transaction
     return node ~= nil and node.kind == "keepsakeChange" and node.keepsakeKey == keepsakeKey
         and (node.equipResults == nil or same(node.equipResults, equipResults))
 end
 
 function timeline.verifyFountain(row, target)
-    local node = row and row.node
+    local node = row and row.transaction
     return node ~= nil and node.kind == "fountainUse" and node.aromaticPhialTarget == target
 end
 
 function timeline.verifyAutomatic(row, observed)
-    local node = row and row.node
+    local node = row and row.transaction
     if node == nil or node.kind ~= "automatic" then return false end
     if node.effect == "steadyGrowth" then
         return type(observed) == "table" and observed.target == node.target

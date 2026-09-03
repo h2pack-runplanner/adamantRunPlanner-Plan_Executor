@@ -3,9 +3,28 @@ local lu = require("luaunit")
 local runtime = require("mods/runtime_session")
 local route = require("mods.route.session")
 local room = require("mods.room.coordinator")
-local timeline = require("mods.native_timeline_adapters")
+local timeline = require("mods.room.timeline.bindings")
+local timelineSession = require("mods.room.timeline.session")
+local protocol = require("mods.protocol")
+local occurrenceProtocol = require("mods.protocol_occurrences")
+local json = require("mods.json")
 
 TestRuntimeSession = {}
+
+local function fingerprintBody(plan)
+    return {
+        format = plan.format,
+        protocolVersion = plan.protocolVersion,
+        catalogVersion = plan.catalogVersion,
+        projectId = plan.projectId,
+        routeKey = plan.routeKey,
+        startingLoadout = plan.startingLoadout,
+        startingKeepsake = plan.startingKeepsake,
+        extent = plan.extent,
+        selectedOccurrenceIds = plan.selectedOccurrenceIds,
+        occurrences = plan.occurrences,
+    }
+end
 
 local contacts = {
     "traitEligibility", "storeInventoryGeneration", "storePurchase", "npcConsumableSelection",
@@ -49,27 +68,28 @@ function TestRuntimeSession.testEveryFallbackContactAcceptsPreferredAndFallbackB
             availabilityContact = contact, preferredKey = "preferred", fallbackKey = "fallback",
         }
         local preferred = state(contact)
-        local owner = preferred.room.current.bindings.owner.owner
-        local key, row = runtime.resolveFallback(preferred, owner, contact, relation,
+        local owner = room.resolve(preferred, preferred.room.current, { kind = "offer", offerKey = "offer" })
+        local payload = room.begin(preferred, owner)
+        local key, handle = runtime.resolveFallback(preferred, owner, payload, contact, relation,
             function(candidate) return candidate == "preferred" end, {})
         lu.assertEquals(key, "preferred")
-        lu.assertTrue(runtime.complete(preferred, row, true))
-        lu.assertTrue(preferred.room.current.completedOwners.owner)
+        lu.assertTrue(runtime.complete(preferred, handle, true))
 
         local fallback = state(contact)
-        owner = fallback.room.current.bindings.owner.owner
-        key, row = runtime.resolveFallback(fallback, owner, contact, relation,
+        owner = room.resolve(fallback, fallback.room.current, { kind = "offer", offerKey = "offer" })
+        payload = room.begin(fallback, owner)
+        key, handle = runtime.resolveFallback(fallback, owner, payload, contact, relation,
             function(candidate) return candidate == "fallback" end, {})
         lu.assertEquals(key, "fallback")
-        lu.assertTrue(runtime.complete(fallback, row, true))
-        lu.assertTrue(fallback.room.current.completedOwners.owner)
+        lu.assertTrue(runtime.complete(fallback, handle, true))
 
         local neither = state(contact)
-        owner = neither.room.current.bindings.owner.owner
-        lu.assertNil(runtime.resolveFallback(neither, owner, contact, relation,
+        owner = room.resolve(neither, neither.room.current, { kind = "offer", offerKey = "offer" })
+        payload = room.begin(neither, owner)
+        lu.assertNil(runtime.resolveFallback(neither, owner, payload, contact, relation,
             function() return false end, {}))
         lu.assertEquals(neither.state, "desynchronized")
-        lu.assertNil(neither.room.current.completedOwners.owner)
+        lu.assertNotNil(neither.firstMismatch)
         lu.assertNil(room.current(neither))
     end
 end
@@ -125,10 +145,88 @@ function TestRuntimeSession.testPreparedDestinationBindingsAreReusedWhenTheRoomS
 
     local prepared = room.prepare(value, row)
     lu.assertNotNil(prepared)
-    prepared.bindings.destinationWitness = true
-
+    local native = {}
+    local handle = assert(room.resolve(value, prepared, { kind = "offer", offerKey = "offer" }))
+    lu.assertTrue(rawequal(assert(room.bind(value, prepared, handle, native)), handle))
     local entered = assert(route.enter(value.route, "one", "F_Test"))
     lu.assertNotNil(room.enter(value, entered))
-    lu.assertTrue(value.room.current.bindings.destinationWitness)
+    lu.assertEquals(value.room.current.occurrence, row)
+    lu.assertTrue(rawequal(room.bound(value, value.room.current, native), handle))
     lu.assertNil(value.room.prepared)
+end
+
+function TestRuntimeSession.testPreparedBindingsCannotLeakToAnotherOccurrence()
+    local first = occurrence("storePurchase")
+    local second = occurrence("storePurchase")
+    second.id, second.gameName = "two", "F_Next"
+    local plan = {
+        occurrences = { first, second },
+        occurrencesById = { one = first, two = second },
+        selectedOccurrenceIds = { "one", "two" },
+    }
+    local value = { state = "synchronized", route = route.new(plan), room = room.new(plan, nil, {
+        timelineIndex = timeline.index,
+    }), diagnostics = {} }
+
+    assert(room.prepare(value, second))
+    local entered = assert(route.enter(value.route, "one", "F_Test"))
+    lu.assertNotNil(room.enter(value, entered))
+    lu.assertEquals(value.room.current.occurrence, first)
+    lu.assertNil(value.room.prepared)
+end
+
+function TestRuntimeSession.testEntryProofFiresThePublishedRoomEnteredDeadline()
+    local row = occurrence("storePurchase")
+    row.timeline.obligations = { { owner = "owner", checkpoint = "roomEntered" } }
+    local plan = { occurrences = { row }, occurrencesById = { one = row }, selectedOccurrenceIds = { "one" } }
+    local value = { state = "synchronized", route = route.new(plan), room = room.new(plan, nil, {
+        timelineIndex = timeline.index,
+    }), diagnostics = {} }
+    local entered = assert(route.enter(value.route, "one", "F_Test"))
+    assert(room.enter(value, entered))
+    lu.assertNil(room.proveEntry(value, { Name = "F_Test" }))
+    lu.assertEquals(value.room.current.firstMismatch.checkpoint, "obligation:roomEntered")
+end
+
+function TestRuntimeSession.testStrictDecodeTransactionOrderDoesNotChangeRuntimeReadiness()
+    local file = assert(io.open("test/fixtures/execution-plan/fg-ixion-chaos.execution.json", "rb"))
+    local source = file:read("*a")
+    file:close()
+    local function reverseTransactions(plan)
+        for _, row in ipairs(plan.occurrences) do
+            local transactions = row.timeline.transactions
+            for left = 1, math.floor(#transactions / 2) do
+                local right = #transactions - left + 1
+                transactions[left], transactions[right] = transactions[right], transactions[left]
+            end
+        end
+        return plan
+    end
+
+    local raw = assert(json.decode(source))
+    -- The strict occurrence decoder materializes derived fields while deriving
+    -- the canonical wire fingerprint. Use an isolated decoded copy to derive
+    -- the changed wire fingerprint, then decode a second untouched wire copy.
+    local fingerprintSource = reverseTransactions(assert(json.decode(source)))
+    local decodedRows = assert(occurrenceProtocol.decode(
+        fingerprintSource.occurrences,
+        fingerprintSource.selectedOccurrenceIds,
+        "execution plan.occurrences"
+    ))
+    for _, row in ipairs(decodedRows) do
+        row.transactionsByOwner = nil
+        row.conformanceExpected = nil
+    end
+    local reversed = reverseTransactions(assert(json.decode(source)))
+    reversed.planFingerprint = protocol.fingerprint(fingerprintBody(fingerprintSource))
+
+    local decoded = assert(protocol.decode(raw))
+    local reordered = assert(protocol.decode(reversed))
+    for index, occurrenceRow in ipairs(decoded.occurrences) do
+        local first = timelineSession.new(occurrenceRow, timeline.index(occurrenceRow))
+        local secondRow = reordered.occurrences[index]
+        local second = timelineSession.new(secondRow, timeline.index(secondRow))
+        lu.assertEquals(first.prerequisites, second.prerequisites)
+        lu.assertEquals(first.obligations, second.obligations)
+    end
 end

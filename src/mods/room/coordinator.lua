@@ -3,6 +3,10 @@
 -- responsibilities. Incoming transition rewards remain navigation-owned.
 local session = type(import) == "function" and import("mods/room/session.lua")
     or require("mods.room.session")
+local timelineSession = type(import) == "function" and import("mods/room/timeline/session.lua")
+    or require("mods.room.timeline.session")
+local timelineBindings = type(import) == "function" and import("mods/room/timeline/bindings.lua")
+    or require("mods.room.timeline.bindings")
 local overview = type(import) == "function" and import("mods/room/overview.lua")
     or require("mods.room.overview")
 local encounters = type(import) == "function" and import("mods/room/encounters.lua")
@@ -13,6 +17,7 @@ local conformance = type(import) == "function" and import("mods/room/conformance
     or require("mods.room.conformance.proof")
 
 local coordinator = {}
+local ports = setmetatable({}, { __mode = "k" })
 
 local function stateOf(state) return state and state.room end
 
@@ -28,7 +33,7 @@ function coordinator.new(plan, onMismatch, capabilities)
     capabilities = capabilities or {}
     return {
         plan = plan, current = nil, prepared = nil,
-        timelineIndex = capabilities.timelineIndex,
+        timelineIndex = capabilities.timelineIndex or timelineBindings.index,
         readConformance = capabilities.readConformance,
         onMismatch = onMismatch,
     }
@@ -52,7 +57,8 @@ function coordinator.prepare(state, occurrence)
     end
     local bindings, errorValue = roomState.timelineIndex(occurrence)
     if bindings == nil then return fail(state, errorValue) end
-    roomState.prepared = { occurrence = occurrence, bindings = bindings }
+    roomState.prepared = { occurrence = occurrence }
+    ports[roomState.prepared] = timelineSession.new(occurrence, bindings)
     return roomState.prepared
 end
 
@@ -74,16 +80,20 @@ function coordinator.enter(state, occurrence, nativeRoom)
         return fail(state, "room-entry", "current room must exit", occurrence.id)
     end
     local prepared = roomState.prepared
-    local active = session.new(occurrence)
+    local active
     if prepared ~= nil and prepared.occurrence.id == occurrence.id then
-        active.bindings = prepared.bindings
+        active = session.new(occurrence, nil, ports[prepared])
+        ports[active] = ports[prepared]
+        ports[prepared] = nil
     else
         if type(roomState.timelineIndex) ~= "function" then
             return fail(state, "room timeline index capability is required")
         end
         local bindings, errorValue = roomState.timelineIndex(occurrence)
         if bindings == nil then return fail(state, errorValue) end
-        active.bindings = bindings
+        local port = timelineSession.new(occurrence, bindings)
+        active = session.new(occurrence, bindings, port)
+        ports[active] = port
     end
     roomState.prepared = nil
     roomState.current = active
@@ -103,6 +113,8 @@ function coordinator.proveEntry(state, nativeRoom, nativeContext)
         if not ok then return fail(state, errorValue) end
     end
     local ok, errorValue = session.prove(active, "overview", true, true)
+    if not ok then return fail(state, errorValue) end
+    ok, errorValue = session.checkpoint(active, "roomEntered")
     if not ok then return fail(state, errorValue) end
     return active
 end
@@ -137,6 +149,77 @@ function coordinator.window(state, window)
     return true
 end
 
+function coordinator.activePhase(state, kind)
+    local active = coordinator.current(state)
+    return active and session.activePhase(active, kind) or nil
+end
+
+local function bindingContext(state, context)
+    local roomState = stateOf(state)
+    if roomState == nil then return nil end
+    local active = coordinator.current(state)
+    if context == nil then return active end
+    if context == active or context == roomState.prepared then return context end
+    return nil
+end
+
+local function portFor(context) return context and ports[context] or nil end
+
+function coordinator.resolve(state, context, contact)
+    local owner = bindingContext(state, context)
+    if owner == nil then return fail(state, "timeline-handle", "active or prepared occurrence", "unbound") end
+    local source = contact and contact.source
+    local handle, errorValue = timelineSession.resolve(portFor(owner), timelineBindings.resolve, contact, source)
+    if handle == nil and errorValue ~= nil then return fail(state, errorValue) end
+    return handle
+end
+
+function coordinator.bind(state, context, handle, nativeObject)
+    if handle == nil then return nil end
+    local owner = bindingContext(state, context)
+    if owner == nil then return fail(state, "timeline-binding", "active or prepared occurrence", "unbound") end
+    local bound, errorValue = timelineSession.bind(portFor(owner), handle, nativeObject)
+    if bound == nil then return fail(state, errorValue) end
+    return bound
+end
+
+function coordinator.bound(state, context, nativeObject)
+    local owner = bindingContext(state, context)
+    return owner and timelineSession.bound(portFor(owner), nativeObject) or nil
+end
+
+function coordinator.sourceRole(state, context, handle, gameName)
+    local owner = bindingContext(state, context)
+    return owner and timelineSession.sourceRole(portFor(owner), handle, gameName) or nil
+end
+
+function coordinator.begin(state, handle)
+    local active = coordinator.current(state)
+    if active == nil then return fail(state, "timeline-handle", "active occurrence", "none") end
+    local payload, errorValue = session.begin(active, handle)
+    if errorValue == "completed" then return nil, "completed" end
+    if payload == nil then return fail(state, errorValue) end
+    return payload
+end
+
+function coordinator.complete(state, handle, proof, expected, observed)
+    if handle == nil then return coordinator.incidental(state) end
+    if proof ~= true then return fail(state, "transaction-outcome", expected, observed) end
+    local active = coordinator.current(state)
+    if active == nil then return nil end
+    local ok, errorValue = session.complete(active, handle, proof)
+    if not ok then return fail(state, errorValue) end
+    return true
+end
+
+function coordinator.recordRealized(state, handle, key)
+    local active = coordinator.current(state)
+    if active == nil then return nil end
+    local ok, errorValue = timelineSession.realize(portFor(active), handle, key)
+    if not ok then return fail(state, errorValue) end
+    return true
+end
+
 function coordinator.checkpoint(state, checkpoint)
     local active = coordinator.current(state)
     if active == nil then return nil end
@@ -145,21 +228,6 @@ function coordinator.checkpoint(state, checkpoint)
     return true
 end
 
-function coordinator.completeOwner(state, owner)
-    local active = coordinator.current(state)
-    if active == nil then return nil end
-    local ok, errorValue = session.complete(active, owner)
-    if not ok then return fail(state, errorValue) end
-    return true
-end
-
-function coordinator.readyOwner(state, owner)
-    local active = coordinator.current(state)
-    if active == nil then return nil end
-    local ok, errorValue = session.ready(active, owner)
-    if not ok then return fail(state, errorValue) end
-    return true
-end
 
 function coordinator.incidental(state)
     local active = coordinator.current(state)
@@ -181,6 +249,7 @@ function coordinator.close(state, currentRun, gameState)
     end)
     if not ok then return fail(state, errorValue) end
     roomState.current = nil
+    ports[active] = nil
     return true
 end
 

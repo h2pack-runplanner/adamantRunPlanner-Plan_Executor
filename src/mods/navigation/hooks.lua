@@ -77,7 +77,7 @@ function hooks.attach(module, session, getState, report, routeSession, room, pro
         local pending = producedRewards and producedRewards.takeRewardSelection()
         local occurrence = occurrenceForRoom(state, nativeRoom)
         if occurrence == nil and pending == nil then return base(run, nativeRoom, rewardStore, chosen, args) end
-        local expected = pending and pending.node and pending.node.reward
+        local expected = pending and pending.transaction and pending.transaction.reward
             or occurrence and occurrence.overview.incomingReward
         if expected == nil then
             if occurrence and occurrence.overview.effectNeutralRequiredReward == true then
