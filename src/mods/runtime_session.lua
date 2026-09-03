@@ -58,7 +58,7 @@ function runtime.mismatch(state, checkpoint, expected, observed)
     return fail(state, checkpoint, expected, observed)
 end
 
-function runtime.start(state, inbox)
+function runtime.start(state, inbox, phase)
     state.initialized = true
     local loaded, plan = inbox.load()
     if not loaded or type(plan) ~= "table" or plan.kind ~= "ready" then
@@ -74,12 +74,19 @@ function runtime.start(state, inbox)
         end
     end
     state.plan, state.route = plan, route.new(plan)
-    state.state, state.reason = "synchronized", "ready"
+    state.state, state.reason = phase == "starting" and "starting" or "synchronized", "ready"
     return true
 end
 
 function runtime.expectedOccurrence(state)
-    if state.state ~= "synchronized" then return nil end
+    if state == nil or state.state ~= "synchronized" then return nil end
+    local routeState = state.route
+    local id = routeState and routeState.plan.selectedOccurrenceIds[routeState.index]
+    return id and routeState.plan.occurrencesById[id] or nil
+end
+
+function runtime.expectedStartingOccurrence(state)
+    if state == nil or state.state ~= "starting" then return nil end
     local routeState = state.route
     local id = routeState and routeState.plan.selectedOccurrenceIds[routeState.index]
     return id and routeState.plan.occurrencesById[id] or nil
@@ -100,7 +107,7 @@ function runtime.prepareOccurrence(state, occurrenceId)
 end
 
 function runtime.realizeStartingRoom(state, game, nativeRoom)
-    local occurrence = runtime.expectedOccurrence(state)
+    local occurrence = runtime.expectedStartingOccurrence(state)
     if occurrence == nil then return nil end
     local realized, errorValue = overview.realize(occurrence, game, nativeRoom)
     if realized == nil then return fail(state, errorValue) end

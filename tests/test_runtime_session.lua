@@ -99,6 +99,20 @@ function TestRuntimeSession.testRunStartMismatchPreservesTheInboxDecoderReason()
     })
 end
 
+function TestRuntimeSession.testStartingPhaseExposesOnlyTheBoundedStartingOccurrence()
+    local row = occurrence("storePurchase")
+    local plan = {
+        kind = "ready", occurrences = { row }, occurrencesById = { one = row },
+        selectedOccurrenceIds = { "one" },
+    }
+    local value = {}
+    lu.assertTrue(runtime.start(value, { load = function() return true, plan end }, "starting"))
+    lu.assertEquals(value.state, "starting")
+    lu.assertEquals(runtime.expectedStartingOccurrence(value), row)
+    lu.assertNil(runtime.expectedOccurrence(value))
+    lu.assertNil(runtime.current(value))
+end
+
 function TestRuntimeSession.testPreparedDestinationBindingsAreReusedWhenTheRoomStarts()
     local row = occurrence("storePurchase")
     local plan = { occurrences = { row }, occurrencesById = { one = row }, selectedOccurrenceIds = { "one" } }

@@ -32,7 +32,7 @@ local function chooseForcedEncounter(base, currentRun, nativeRoom, args, declara
     return result
 end
 
-function hooks.attach(module, session, getState, report, ensureStarted)
+function hooks.attach(module, session, getState, report)
     local secretScope
     local pendingAdditional
     local encounterIndex
@@ -46,8 +46,8 @@ function hooks.attach(module, session, getState, report, ensureStarted)
 
     module.hooks.wrap("ChooseStartingRoom", "execution-v10-starting-room", function(_, runtime, base, currentRun, args)
         local state = getState(runtime)
-        if state.state == "inactive" and ensureStarted ~= nil then ensureStarted(runtime, state) end
-        if state.loadoutClosed ~= true or state.state ~= "synchronized" then
+        if state == nil then return base(currentRun, args) end
+        if state.state ~= "starting" then
             report(runtime)
             return base(currentRun, args)
         end
@@ -65,6 +65,7 @@ function hooks.attach(module, session, getState, report, ensureStarted)
 
     module.hooks.wrap("CreateRoom", "execution-v10-create-room", function(_, runtime, base, roomData, args)
         local state = getState(runtime)
+        if state == nil then return base(roomData, args) end
         if state.state ~= "synchronized" then return base(roomData, args) end
         local id = type(roomData) == "table" and roomData.__runPlannerExecutionRoomId or nil
         local additional = pendingAdditional
@@ -97,7 +98,8 @@ function hooks.attach(module, session, getState, report, ensureStarted)
 
     module.hooks.wrap("AssignRoomToExitDoor", "execution-v10-additional-exit-binding", function(_, runtime, base,
         door, room)
-        if getState(runtime).state ~= "synchronized" then return base(door, room) end
+        local state = getState(runtime)
+        if state == nil or state.state ~= "synchronized" then return base(door, room) end
         local additionalOwner = type(room) == "table" and room.__runPlannerExecutionAdditionalOwner
             or pendingAdditional and pendingAdditional.owner
         local additionalKind = type(room) == "table" and room.__runPlannerExecutionAdditionalKind
@@ -113,6 +115,7 @@ function hooks.attach(module, session, getState, report, ensureStarted)
 
     module.hooks.wrap("StartRoom", "execution-v10-room-entry", function(_, runtime, base, currentRun, nativeRoom)
         local state = getState(runtime)
+        if state == nil or state.state ~= "synchronized" then return base(currentRun, nativeRoom) end
         local expected = session.expectedOccurrence(state)
         local id = type(nativeRoom) == "table" and nativeRoom.__runPlannerExecutionRoomId or nil
         if id == nil and expected and roomName(nativeRoom) == expected.gameName then id = expected.id end
@@ -134,7 +137,7 @@ function hooks.attach(module, session, getState, report, ensureStarted)
 
     module.hooks.wrap("HandleSecretSpawns", "execution-v10-room-features", function(_, runtime, base, currentRun)
         local state = getState(runtime)
-        if state.state ~= "synchronized" then return base(currentRun) end
+        if state == nil or state.state ~= "synchronized" then return base(currentRun) end
         secretScope = session.additionalRoom(state, "chaos", _G.game or game) ~= nil
         local ok, result = pcall(base, currentRun)
         secretScope = nil
@@ -145,7 +148,8 @@ function hooks.attach(module, session, getState, report, ensureStarted)
 
     module.hooks.wrap("IsSecretDoorEligible", "execution-v10-chaos-eligibility", function(_, runtime, base, currentRun,
         currentRoom)
-        if getState(runtime).state ~= "synchronized" then return base(currentRun, currentRoom) end
+        local state = getState(runtime)
+        if state == nil or state.state ~= "synchronized" then return base(currentRun, currentRoom) end
         if secretScope ~= nil then return secretScope end
         return base(currentRun, currentRoom)
     end)
@@ -153,6 +157,7 @@ function hooks.attach(module, session, getState, report, ensureStarted)
     module.hooks.wrap("IsSellTraitShopEligible", "execution-v10-purging-pool-presence", function(_, runtime, base,
         currentRoom)
         local state = getState(runtime)
+        if state == nil then return base(currentRoom) end
         if session.current(state) ~= nil then return session.feature(state, "purgingPool") ~= nil end
         return base(currentRoom)
     end)
@@ -160,13 +165,14 @@ function hooks.attach(module, session, getState, report, ensureStarted)
     module.hooks.wrap("IsWellShopEligible", "execution-v10-well-presence", function(_, runtime, base, currentRun,
         currentRoom)
         local state = getState(runtime)
+        if state == nil then return base(currentRun, currentRoom) end
         if session.current(state) ~= nil then return session.feature(state, "stygianWell") ~= nil end
         return base(currentRun, currentRoom)
     end)
 
     module.hooks.wrap("SpawnZagContract", "execution-v10-zagreus-contract", function(_, runtime, base, room, args)
         local state = getState(runtime)
-        if state.state ~= "synchronized" then return base(room, args) end
+        if state == nil or state.state ~= "synchronized" then return base(room, args) end
         local _, additional = session.additionalRoom(state, "zagreusContract", _G.game or game)
         pendingAdditional = additional
         if type(room) == "table" then room.ZagreusContractSuccess = additional ~= nil end
@@ -179,7 +185,8 @@ function hooks.attach(module, session, getState, report, ensureStarted)
 
     module.hooks.wrap("SetupRoomMultipleEncountersData", "execution-v10-encounter-assembly", function(_, runtime,
         base, nativeRoom, args)
-        if getState(runtime).state ~= "synchronized" then return base(nativeRoom, args) end
+        local state = getState(runtime)
+        if state == nil or state.state ~= "synchronized" then return base(nativeRoom, args) end
         encounterIndex = 0
         local ok, result = pcall(base, nativeRoom, args)
         encounterIndex = nil
@@ -190,7 +197,8 @@ function hooks.attach(module, session, getState, report, ensureStarted)
 
     module.hooks.wrap("ChooseEncounter", "execution-v10-encounter-choice", function(_, runtime, base, currentRun,
         nativeRoom, args)
-        if getState(runtime).state ~= "synchronized" then return base(currentRun, nativeRoom, args) end
+        local state = getState(runtime)
+        if state == nil or state.state ~= "synchronized" then return base(currentRun, nativeRoom, args) end
         local declaration
         if encounterIndex ~= nil then
             encounterIndex = encounterIndex + 1
@@ -199,7 +207,6 @@ function hooks.attach(module, session, getState, report, ensureStarted)
             declaration = phase and (_G.game or game).EncounterData[phase.encounterKey]
         end
         if declaration == nil then
-            local state = getState(runtime)
             local occurrence = occurrenceForRoom(state, nativeRoom)
             local phases = occurrence and occurrence.overview.encounterPhases or {}
             if #phases == 1 then
@@ -215,6 +222,7 @@ function hooks.attach(module, session, getState, report, ensureStarted)
     module.hooks.wrap("EndEncounterEffects", "execution-v10-encounter-end", function(_, runtime, base, currentRun,
         nativeRoom, encounter)
         local state = getState(runtime)
+        if state == nil or state.state ~= "synchronized" then return base(currentRun, nativeRoom, encounter) end
         local active = session.current(state)
         local observedName = type(encounter) == "table" and (encounter.Name or encounter.EncounterName)
         local phaseKey
@@ -231,7 +239,7 @@ function hooks.attach(module, session, getState, report, ensureStarted)
     module.hooks.wrap("ChooseNextRoomData", "execution-v10-door-room", function(_, runtime, base, currentRun, args,
         otherDoors)
         local state = getState(runtime)
-        if state.state ~= "synchronized" then return base(currentRun, args, otherDoors) end
+        if state == nil or state.state ~= "synchronized" then return base(currentRun, args, otherDoors) end
         local gameValue = _G.game or game
         if type(args) == "table" and args.ForceNextRoomSet == "Chaos" then
             local data = session.additionalRoom(state, "chaos", gameValue)
@@ -250,7 +258,8 @@ function hooks.attach(module, session, getState, report, ensureStarted)
 
     module.hooks.wrap("IsRoomRewardEligible", "execution-v10-room-reward-eligibility", function(_, runtime, base, run,
         room, reward, previouslyChosen, args)
-        if getState(runtime).state ~= "synchronized" then
+        local state = getState(runtime)
+        if state == nil or state.state ~= "synchronized" then
             return base(run, room, reward, previouslyChosen, args)
         end
         local scope = rewardChoiceScope
@@ -267,7 +276,7 @@ function hooks.attach(module, session, getState, report, ensureStarted)
         -- choice; a recursive call must remain native implementation detail.
         if rewardChoiceScope ~= nil then return base(run, room, rewardStore, chosen, args) end
         local state = getState(runtime)
-        if state.state ~= "synchronized" then return base(run, room, rewardStore, chosen, args) end
+        if state == nil or state.state ~= "synchronized" then return base(run, room, rewardStore, chosen, args) end
         local pending = session.takeRewardSelection(state)
         local occurrence = occurrenceForRoom(state, room)
         if occurrence == nil and pending == nil then return base(run, room, rewardStore, chosen, args) end
@@ -305,6 +314,7 @@ function hooks.attach(module, session, getState, report, ensureStarted)
 
     module.hooks.wrap("DoUnlockRoomExits", "execution-v10-doors", function(_, runtime, base, currentRun, nativeRoom)
         local state = getState(runtime)
+        if state == nil or state.state ~= "synchronized" then return base(currentRun, nativeRoom) end
         local current = session.current(state)
         local expected = current and current.occurrence.doors
         local additionalIds, additionalOwners = {}, {}
@@ -347,6 +357,7 @@ function hooks.attach(module, session, getState, report, ensureStarted)
 
     module.hooks.wrap("UseExitDoor", "execution-v10-exit-usable", function(_, runtime, base, door, args)
         local state = getState(runtime)
+        if state == nil or state.state ~= "synchronized" then return base(door, args) end
         if session.checkpoint(state, "exitUsable") == nil then
             report(runtime)
             return base(door, args)
@@ -356,6 +367,7 @@ function hooks.attach(module, session, getState, report, ensureStarted)
 
     module.hooks.wrap("LeaveRoom", "execution-v10-room-exit", function(_, runtime, base, currentRun, door)
         local state = getState(runtime)
+        if state == nil or state.state ~= "synchronized" then return base(currentRun, door) end
         if session.exit(state, currentRun, _G.GameState) == nil then
             report(runtime)
             return base(currentRun, door)

@@ -36,35 +36,30 @@ local function sameKeys(expected, observed)
     return true
 end
 
-function session.verifyPreStart(state, mismatch)
+function session.verifyCompleted(state, mismatch)
     local expected = state.plan and state.plan.startingLoadout
     if not expected then return mismatch(state, "starting-loadout", "published loadout", nil) end
-    local observed = native.readLoadout()
-    if observed.weaponKey ~= expected.weaponKey then return mismatch(state, "starting-weapon", expected.weaponKey, observed.weaponKey) end
-    if observed.aspectKey ~= expected.aspectKey then return mismatch(state, "starting-aspect", expected.aspectKey, observed.aspectKey) end
-    local configuredArcana = native.activeArcana()
-    local expectedManual, observedManual = {}, {}
-    for _, row in ipairs(expected.arcana) do if row.origin == "manual" then expectedManual[#expectedManual + 1] = row end end
-    for _, row in ipairs(configuredArcana) do if row.origin == "manual" then observedManual[#observedManual + 1] = row end end
-    if not sameSet(expectedManual, observedManual) then return mismatch(state, "starting-arcana", expectedManual, observedManual) end
-    local startingKeepsake = state.plan.startingKeepsake.keepsakeKey
-    if ((_G.GameState or {}).LastAwardTrait or (_G.GameState or {}).EquippedKeepsake) ~= startingKeepsake then
-        return mismatch(state, "starting-keepsake", startingKeepsake, (_G.GameState or {}).LastAwardTrait)
+    local observedLoadout = native.readLoadout()
+    if observedLoadout.weaponKey ~= expected.weaponKey then
+        return mismatch(state, "starting-weapon", expected.weaponKey, observedLoadout.weaponKey)
     end
-    if not same(expected.fear.configuredRanks, native.configuredFearRanks(expected.fear.configuredRanks)) then
-        return mismatch(state, "starting-fear", expected.fear.configuredRanks, native.configuredFearRanks(expected.fear.configuredRanks))
+    if observedLoadout.aspectKey ~= expected.aspectKey or not native.hasTrait(expected.aspectKey) then
+        return mismatch(state, "starting-aspect", expected.aspectKey, observedLoadout.aspectKey)
     end
-    return true
-end
-
-function session.verifyPostStart(state, mismatch)
-    local expected = state.plan and state.plan.startingLoadout
-    if not expected then return false end
-    if not native.hasTrait(expected.aspectKey) then return mismatch(state, "starting-aspect", expected.aspectKey, nil) end
     local observedArcana = native.activeArcana()
     if not sameSet(expected.arcana, observedArcana) then return mismatch(state, "starting-arcana", expected.arcana, observedArcana) end
+    local configured = native.configuredFearRanks(expected.fear.configuredRanks)
+    if not same(expected.fear.configuredRanks, configured) then
+        return mismatch(state, "starting-fear", expected.fear.configuredRanks, configured)
+    end
     local effective = native.fearRanks(expected.fear.effectiveRanks)
     if not same(expected.fear.effectiveRanks, effective) then return mismatch(state, "effective-fear", expected.fear.effectiveRanks, effective) end
+    local startingKeepsake = state.plan.startingKeepsake.keepsakeKey
+    local observedKeepsake = (_G.GameState or {}).LastAwardTrait or (_G.GameState or {}).EquippedKeepsake
+    if observedKeepsake ~= startingKeepsake then
+        return mismatch(state, "starting-keepsake", startingKeepsake, observedKeepsake)
+    end
+    if not session.finishKeepsake(state, mismatch) then return nil end
     if expected.startingHex then
         if not native.hasTrait(expected.startingHex.spellTraitKey) then
             return mismatch(state, "starting-hex-spell", expected.startingHex.spellTraitKey, nil)
@@ -85,13 +80,17 @@ function session.verifyPostStart(state, mismatch)
             return mismatch(state, "starting-hex-god-sent", nil, special.godSent)
         end
     end
+    state.state, state.reason = "synchronized", "ready"
     return true
 end
 
-function session.beginKeepsake(state, key, mismatch)
+function session.beginKeepsake(state, key)
     local expected = state.plan and state.plan.startingKeepsake
     if not expected then return nil end
-    if key ~= expected.keepsakeKey then return mismatch(state, "starting-keepsake", expected.keepsakeKey, key) end
+    -- Startup validation is deliberately deferred until native StartNewRun
+    -- returns. A wrong carrier must not desynchronize the provisional session
+    -- or suppress the other native startup contacts.
+    if key ~= expected.keepsakeKey then return nil end
     state.startingLoadout = state.startingLoadout or {}
     state.startingLoadout.keepsake = { active = true, expected = expected, results = {} }
     return expected

@@ -6,11 +6,11 @@ local function traitKey(value) return type(value) == "table" and (value.Name or 
 function hooks.attach(module, data, getState, report)
     local adapter = import("mods/native_timeline_adapters.lua")
     local nativeFacts = import("mods/native_fact_bindings.lua")
-    local native = import("mods/loadout/native.lua")
     local startDepth, equipScope, hexScope, treeScope = 0, nil, nil, nil
 
     local function enforcing(runtime)
-        return getState(runtime).state == "synchronized"
+        local state = getState(runtime)
+        return state ~= nil and (state.state == "synchronized" or (startDepth > 0 and state.state == "starting"))
     end
 
     local function selectedResult(kind, result)
@@ -28,11 +28,26 @@ function hooks.attach(module, data, getState, report)
             if traitKey(trait) == key then return trait end
         end
     end
+    local function traitSnapshot()
+        local result = {}
+        for _, trait in pairs((_G.CurrentRun and _G.CurrentRun.Hero and _G.CurrentRun.Hero.Traits) or {}) do
+            result[traitKey(trait)] = true
+        end
+        return result
+    end
+    local function newlyAddedTrait(before)
+        for _, trait in pairs((_G.CurrentRun and _G.CurrentRun.Hero and _G.CurrentRun.Hero.Traits) or {}) do
+            if not before[traitKey(trait)] then return trait end
+        end
+    end
     local function recordEquipResult(runtime, kind, result)
         if equipScope == nil or equipScope.expected[kind] == nil then return end
         local observed = selectedResult(kind, result)
         equipScope.observed[kind] = observed
-        if startDepth > 0 then data.loadout.recordKeepsakeResult(getState(runtime), kind, observed) end
+        if startDepth > 0 then
+            local state = getState(runtime)
+            data.loadout.recordKeepsakeResult(state, kind, observed)
+        end
     end
     local function expectedEquip(state, keepsakeKey)
         if startDepth > 0 then return state.plan and state.plan.startingKeepsake.equipResults end
@@ -50,7 +65,11 @@ function hooks.attach(module, data, getState, report)
             local ok, result = pcall(base, ...)
             equipScope.kind = priorKind
             if not ok then error(result, 0) end
-            if kind == "jeweledPom" then recordEquipResult(runtime, kind, traitWithKey(equipScope and equipScope.selectedKey or expected.traitKey)) end
+            if kind == "jeweledPom" then
+                local observed = traitWithKey(equipScope and equipScope.selectedKey)
+                    or newlyAddedTrait(equipScope and equipScope.traitsBefore or {})
+                recordEquipResult(runtime, kind, observed)
+            end
             return result
         end)
     end
@@ -76,12 +95,14 @@ function hooks.attach(module, data, getState, report)
             key = available(fallback.preferredKey) and fallback.preferredKey
                 or available(fallback.fallbackKey) and fallback.fallbackKey or nil
             if key == nil then
+                if startDepth > 0 then return base(values, rng) end
                 data.session.mismatch(getState(runtime), "availability:traitEligibility", fallback, "neither")
                 return base(values, rng)
             end
         end
         if key and type(values) == "table" then
             for _, value in ipairs(values) do if traitKey(value) == key then equipScope.selectedKey = key; return value end end
+            if startDepth > 0 then return base(values, rng) end
             data.session.mismatch(getState(runtime), "availability:traitEligibility", key, "missing candidate")
             return base(values, rng)
         end
@@ -118,41 +139,42 @@ function hooks.attach(module, data, getState, report)
         end
         return base(values, ...)
     end)
-    module.hooks.wrap("EquipMetaUpgrades", "execution-v11-loadout-close", function(_, runtime, base, ...)
-        local result = base(...)
-        if startDepth > 0 then
-            local state = getState(runtime)
-            data.loadout.finishKeepsake(state, data.session.mismatch)
-            if state.state == "synchronized" then data.loadout.verifyPostStart(state, data.session.mismatch) end
-            state.loadoutClosed = state.state == "synchronized"
-        end
-        return result
-    end)
     module.hooks.wrap("StartNewRun", "execution-v11-start", function(_, runtime, base, previousRun, args)
-        local state = getState(runtime)
-        if not state.initialized then data.session.start(state, data.inbox) end
-        if state.state ~= "synchronized" or not data.loadout.verifyPreStart(state, data.session.mismatch) then
-            report(runtime); return base(previousRun, args)
-        end
-        local expected = state.plan.startingLoadout
-        state.loadoutClosed = false
-        startDepth, hexScope = startDepth + 1, expected.startingHex
+        startDepth = startDepth + 1
         local ok, result = pcall(base, previousRun, args)
         startDepth, hexScope = startDepth - 1, nil
         if not ok then error(result, 0) end
-        if not state.loadoutClosed and state.state == "synchronized" then
-            data.session.mismatch(state, "starting-loadout", "EquipMetaUpgrades contact", nil)
+        local state = getState(runtime)
+        if state ~= nil and state.state == "starting" then
+            data.loadout.verifyCompleted(state, data.session.mismatch)
         end
         report(runtime)
         return result
     end)
+    module.hooks.wrap("CreateNewHero", "execution-v11-session-start", function(_, runtime, base, previousRun, args)
+        if startDepth <= 0 then return base(previousRun, args) end
+        local state = getState(runtime)
+        if not state.initialized then data.session.start(state, data.inbox, "starting") end
+        if state.state == "starting" then
+            local expected = state.plan and state.plan.startingLoadout
+            hexScope = expected and expected.startingHex or nil
+        end
+        local ok, result = pcall(base, previousRun, args)
+        if not ok then error(result, 0) end
+        return result
+    end)
     module.hooks.wrap("EquipKeepsake", "execution-v11-equip-keepsake", function(_, runtime, base, hero, keepsakeKey, args)
         local state = getState(runtime)
-        if startDepth > 0 and not state.initialized then data.session.start(state, data.inbox) end
+        if state == nil then return base(hero, keepsakeKey, args) end
         local key = keepsakeKey or (_G.GameState and _G.GameState.LastAwardTrait)
         if startDepth > 0 then
-            data.loadout.beginKeepsake(state, key, data.session.mismatch)
-            if state.state ~= "synchronized" then
+            local expectedStarting = data.loadout.beginKeepsake(state, key)
+            if expectedStarting == nil then
+                local result = base(hero, keepsakeKey, args)
+                report(runtime)
+                return result
+            end
+            if state.state ~= "starting" then
                 local result = base(hero, keepsakeKey, args)
                 report(runtime)
                 return result
@@ -160,7 +182,10 @@ function hooks.attach(module, data, getState, report)
         end
         local expected, row = expectedEquip(state, key)
         local prior = equipScope
-        equipScope = { expected = expected or {}, observed = {}, row = row, key = key }
+        equipScope = {
+            expected = expected or {}, observed = {}, row = row, key = key,
+            traitsBefore = traitSnapshot(),
+        }
         local ok, result = pcall(base, hero, keepsakeKey, args)
         local completed = equipScope; equipScope = prior
         if not ok then error(result, 0) end

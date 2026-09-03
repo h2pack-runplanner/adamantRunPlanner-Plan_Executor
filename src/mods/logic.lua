@@ -24,10 +24,6 @@ function logic.attach(module, data)
     local featureHooks = import("mods/hooks_features.lua")
 
     local function getState(runtime) return data.session.get(runtime) end
-    local function ensureStarted(_, state)
-        if not state.initialized then data.session.start(state, data.inbox) end
-        return state.state == "synchronized"
-    end
     local function diagnosticValue(value, depth)
         depth = depth or 0
         if depth >= 2 then return "…" end
@@ -42,6 +38,7 @@ function logic.attach(module, data)
     end
     local function report(runtime)
         local state = getState(runtime)
+        if state == nil then return end
         if runtime.status and runtime.status.write then
             local status = data.session.status(state)
             runtime.status.write("ExecutionSessionStatus", status.state .. ": " .. status.reason)
@@ -60,7 +57,7 @@ function logic.attach(module, data)
 
     loadoutHooks.attach(module, data, getState, report)
 
-    roomHooks.attach(module, data.session, getState, report, ensureStarted)
+    roomHooks.attach(module, data.session, getState, report)
     timelineHooks.attach(module, data.session, getState, report)
     featureHooks.attach(module, data.session, getState, report)
 end

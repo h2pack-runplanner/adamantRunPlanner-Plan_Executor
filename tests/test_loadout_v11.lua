@@ -28,32 +28,69 @@ local function captureLoadoutHooks(state)
     local callbacks = {}
     local module = { hooks = { wrap = function(name, _, callback) callbacks[name] = callback end } }
     local sessionAdapter = {
-        start = function() end,
+        start = function(target, _, phase)
+            target.initialized = true
+            target.state, target.reason = phase == "starting" and "starting" or "synchronized", "ready"
+        end,
         current = function() end,
         mismatch = function(target, checkpoint, wanted, actual)
             target.state, target.firstMismatch = "mismatch", { checkpoint = checkpoint, expected = wanted, observed = actual }
             return nil
         end,
     }
-    loadoutHooks.attach(module, { session = sessionAdapter, loadout = session, inbox = {} }, function() return state end, function() end)
+    local getState = type(state) == "function" and state or function() return state end
+    loadoutHooks.attach(module, { session = sessionAdapter, loadout = session, inbox = {} }, getState, function() end)
     _G.import = priorImport
     return callbacks
 end
 
-function TestLoadoutV11.testStartHookStopsEnforcementButAllowsNativeRunOnPreStartMismatch()
-    local priorGame, priorWeapon, priorRarity, priorCards = _G.GameState, _G.GetEquippedWeapon, _G.TraitRarityData, _G.MetaUpgradeCardData
+function TestLoadoutV11.testStartHookNeverReadsCacheBeforeCurrentRunExists()
+    local priorGame, priorRun, priorWeapon, priorRarity, priorCards = _G.GameState, _G.CurrentRun, _G.GetEquippedWeapon, _G.TraitRarityData, _G.MetaUpgradeCardData
     _G.GameState = { LastWeaponUpgradeName = { WeaponStaffSwing = "WrongAspect" }, LastAwardTrait = "ManaOverTimeRefundKeepsake", ShrineUpgrades = { BossDifficultyShrineUpgrade = 1 }, MetaUpgradeState = {} }
     _G.GetEquippedWeapon = function() return "WeaponStaffSwing" end
     _G.TraitRarityData, _G.MetaUpgradeCardData = { RarityUpgradeOrder = { "Common", "Rare", "Epic" } }, {}
-    local state = { plan = expected(nil), initialized = true, state = "synchronized" }
+    local state = { plan = expected(nil), initialized = false, state = "inactive" }
     state.plan.startingLoadout.arcana = { { key = "CardDraw", origin = "manual", rarity = "Rare" } }
     state.plan.startingLoadout.fear = { configuredRanks = { BossDifficultyShrineUpgrade = 1 }, effectiveRanks = { BossDifficultyShrineUpgrade = 1 } }
-    local callbacks, called = captureLoadoutHooks(state), false
-    local result = callbacks.StartNewRun(nil, {}, function() called = true; return {} end, nil, {})
-    _G.GameState, _G.GetEquippedWeapon, _G.TraitRarityData, _G.MetaUpgradeCardData = priorGame, priorWeapon, priorRarity, priorCards
+    _G.CurrentRun = nil
+    local callbacks, called = captureLoadoutHooks(function() return _G.CurrentRun and state or nil end), false
+    local result = callbacks.StartNewRun(nil, {}, function()
+        called = true
+        _G.CurrentRun = { Hero = { TraitDictionary = { BaseStaffAspect = true } } }
+        callbacks.CreateNewHero(nil, {}, function() return {} end, nil, {})
+        callbacks.EquipKeepsake(nil, {}, function() return true end, {}, "ManaOverTimeRefundKeepsake", {})
+        return {}
+    end, nil, {})
+    _G.GameState, _G.CurrentRun, _G.GetEquippedWeapon, _G.TraitRarityData, _G.MetaUpgradeCardData = priorGame, priorRun, priorWeapon, priorRarity, priorCards
     lu.assertNotNil(result)
     lu.assertTrue(called)
     lu.assertEquals(state.firstMismatch.checkpoint, "starting-aspect")
+end
+
+function TestLoadoutV11.testCreateNewHeroInitializesCurrentRunSession()
+    local priorGame, priorRun, priorWeapon, priorRarity, priorCards = _G.GameState, _G.CurrentRun,
+        _G.GetEquippedWeapon, _G.TraitRarityData, _G.MetaUpgradeCardData
+    _G.GameState = {
+        LastWeaponUpgradeName = { WeaponStaffSwing = "BaseStaffAspect" },
+        LastAwardTrait = "ManaOverTimeRefundKeepsake", ShrineUpgrades = {}, MetaUpgradeState = {},
+    }
+    _G.CurrentRun = nil
+    _G.GetEquippedWeapon = function() return "WeaponStaffSwing" end
+    _G.TraitRarityData, _G.MetaUpgradeCardData = { RarityUpgradeOrder = { "Common", "Rare", "Epic" } }, {}
+    local state = { plan = expected(nil), initialized = false, state = "inactive" }
+    state.plan.startingLoadout.arcana = {}
+    state.plan.startingLoadout.fear = { configuredRanks = {}, effectiveRanks = {} }
+    local callbacks = captureLoadoutHooks(state)
+    local result = callbacks.StartNewRun(nil, {}, function()
+        _G.CurrentRun = { Hero = { TraitDictionary = { BaseStaffAspect = true } } }
+        callbacks.CreateNewHero(nil, {}, function() return {} end, nil, {})
+        callbacks.EquipKeepsake(nil, {}, function() return true end, {}, "ManaOverTimeRefundKeepsake", {})
+        return { started = true }
+    end, nil, {})
+    _G.GameState, _G.CurrentRun, _G.GetEquippedWeapon, _G.TraitRarityData, _G.MetaUpgradeCardData =
+        priorGame, priorRun, priorWeapon, priorRarity, priorCards
+    lu.assertEquals(result, { started = true })
+    lu.assertEquals(state.state, "synchronized")
 end
 
 function TestLoadoutV11.testStrictProtocolRejectsDuplicateArcanaAndMissingSeleneHex()
@@ -71,14 +108,14 @@ function TestLoadoutV11.testPostInstallMismatchReturnsTheNativeRun()
     _G.GameState = { LastWeaponUpgradeName = { WeaponStaffSwing = "BaseStaffAspect" }, LastAwardTrait = "ManaOverTimeRefundKeepsake", ShrineUpgrades = { BossDifficultyShrineUpgrade = 1 }, MetaUpgradeState = { CardDraw = { Equipped = true, Level = 2 } } }
     _G.CurrentRun = { Hero = { TraitDictionary = { BaseStaffAspect = true } } }
     _G.GetEquippedWeapon, _G.TraitRarityData, _G.MetaUpgradeCardData = function() return "WeaponStaffSwing" end, { RarityUpgradeOrder = { "Common", "Rare", "Epic" } }, { CardDraw = {} }
-    local state = { plan = expected(nil), initialized = true, state = "synchronized" }
+    local state = { plan = expected(nil), initialized = false, state = "inactive" }
     state.plan.startingLoadout.arcana = { { key = "CardDraw", origin = "manual", rarity = "Rare" } }
     state.plan.startingLoadout.fear = { configuredRanks = { BossDifficultyShrineUpgrade = 1 }, effectiveRanks = { BossDifficultyShrineUpgrade = 1 } }
     local callbacks, started = captureLoadoutHooks(state), false
     local result = callbacks.StartNewRun(nil, {}, function()
         _G.GameState.MetaUpgradeState.Extra = { Equipped = true, Level = 1 }
+        callbacks.CreateNewHero(nil, {}, function() return {} end, nil, {})
         callbacks.EquipKeepsake(nil, {}, function() return true end, {}, "ManaOverTimeRefundKeepsake", {})
-        callbacks.EquipMetaUpgrades(nil, {}, function() return true end)
         started = true
         return { partial = true }
     end, nil, {})
@@ -89,10 +126,56 @@ function TestLoadoutV11.testPostInstallMismatchReturnsTheNativeRun()
 end
 
 local function startState(keepsake, results, hex)
-    local value = { plan = expected(hex), initialized = true, state = "synchronized" }
+    local value = { plan = expected(hex), initialized = false, state = "inactive" }
     value.plan.startingLoadout.arcana, value.plan.startingLoadout.fear = {}, { configuredRanks = {}, effectiveRanks = {} }
     value.plan.startingKeepsake = { keepsakeKey = keepsake, equipResults = results }
     return value
+end
+
+function TestLoadoutV11.testWrongStartingKeepsakeIsAdjudicatedAfterNativeStartup()
+    local priorGame, priorRun, priorWeapon = _G.GameState, _G.CurrentRun, _G.GetEquippedWeapon
+    _G.GameState = {
+        LastWeaponUpgradeName = { WeaponStaffSwing = "BaseStaffAspect" },
+        LastAwardTrait = "WrongKeepsake", ShrineUpgrades = {}, MetaUpgradeState = {},
+    }
+    _G.GetEquippedWeapon = function() return "WeaponStaffSwing" end
+    _G.CurrentRun = { Hero = { TraitDictionary = { BaseStaffAspect = true } } }
+    local state, callbacks = startState("ManaOverTimeRefundKeepsake"), nil
+    callbacks = captureLoadoutHooks(state)
+    local stateDuringStartup
+    local result = callbacks.StartNewRun(nil, {}, function()
+        callbacks.CreateNewHero(nil, {}, function() return {} end, nil, {})
+        callbacks.EquipKeepsake(nil, {}, function() return true end, {}, "WrongKeepsake", {})
+        stateDuringStartup = state.state
+        return { started = true }
+    end, nil, {})
+    _G.GameState, _G.CurrentRun, _G.GetEquippedWeapon = priorGame, priorRun, priorWeapon
+    lu.assertEquals(result, { started = true })
+    lu.assertEquals(stateDuringStartup, "starting")
+    lu.assertEquals(state.firstMismatch.checkpoint, "starting-keepsake")
+end
+
+function TestLoadoutV11.testNativeStartErrorClearsTheBoundedStartupScope()
+    local priorGame, priorRun, priorWeapon = _G.GameState, _G.CurrentRun, _G.GetEquippedWeapon
+    _G.GameState = {
+        LastWeaponUpgradeName = { WeaponStaffSwing = "BaseStaffAspect" },
+        LastAwardTrait = "ManaOverTimeRefundKeepsake", ShrineUpgrades = {}, MetaUpgradeState = {},
+    }
+    _G.CurrentRun = { Hero = { TraitDictionary = { BaseStaffAspect = true } } }
+    _G.GetEquippedWeapon = function() return "WeaponStaffSwing" end
+    local state = startState("ManaOverTimeRefundKeepsake")
+    local callbacks = captureLoadoutHooks(state)
+    local ok = pcall(function()
+        callbacks.StartNewRun(nil, {}, function()
+            callbacks.CreateNewHero(nil, {}, function() return {} end, nil, {})
+            error("native-start-failed")
+        end, nil, {})
+    end)
+    local delegated = false
+    callbacks.CreateNewHero(nil, {}, function() delegated = true; return {} end, nil, {})
+    _G.GameState, _G.CurrentRun, _G.GetEquippedWeapon = priorGame, priorRun, priorWeapon
+    lu.assertFalse(ok)
+    lu.assertTrue(delegated)
 end
 
 function TestLoadoutV11.testAttachedKeepsakeContactsRecordHammerAndEmbryoResults()
@@ -108,6 +191,7 @@ function TestLoadoutV11.testAttachedKeepsakeContactsRecordHammerAndEmbryoResults
         local state, callbacks = startState(case.key, case.result), nil
         callbacks = captureLoadoutHooks(state)
         local result = callbacks.StartNewRun(nil, {}, function()
+            callbacks.CreateNewHero(nil, {}, function() return {} end, nil, {})
             callbacks.EquipKeepsake(nil, {}, function()
                 callbacks[case.contact](nil, {}, function()
                     return callbacks[case.nested](nil, {}, function()
@@ -117,7 +201,6 @@ function TestLoadoutV11.testAttachedKeepsakeContactsRecordHammerAndEmbryoResults
                     end)
                 end)
             end, {}, case.key, {})
-            callbacks.EquipMetaUpgrades(nil, {}, function() return true end)
             return { started = true }
         end, nil, {})
         lu.assertNotNil(result)
@@ -139,12 +222,12 @@ function TestLoadoutV11.testAttachedJeweledPomSelectsFallbackAndDelegatesWhenNei
         callbacks = captureLoadoutHooks(state)
         local selected, nativeRandom = nil, false
         callbacks.StartNewRun(nil, {}, function()
+            callbacks.CreateNewHero(nil, {}, function() return {} end, nil, {})
             callbacks.EquipKeepsake(nil, {}, function()
                 callbacks.GiveRandomHadesBoonAndBoostBoons(nil, {}, function()
                     selected = callbacks.GetRandomArrayValue(nil, {}, function() nativeRandom = true; return { Name = "Native" } end, { _G.TraitData.Preferred, _G.TraitData.Fallback })
                 end)
             end, {}, "HadesAndPersephoneKeepsake", {})
-            callbacks.EquipMetaUpgrades(nil, {}, function() return true end)
             return true
         end, nil, {})
         return state, selected, nativeRandom
@@ -176,6 +259,7 @@ function TestLoadoutV11.testAttachedSeleneTreeForcesOnlySpecialPools()
     state.plan.startingLoadout.weaponKey, state.plan.startingLoadout.aspectKey = "WeaponSuit", "SuitHexAspect"
     callbacks = captureLoadoutHooks(state)
     local result = callbacks.StartNewRun(nil, {}, function()
+        callbacks.CreateNewHero(nil, {}, function() return {} end, nil, {})
         callbacks.EquipKeepsake(nil, {}, function() end, {}, "ManaOverTimeRefundKeepsake", {})
         local tree = callbacks.CreateTalentTree(nil, {}, function()
             local layout = callbacks.GetRandomValue(nil, {}, function(values) return values[1] end, { { Name = "OtherLayout" }, { Name = "ExpectedLayout" } })
@@ -185,7 +269,6 @@ function TestLoadoutV11.testAttachedSeleneTreeForcesOnlySpecialPools()
             return { Name = layout.Name, { { Name = rare, Rarity = "Rare" }, { Name = epic, Rarity = "Epic" }, { Name = duo }, { Name = "OlympianSpellCountTalent" }, { Name = "RepeatRare", Rarity = "Rare" } } }
         end, _G.SpellData.MoonBeam)
         _G.CurrentRun.Hero.SlottedSpell = { Name = "MoonBeam", Talents = tree }
-        callbacks.EquipMetaUpgrades(nil, {}, function() return true end)
         return true
     end, nil, {})
     _G.GameState, _G.CurrentRun, _G.GetEquippedWeapon, _G.SpellData, _G.TraitData = priorGame, priorRun, priorWeapon, priorSpell, priorTrait
@@ -205,12 +288,12 @@ function TestLoadoutV11.testAttachedSeleneRejectsUnexpectedGodSentPair()
     state.plan.startingLoadout.weaponKey, state.plan.startingLoadout.aspectKey = "WeaponSuit", "SuitHexAspect"
     callbacks = captureLoadoutHooks(state)
     local result = callbacks.StartNewRun(nil, {}, function()
+        callbacks.CreateNewHero(nil, {}, function() return {} end, nil, {})
         callbacks.EquipKeepsake(nil, {}, function() end, {}, "ManaOverTimeRefundKeepsake", {})
         local tree = callbacks.CreateTalentTree(nil, {}, function()
             return { Name = "ExpectedLayout", { { Name = "RareExpected" }, { Name = "EpicExpected" }, { Name = "UnexpectedDuo" }, { Name = "OlympianSpellCountTalent" } } }
         end, _G.SpellData.MoonBeam)
         _G.CurrentRun.Hero.SlottedSpell = { Name = "MoonBeam", Talents = tree }
-        callbacks.EquipMetaUpgrades(nil, {}, function() return true end)
         return true
     end, nil, {})
     _G.GameState, _G.CurrentRun, _G.GetEquippedWeapon, _G.SpellData, _G.TraitData = priorGame, priorRun, priorWeapon, priorSpell, priorTrait
@@ -273,10 +356,10 @@ function TestLoadoutV11.testVerifiesExactLoadoutAndModeledSeleneTree()
     _G.GetNumShrineUpgrades = function() return 1 end
     local state, mismatch = { plan = expected({ spellTraitKey = "SpellMoonBeamTrait", layoutKey = "Lung", rareTalentKeys = { "RareA" }, epicTalentKeys = { "EpicA" } }) }, nil
     local fail = function(_, checkpoint) mismatch = checkpoint; return nil end
-    local pre = session.verifyPreStart(state, fail)
-    local post = session.verifyPostStart(state, fail)
+    state.initialized, state.state = true, "starting"
+    session.beginKeepsake(state, "ManaOverTimeRefundKeepsake")
+    local post = session.verifyCompleted(state, fail)
     _G.GameState, _G.CurrentRun, _G.GetEquippedWeapon, _G.GetNumShrineUpgrades, _G.MetaUpgradeCardData, _G.SpellData, _G.TraitData, _G.TraitRarityData = priorGame, priorRun, priorWeapon, priorShrine, priorCards, priorSpell, priorTrait, priorRarity
-    lu.assertTrue(pre, tostring(mismatch))
     lu.assertTrue(post, tostring(mismatch))
     lu.assertNil(mismatch)
 end
@@ -287,17 +370,20 @@ function TestLoadoutV11.testMissingStartingEquipContactIsAMismatch()
     lu.assertEquals(mismatch, "starting-keepsake")
 end
 
-function TestLoadoutV11.testUnclosedLoadoutDelegatesToNativeStartingRoom()
+function TestLoadoutV11.testStartingRoomIsOptimisticallyRealizedDuringLoadout()
     local callbacks = {}
     local module = { hooks = { wrap = function(name, _, callback) callbacks[name] = callback end } }
     local realized, nativeStarted = false, false
-    local state = { state = "mismatch", loadoutClosed = false }
+    local priorGame = _G.game
+    _G.game = { CreateRoom = function(data) return data end }
+    local state = { state = "starting" }
     local roomSession = {
         realizeStartingRoom = function() realized = true; return { Name = "F_Opening01" } end,
     }
-    roomHooks.attach(module, roomSession, function() return state end, function() end, function() end)
+    roomHooks.attach(module, roomSession, function() return state end, function() end)
     local result = callbacks.ChooseStartingRoom(nil, {}, function() nativeStarted = true; return { Name = "Native" } end, {}, {})
-    lu.assertEquals(result, { Name = "Native" })
-    lu.assertFalse(realized)
-    lu.assertTrue(nativeStarted)
+    lu.assertEquals(result, { Name = "F_Opening01" })
+    lu.assertTrue(realized)
+    lu.assertFalse(nativeStarted)
+    _G.game = priorGame
 end
