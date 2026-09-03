@@ -160,7 +160,25 @@ end
 local function automatic(value, label)
     local effect = value.effect
     local record, errorMessage
-    if effect == "steadyGrowth" or effect == "transcendentEmbryo" then
+    if effect == "transcendentEmbryo" then
+        record, errorMessage = p.exact(
+            value,
+            {
+                "kind", "owner", "effect", "phaseKey", "source", "target", "rarity",
+                "blessingValues", "window",
+            },
+            {},
+            label
+        )
+        if not record then return nil, errorMessage end
+        if not p.str(record.source, label .. ".source")
+            or not p.str(record.target, label .. ".target")
+            or not p.str(record.rarity, label .. ".rarity") then
+            return p.fail(label .. " has malformed Embryo automatic outcome")
+        end
+        local _, valuesError = p.recordNumbers(record.blessingValues, label .. ".blessingValues")
+        if valuesError then return nil, valuesError end
+    elseif effect == "steadyGrowth" then
         record, errorMessage = p.exact(
             value,
             { "kind", "owner", "effect", "phaseKey", "source", "target", "window" },

@@ -315,7 +315,7 @@ function rewards.equip(value, label)
     if record.transcendentEmbryo ~= nil then
         local embryo, embryoError = p.exact(
             record.transcendentEmbryo,
-            { "blessingKey" },
+            { "blessingKey", "blessingValues" },
             {},
             label .. ".transcendentEmbryo"
         )
@@ -323,6 +323,11 @@ function rewards.equip(value, label)
         if not p.str(embryo.blessingKey, label .. ".transcendentEmbryo.blessingKey") then
             return p.fail(label .. " has invalid Embryo result")
         end
+        local _, valuesError = p.recordNumbers(
+            embryo.blessingValues,
+            label .. ".transcendentEmbryo.blessingValues"
+        )
+        if valuesError then return nil, valuesError end
     end
     return record
 end

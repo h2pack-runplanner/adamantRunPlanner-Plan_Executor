@@ -1,9 +1,9 @@
--- luacheck: globals TestProtocolV11
+-- luacheck: globals TestProtocolV12
 local lu = require("luaunit")
 local json = require("mods/json")
 local protocol = require("mods/protocol")
 
-TestProtocolV11 = {}
+TestProtocolV12 = {}
 local root = "test/fixtures/execution-plan/"
 
 local function decode(name)
@@ -114,7 +114,7 @@ end
 local function minimalPlan(transactions)
     local plan = tagged({
         format = "run-planner-execution",
-        protocolVersion = 11,
+        protocolVersion = 12,
         catalogVersion = "0.54.0-required-boss-rewards",
         projectId = "test-project",
         planFingerprint = "00000000",
@@ -140,21 +140,21 @@ local function minimalPlan(transactions)
     return plan
 end
 
-function TestProtocolV11.testAllGateA2VectorsDecodeAndExpandDiagnostics()
+function TestProtocolV12.testAllGateA2VectorsDecodeAndExpandDiagnostics()
     for _, name in ipairs({ "f-opening", "fg", "fg-ixion-chaos", "fg-anomaly", "automatic-boss" }) do
         local plan, errorMessage = protocol.decode(decode(name))
         lu.assertNotNil(plan, errorMessage)
-        lu.assertEquals(plan.protocolVersion, 11)
+        lu.assertEquals(plan.protocolVersion, 12)
         lu.assertNotNil(plan.occurrences[1].diagnostics.roomEntered)
     end
 end
 
-function TestProtocolV11.testProtocolAcceptsTaggedNullsFromAnIndependentDecoderModule()
+function TestProtocolV12.testProtocolAcceptsTaggedNullsFromAnIndependentDecoderModule()
     local plan, errorMessage = protocol.decode(decodeWithIndependentJsonModule("f-opening"))
     lu.assertNotNil(plan, errorMessage)
 end
 
-function TestProtocolV11.testOpaqueOwnerReferencesAreLocalAndLaterContactsAreRejected()
+function TestProtocolV12.testOpaqueOwnerReferencesAreLocalAndLaterContactsAreRejected()
     local value = decode("f-opening")
     local room = value.occurrences[1]
     room.timeline.dependencies[1] = { owner = "missing", afterOwner = room.timeline.transactions[1].owner }
@@ -164,7 +164,7 @@ function TestProtocolV11.testOpaqueOwnerReferencesAreLocalAndLaterContactsAreRej
     lu.assertNil(protocol.decode(value))
 end
 
-function TestProtocolV11.testNestedSemanticOwnersUseTheOwnerSpecificBound()
+function TestProtocolV12.testNestedSemanticOwnersUseTheOwnerSpecificBound()
     local owner = string.rep("o", 420)
     local value = minimalPlan({ {
         kind = "acquisition",
@@ -184,7 +184,7 @@ function TestProtocolV11.testNestedSemanticOwnersUseTheOwnerSpecificBound()
     lu.assertNil(protocol.decode(value))
 end
 
-function TestProtocolV11.testForcedShortageTraitOfferSelectsAnExistingOption()
+function TestProtocolV12.testForcedShortageTraitOfferSelectsAnExistingOption()
     local offer = traitOffer()
     offer.options = { { key = "one" } }
     offer.selected = "option1"
@@ -208,7 +208,7 @@ function TestProtocolV11.testForcedShortageTraitOfferSelectsAnExistingOption()
     lu.assertNil(protocol.decode(value))
 end
 
-function TestProtocolV11.testRecomputedFingerprintCannotHideClosedUnionViolations()
+function TestProtocolV12.testRecomputedFingerprintCannotHideClosedUnionViolations()
     local value = decode("automatic-boss")
     local transaction = automatic(value)
     transaction.source = "not-valid-on-judgment"
@@ -236,7 +236,7 @@ function TestProtocolV11.testRecomputedFingerprintCannotHideClosedUnionViolation
     lu.assertNil(protocol.decode(value))
 end
 
-function TestProtocolV11.testEveryTimelineTransactionUnionDecodes()
+function TestProtocolV12.testEveryTimelineTransactionUnionDecodes()
     local transactions = {
         {
             kind = "acquisition",
@@ -325,6 +325,7 @@ function TestProtocolV11.testEveryTimelineTransactionUnionDecodes()
             source = "source",
             target = "target",
             rarity = "Rare",
+            blessingValues = { damageBonus = 0.7 },
             window = window("encounterEnd"),
         },
         {

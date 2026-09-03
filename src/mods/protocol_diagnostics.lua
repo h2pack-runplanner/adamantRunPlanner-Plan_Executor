@@ -448,7 +448,7 @@ local function validatePendingKeepsakes(value, label)
             record.transcendentEmbryo,
             {
                 "origin", "rarity", "progress", "markedBlessingKey",
-                "markedBlessingAcquisitionIdentity",
+                "markedBlessingValues", "markedBlessingAcquisitionIdentity",
             },
             {},
             label .. ".transcendentEmbryo"
@@ -464,6 +464,11 @@ local function validatePendingKeepsakes(value, label)
             ) then
             return p.fail(label .. " has invalid Embryo state")
         end
+        local _, valuesError = p.recordNumbers(
+            embryo.markedBlessingValues,
+            label .. ".markedBlessingValues"
+        )
+        if valuesError then return nil, valuesError end
     end
     return true
 end

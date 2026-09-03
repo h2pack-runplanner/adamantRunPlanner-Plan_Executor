@@ -6,7 +6,8 @@ local function traitKey(value) return type(value) == "table" and (value.Name or 
 function hooks.attach(module, data, getState, report)
     local adapter = import("mods/native_timeline_adapters.lua")
     local nativeFacts = import("mods/native_fact_bindings.lua")
-    local startDepth, equipScope, hexScope, treeScope = 0, nil, nil, nil
+    local chaos = import("mods/chaos.lua")
+    local startDepth, equipScope, hexScope, treeScope, embryoContext = 0, nil, nil, nil, nil
 
     local function enforcing(runtime)
         local state = getState(runtime)
@@ -21,7 +22,11 @@ function hooks.attach(module, data, getState, report)
         if kind == "jeweledPom" then
             return { traitKey = traitKey(result), rarity = type(result) == "table" and result.Rarity or nil }
         end
-        return { blessingKey = traitKey(result) }
+        local key = traitKey(result)
+        return {
+            blessingKey = key,
+            blessingValues = chaos.blessingValues(result, key),
+        }
     end
     local function traitWithKey(key)
         for _, trait in pairs((_G.CurrentRun and _G.CurrentRun.Hero and _G.CurrentRun.Hero.Traits) or {}) do
@@ -80,7 +85,27 @@ function hooks.attach(module, data, getState, report)
         local result = base(args); recordEquipResult(runtime, "experimentalHammer", result); return result
     end)
     module.hooks.wrap("AddRandomChaosBlessing", "execution-v11-equip-embryo-result", function(_, runtime, base, rarity)
-        local result = base(rarity); recordEquipResult(runtime, "transcendentEmbryo", result); return result
+        local expected = equipScope and equipScope.expected and equipScope.expected.transcendentEmbryo
+        local prior = embryoContext
+        if expected ~= nil then
+            embryoContext = {
+                target = expected.blessingKey,
+                rarity = rarity,
+                blessingValues = expected.blessingValues,
+            }
+        end
+        local ok, result = pcall(base, rarity)
+        embryoContext = prior
+        if not ok then error(result, 0) end
+        recordEquipResult(runtime, "transcendentEmbryo", result)
+        return result
+    end)
+    module.hooks.wrap("GetProcessedTraitData", "execution-v12-equip-embryo-values", function(_, _, base, args)
+        local result = base(args)
+        if type(args) ~= "table" or type(result) ~= "table" or embryoContext == nil then return result end
+        if args.TraitName ~= embryoContext.target then return result end
+        result.Rarity = embryoContext.rarity
+        return chaos.applyBlessing(result, embryoContext.target, embryoContext.blessingValues)
     end)
     module.hooks.wrap("GetRandomArrayValue", "execution-v11-equip-selection", function(_, runtime, base, values, rng)
         if not enforcing(runtime) then return base(values, rng) end

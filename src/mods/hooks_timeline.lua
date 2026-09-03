@@ -117,6 +117,7 @@ function hooks.attach(module, session, getState, report)
     local pendingTrait
     local pendingLevel
     local embryoTarget
+    local embryoContext
     local bossScope
     local arcanaQueue
     local pendingProduced = {}
@@ -613,7 +614,12 @@ function hooks.attach(module, session, getState, report)
     module.hooks.wrap("GetProcessedTraitData", "execution-v10-chaos-values", function(_, _, base, args)
         local result = base(args)
         local context = chaosContext
-        if context == nil or type(args) ~= "table" or type(result) ~= "table" then return result end
+        if type(args) ~= "table" or type(result) ~= "table" then return result end
+        if context == nil and embryoContext ~= nil and args.TraitName == embryoContext.target then
+            result.Rarity = embryoContext.rarity
+            return chaos.applyBlessing(result, embryoContext.target, embryoContext.blessingValues)
+        end
+        if context == nil then return result end
         if args.TraitName == context.curseKey then
             result.RemainingUses = context.requirementCount
             if context.curseValues then
@@ -695,18 +701,24 @@ function hooks.attach(module, session, getState, report)
         return result
     end)
 
-    module.hooks.wrap("AddRandomChaosBlessing", "execution-v10-embryo", function(_, runtime, base, rarity)
+    module.hooks.wrap("AddRandomChaosBlessing", "execution-v12-embryo", function(_, runtime, base, rarity)
         local state = getState(runtime)
         local current = session.current(state)
         local phase = current and current.window:match("^encounterEnd:(.+)$")
         local row = phase and adapter.automatic(current.bindings, "transcendentEmbryo", phase) or nil
         embryoTarget = row and row.node.target or nil
-        local result = base(row and row.node.rarity or rarity)
+        embryoContext = row and row.node or nil
+        local ok, result = pcall(base, row and row.node.rarity or rarity)
         embryoTarget = nil
+        embryoContext = nil
+        if not ok then error(result, 0) end
         if row then
             session.complete(state, row, adapter.verifyAutomatic(row, {
                 target = type(result) == "table" and (result.Name or result.TraitName) or result,
                 rarity = type(result) == "table" and result.Rarity or nil,
+                blessingValues = type(result) == "table"
+                    and chaos.blessingValues(result, type(result) == "table" and (result.Name or result.TraitName) or result)
+                    or nil,
             }), row.node, result)
         end
         report(runtime)

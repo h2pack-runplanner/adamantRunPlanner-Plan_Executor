@@ -6,6 +6,7 @@ local timeline = {}
 
 local function same(left, right)
     if type(left) ~= type(right) then return false end
+    if type(left) == "number" then return math.abs(left - right) < 0.0000001 end
     if type(left) ~= "table" then return left == right end
     for key, value in pairs(left) do if not same(value, right[key]) then return false end end
     for key in pairs(right) do if left[key] == nil then return false end end
@@ -348,9 +349,14 @@ end
 function timeline.verifyAutomatic(row, observed)
     local node = row and row.node
     if node == nil or node.kind ~= "automatic" then return false end
-    if node.effect == "steadyGrowth" or node.effect == "transcendentEmbryo" then
+    if node.effect == "steadyGrowth" then
         return type(observed) == "table" and observed.target == node.target
             and (node.rarity == nil or observed.rarity == node.rarity)
+    end
+    if node.effect == "transcendentEmbryo" then
+        return type(observed) == "table" and observed.target == node.target
+            and observed.rarity == node.rarity
+            and same(observed.blessingValues, node.blessingValues)
     end
     if node.effect == "judgment" or node.effect == "crystalFigurine" then
         return type(observed) == "table" and same(observed.arcanaKeys, node.arcanaKeys)

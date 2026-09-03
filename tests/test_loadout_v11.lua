@@ -183,12 +183,13 @@ function TestLoadoutV11.testAttachedKeepsakeContactsRecordHammerAndEmbryoResults
     for _, case in ipairs({
         { key = "TempHammerKeepsake", result = { experimentalHammer = { kind = "selected", traitKey = "HammerTrait" } }, contact = "GiveDurationHammer", nested = "AddRandomHammer", value = { Name = "HammerTrait" } },
         { key = "TempHammerKeepsake", result = { experimentalHammer = { kind = "exhausted" } }, contact = "GiveDurationHammer", nested = "AddRandomHammer", value = nil },
-        { key = "RandomBlessingKeepsake", result = { transcendentEmbryo = { blessingKey = "ChaosBlessing" } }, contact = "ChaosBlessingBonus", nested = "AddRandomChaosBlessing", value = { Name = "ChaosBlessing" } },
+        { key = "RandomBlessingKeepsake", result = { transcendentEmbryo = { blessingKey = "ChaosWeaponBlessing", blessingValues = { damageBonus = 0.35 } } }, contact = "ChaosBlessingBonus", nested = "AddRandomChaosBlessing", value = { Name = "ChaosWeaponBlessing", AddOutgoingDamageModifiers = { ValidWeaponMultiplier = 1.35 } }, processed = true },
+        { key = "RandomBlessingKeepsake", result = { transcendentEmbryo = { blessingKey = "ChaosExSpeedBlessing", blessingValues = { propertySpeed = 0.72, weaponSpeed = 0.83 } } }, contact = "ChaosBlessingBonus", nested = "AddRandomChaosBlessing", value = { Name = "ChaosExSpeedBlessing", PropertyChanges = { {} }, WeaponSpeedMultiplier = {} }, processed = true, processedData = { Name = "ChaosExSpeedBlessing", PropertyChanges = { { ChangeValue = 0.91 } }, WeaponSpeedMultiplier = { Value = 0.97 } }, processedExpect = { propertySpeed = 0.72, weaponSpeed = 0.83 } },
     }) do
         _G.GameState = { LastWeaponUpgradeName = { WeaponStaffSwing = "BaseStaffAspect" }, LastAwardTrait = case.key, ShrineUpgrades = {}, MetaUpgradeState = {} }
         _G.CurrentRun = { Hero = { TraitDictionary = { BaseStaffAspect = true } } }
         _G.GetEquippedWeapon = function() return "WeaponStaffSwing" end
-        local state, callbacks = startState(case.key, case.result), nil
+        local state, callbacks, processedResult = startState(case.key, case.result), nil, nil
         callbacks = captureLoadoutHooks(state)
         local result = callbacks.StartNewRun(nil, {}, function()
             callbacks.CreateNewHero(nil, {}, function() return {} end, nil, {})
@@ -196,8 +197,17 @@ function TestLoadoutV11.testAttachedKeepsakeContactsRecordHammerAndEmbryoResults
                 callbacks[case.contact](nil, {}, function()
                     return callbacks[case.nested](nil, {}, function()
                         if case.value == nil then return nil end
-                        return callbacks.GetRandomArrayValue(nil, {}, function(values) return values[1] end,
+                        local selected = callbacks.GetRandomArrayValue(nil, {}, function(values) return values[1] end,
                             { { Name = "Wrong" }, case.value })
+                        if not case.processed then return selected end
+                        processedResult = callbacks.GetProcessedTraitData(nil, {}, function()
+                            if case.processedData ~= nil then return case.processedData end
+                            return {
+                                Name = selected.Name,
+                                AddOutgoingDamageModifiers = { ValidWeaponMultiplier = 1.1 },
+                            }
+                        end, { TraitName = selected.Name })
+                        return processedResult
                     end)
                 end)
             end, {}, case.key, {})
@@ -205,6 +215,10 @@ function TestLoadoutV11.testAttachedKeepsakeContactsRecordHammerAndEmbryoResults
         end, nil, {})
         lu.assertNotNil(result)
         lu.assertEquals(state.state, "synchronized")
+        if case.processedExpect ~= nil then
+            lu.assertEquals(processedResult.PropertyChanges[1].ChangeValue, case.processedExpect.propertySpeed)
+            lu.assertEquals(processedResult.WeaponSpeedMultiplier.Value, case.processedExpect.weaponSpeed)
+        end
     end
     _G.GameState, _G.CurrentRun, _G.GetEquippedWeapon = priorGame, priorRun, priorWeapon
 end

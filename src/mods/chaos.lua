@@ -183,6 +183,10 @@ function chaos.matchesBlessing(data, blessingKey, rarity, values)
         and sameValues(blessingValues(data, blessingKey), values)
 end
 
+function chaos.blessingValues(data, blessingKey)
+    return blessingValues(data, blessingKey)
+end
+
 function chaos.clock(data)
     if data.UsesAsEncounters then return "encounters" end
     if data.UsesAsRooms then return "locations" end

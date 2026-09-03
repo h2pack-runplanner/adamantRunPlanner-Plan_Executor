@@ -228,3 +228,21 @@ function TestNativeAdapters.testKeepsakeReaderUsesNativeCardAndTimePieceFields()
     lu.assertEquals(observed.callingCard, { remainingCharges = 1 })
     lu.assertEquals(observed.timePiece, { remainingCharges = 0 })
 end
+
+function TestNativeAdapters.testEmbryoAutomaticComparisonIncludesExactBlessingValues()
+    local row = {
+        node = {
+            kind = "automatic", effect = "transcendentEmbryo", target = "ChaosWeaponBlessing",
+            rarity = "Epic", blessingValues = { damageBonus = 0.7 },
+        },
+    }
+    lu.assertTrue(adapters.verifyAutomatic(row, {
+        target = "ChaosWeaponBlessing", rarity = "Epic", blessingValues = { damageBonus = 0.7 },
+    }))
+    lu.assertFalse(adapters.verifyAutomatic(row, {
+        target = "ChaosWeaponBlessing", rarity = "Epic", blessingValues = { damageBonus = 0.8 },
+    }))
+    lu.assertFalse(adapters.verifyAutomatic(row, {
+        target = "ChaosWeaponBlessing", rarity = "Epic",
+    }))
+end
