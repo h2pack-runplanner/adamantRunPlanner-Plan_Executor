@@ -1,7 +1,9 @@
 -- luacheck: globals TestRuntimeSession
 local lu = require("luaunit")
 local runtime = require("mods/runtime_session")
-local route = require("mods/route_session")
+local route = require("mods.route.session")
+local room = require("mods.room.coordinator")
+local timeline = require("mods.native_timeline_adapters")
 
 TestRuntimeSession = {}
 
@@ -33,8 +35,11 @@ end
 local function state(contact)
     local row = occurrence(contact)
     local plan = { occurrences = { row }, occurrencesById = { one = row }, selectedOccurrenceIds = { "one" } }
-    local value = { state = "synchronized", route = route.new(plan), diagnostics = {} }
-    assert(runtime.enter(value, "one", "F_Test"))
+    local value = { state = "synchronized", route = route.new(plan), room = room.new(plan, nil, {
+        timelineIndex = timeline.index,
+    }), diagnostics = {} }
+    local entered = assert(route.enter(value.route, "one", "F_Test"))
+    assert(room.enter(value, entered))
     return value
 end
 
@@ -44,29 +49,28 @@ function TestRuntimeSession.testEveryFallbackContactAcceptsPreferredAndFallbackB
             availabilityContact = contact, preferredKey = "preferred", fallbackKey = "fallback",
         }
         local preferred = state(contact)
-        local owner = preferred.route.current.bindings.owner.owner
+        local owner = preferred.room.current.bindings.owner.owner
         local key, row = runtime.resolveFallback(preferred, owner, contact, relation,
             function(candidate) return candidate == "preferred" end, {})
         lu.assertEquals(key, "preferred")
         lu.assertTrue(runtime.complete(preferred, row, true))
-        lu.assertTrue(preferred.route.current.completedOwners.owner)
+        lu.assertTrue(preferred.room.current.completedOwners.owner)
 
         local fallback = state(contact)
-        owner = fallback.route.current.bindings.owner.owner
+        owner = fallback.room.current.bindings.owner.owner
         key, row = runtime.resolveFallback(fallback, owner, contact, relation,
             function(candidate) return candidate == "fallback" end, {})
         lu.assertEquals(key, "fallback")
         lu.assertTrue(runtime.complete(fallback, row, true))
-        lu.assertTrue(fallback.route.current.completedOwners.owner)
+        lu.assertTrue(fallback.room.current.completedOwners.owner)
 
         local neither = state(contact)
-        owner = neither.route.current.bindings.owner.owner
+        owner = neither.room.current.bindings.owner.owner
         lu.assertNil(runtime.resolveFallback(neither, owner, contact, relation,
             function() return false end, {}))
         lu.assertEquals(neither.state, "desynchronized")
-        lu.assertNil(neither.route.current.completedOwners.owner)
-        lu.assertNil(runtime.current(neither))
-        lu.assertNil(runtime.expectedOccurrence(neither))
+        lu.assertNil(neither.room.current.completedOwners.owner)
+        lu.assertNil(room.current(neither))
     end
 end
 
@@ -108,21 +112,23 @@ function TestRuntimeSession.testStartingPhaseExposesOnlyTheBoundedStartingOccurr
     local value = {}
     lu.assertTrue(runtime.start(value, { load = function() return true, plan end }, "starting"))
     lu.assertEquals(value.state, "starting")
-    lu.assertEquals(runtime.expectedStartingOccurrence(value), row)
-    lu.assertNil(runtime.expectedOccurrence(value))
-    lu.assertNil(runtime.current(value))
+    lu.assertEquals(route.expected(value.route), row)
+    lu.assertNil(room.current(value))
 end
 
 function TestRuntimeSession.testPreparedDestinationBindingsAreReusedWhenTheRoomStarts()
     local row = occurrence("storePurchase")
     local plan = { occurrences = { row }, occurrencesById = { one = row }, selectedOccurrenceIds = { "one" } }
-    local value = { state = "synchronized", route = route.new(plan), diagnostics = {} }
+    local value = { state = "synchronized", route = route.new(plan), room = room.new(plan, nil, {
+        timelineIndex = timeline.index,
+    }), diagnostics = {} }
 
-    local prepared = runtime.prepareOccurrence(value, "one")
+    local prepared = room.prepare(value, row)
     lu.assertNotNil(prepared)
     prepared.bindings.destinationWitness = true
 
-    lu.assertNotNil(runtime.enter(value, "one", "F_Test"))
-    lu.assertTrue(value.route.current.bindings.destinationWitness)
-    lu.assertNil(value.preparedOccurrence)
+    local entered = assert(route.enter(value.route, "one", "F_Test"))
+    lu.assertNotNil(room.enter(value, entered))
+    lu.assertTrue(value.room.current.bindings.destinationWitness)
+    lu.assertNil(value.room.prepared)
 end

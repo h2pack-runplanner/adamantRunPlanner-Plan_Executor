@@ -1,4 +1,4 @@
--- Source-backed F/G room-exit readers.  These functions project native run
+-- Source-backed F/G room-exit readers. These functions project native run
 -- ownership into the already-decoded expected shape; they do not reconstruct
 -- planner chronology or action provenance.
 local chaos = type(import) == "function" and import("mods/chaos.lua") or require("mods/chaos")
@@ -7,6 +7,10 @@ local nativeFacts = type(import) == "function" and import("mods/native_fact_bind
     or require("mods/native_fact_bindings")
 local conformanceBindings = nativeFacts.conformance
 local readers = {}
+local supported = {
+    steadyGrowth = true, chaos = true, keepsakeEffects = true,
+    rewardPriorities = true, pathOfStars = true, forfeit = true, stygianWell = true,
+}
 
 local function traitKey(value)
     return type(value) == "table" and (value.Name or value.TraitName) or value
@@ -167,6 +171,10 @@ function readers.read(kind, run, gameState, expected)
     if kind == "forfeit" then return forfeit(run) end
     if kind == "stygianWell" then return stygianWell(run) end
     return nil
+end
+
+function readers.supports(kind)
+    return supported[kind] == true
 end
 
 function readers.diagnostic(run)

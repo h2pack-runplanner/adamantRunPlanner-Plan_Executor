@@ -19,9 +19,15 @@ end
 function logic.attach(module, data)
     data.session.defineCache(module)
     local loadoutHooks = import("mods/loadout/hooks.lua")
-    local roomHooks = import("mods/hooks_rooms.lua")
+    local route = import("mods/route/session.lua")
+    local room = import("mods/room/coordinator.lua")
+    local roomHooks = import("mods/room/hooks.lua")
+    local encounterHooks = import("mods/room/encounter_hooks.lua")
+    local roomFeatureHooks = import("mods/room/features/hooks.lua")
+    local navigationHooks = import("mods/navigation/hooks.lua")
     local timelineHooks = import("mods/hooks_timeline.lua")
-    local featureHooks = import("mods/hooks_features.lua")
+    local featureInventoryHooks = import("mods/room/features/inventory_hooks.lua")
+    local featureInteractionHooks = import("mods/room/timeline/feature_interactions.lua")
 
     local function getState(runtime) return data.session.get(runtime) end
     local function diagnosticValue(value, depth)
@@ -55,11 +61,15 @@ function logic.attach(module, data)
         end
     end
 
-    loadoutHooks.attach(module, data, getState, report)
+    loadoutHooks.attach(module, data, getState, report, room)
 
-    roomHooks.attach(module, data.session, getState, report)
-    timelineHooks.attach(module, data.session, getState, report)
-    featureHooks.attach(module, data.session, getState, report)
+    local producedRewards = timelineHooks.attach(module, data.session, getState, report, room)
+    local featureScope = roomFeatureHooks.attach(module, data.session, getState, report, room)
+    local navigation = navigationHooks.attach(module, data.session, getState, report, route, room, producedRewards)
+    roomHooks.attach(module, data.session, getState, report, route, room, featureScope, navigation)
+    encounterHooks.attach(module, data.session, getState, report, room)
+    local inventoryBindings = featureInventoryHooks.attach(module, data.session, getState, report, room, route)
+    featureInteractionHooks.attach(module, data.session, getState, report, room, inventoryBindings)
 end
 
 return logic

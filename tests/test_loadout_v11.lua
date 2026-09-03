@@ -1,7 +1,7 @@
 local lu = require("luaunit")
 local native = require("mods/loadout/native")
 local session = require("mods/loadout/session")
-local roomHooks = require("mods/hooks_rooms")
+local roomHooks = require("mods.room.hooks")
 local loadoutHooks = require("mods/loadout/hooks")
 local loadoutProtocol = require("mods/loadout/protocol")
 local json = require("mods/json")
@@ -39,7 +39,8 @@ local function captureLoadoutHooks(state)
         end,
     }
     local getState = type(state) == "function" and state or function() return state end
-    loadoutHooks.attach(module, { session = sessionAdapter, loadout = session, inbox = {} }, getState, function() end)
+    loadoutHooks.attach(module, { session = sessionAdapter, loadout = session, inbox = {} }, getState,
+        function() end, sessionAdapter)
     _G.import = priorImport
     return callbacks
 end
@@ -391,10 +392,20 @@ function TestLoadoutV11.testStartingRoomIsOptimisticallyRealizedDuringLoadout()
     local priorGame = _G.game
     _G.game = { CreateRoom = function(data) return data end }
     local state = { state = "starting" }
+    local occurrence = { id = "opening", gameName = "F_Opening01" }
+    local route = { expected = function() return occurrence end }
     local roomSession = {
-        realizeStartingRoom = function() realized = true; return { Name = "F_Opening01" } end,
+        realize = function(_, value)
+            lu.assertEquals(value, occurrence)
+            realized = true
+            return { Name = "F_Opening01" }
+        end,
     }
-    roomHooks.attach(module, roomSession, function() return state end, function() end)
+    roomHooks.attach(module, roomSession, function() return state end, function() end,
+        route, roomSession, nil, {
+            realizeIncomingReward = function(_, nativeRoom) return nativeRoom end,
+            proveIncomingReward = function() return true end,
+        })
     local result = callbacks.ChooseStartingRoom(nil, {}, function() nativeStarted = true; return { Name = "Native" } end, {}, {})
     lu.assertEquals(result, { Name = "F_Opening01" })
     lu.assertTrue(realized)

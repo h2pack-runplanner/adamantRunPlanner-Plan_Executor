@@ -3,10 +3,11 @@ local hooks = {}
 
 local function traitKey(value) return type(value) == "table" and (value.Name or value.TraitName) or value end
 
-function hooks.attach(module, data, getState, report)
+function hooks.attach(module, data, getState, report, room)
     local adapter = import("mods/native_timeline_adapters.lua")
     local nativeFacts = import("mods/native_fact_bindings.lua")
     local chaos = import("mods/chaos.lua")
+    local roomCoordinator = room
     local startDepth, equipScope, hexScope, treeScope, embryoContext = 0, nil, nil, nil, nil
 
     local function enforcing(runtime)
@@ -56,7 +57,7 @@ function hooks.attach(module, data, getState, report)
     end
     local function expectedEquip(state, keepsakeKey)
         if startDepth > 0 then return state.plan and state.plan.startingKeepsake.equipResults end
-        local current = data.session.current(state)
+        local current = roomCoordinator.current(state)
         local row = current and adapter.lookup(current.bindings, "keepsake", keepsakeKey)
         return row and row.node.equipResults, row
     end

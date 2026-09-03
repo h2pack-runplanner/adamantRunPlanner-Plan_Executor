@@ -78,13 +78,13 @@ local function authoredTraitOption(row, offer, itemData)
     return nil
 end
 
-local function currentIndex(session, state)
-    local current = session.current(state)
+local function currentIndex(room, state)
+    local current = room.current(state)
     return current and current.bindings or nil
 end
 
-local function incomingRow(session, state, native)
-    local current = session.current(state)
+local function incomingRow(room, session, state, native)
+    local current = room.current(state)
     if current == nil then return nil end
     local reward = current.occurrence.overview.incomingReward
     if reward == nil then return nil end
@@ -112,7 +112,8 @@ local function resolveTraitFallback(session, state, row, native)
     return row
 end
 
-function hooks.attach(module, session, getState, report)
+function hooks.attach(module, session, getState, report, room)
+    local roomCoordinator = room
     local chaosContext
     local pendingTrait
     local pendingLevel
@@ -121,6 +122,7 @@ function hooks.attach(module, session, getState, report)
     local bossScope
     local arcanaQueue
     local pendingProduced = {}
+    local pendingRewardSelection
     local pendingSeaStar
     local pendingSimple
     local nemesisSpawnDepth = 0
@@ -130,10 +132,10 @@ function hooks.attach(module, session, getState, report)
     local unwrappedSourceKey
 
     local function interactionRow(state, source)
-        local current = session.current(state)
+        local current = roomCoordinator.current(state)
         if current == nil then return nil end
-        local room = _G.CurrentRun and _G.CurrentRun.CurrentRoom
-        local encounter = room and room.Encounter
+        local nativeRoom = _G.CurrentRun and _G.CurrentRun.CurrentRoom
+        local encounter = nativeRoom and nativeRoom.Encounter
         local name = type(encounter) == "table" and (encounter.Name or encounter.EncounterName) or nil
         name = name or type(source) == "table" and (source.EncounterName or source.Name) or nil
         for _, phase in ipairs(current.occurrence.overview.encounterPhases or {}) do
@@ -150,9 +152,9 @@ function hooks.attach(module, session, getState, report)
     end
 
     local function childFor(state, source, kind)
-        local current = session.current(state)
+        local current = roomCoordinator.current(state)
         local sourceRow = adapter.bound(current and current.bindings, source)
-            or incomingRow(session, state, source)
+            or incomingRow(roomCoordinator, session, state, source)
         local sourceRole = adapter.sourceRole(sourceRow, source and source.Name)
         local child = current and adapter.produced(current.bindings, sourceRow, sourceRole)
         if child and child.detail and child.detail.producer
@@ -182,26 +184,10 @@ function hooks.attach(module, session, getState, report)
         end)
     end
 
-    module.hooks.wrap("SetupRoomReward", "execution-v10-reward-source", function(_, runtime, base, currentRun,
-        nativeRoom, prior, args)
-        local state = getState(runtime)
-        local occurrenceId = type(nativeRoom) == "table" and nativeRoom.__runPlannerExecutionRoomId or nil
-        local occurrence = occurrenceId and state.plan and state.plan.occurrencesById[occurrenceId] or nil
-        local reward = occurrence and occurrence.overview.incomingReward
-        local result = base(currentRun, nativeRoom, prior, args)
-        if reward and type(nativeRoom) == "table" then
-            if reward.source ~= nil then nativeRoom.ForceLootName = reward.source end
-            if reward.spurnedSource and type(nativeRoom.Encounter) == "table" then
-                nativeRoom.Encounter.LootAName = reward.source
-                nativeRoom.Encounter.LootBName = reward.spurnedSource
-            end
-        end
-        return result
-    end)
-
     module.hooks.wrap("UseLoot", "execution-v10-use-loot", function(_, runtime, base, usee, args, user)
         local state = getState(runtime)
-        local row = adapter.bound(currentIndex(session, state), usee) or incomingRow(session, state, usee)
+        local row = adapter.bound(currentIndex(roomCoordinator, state), usee)
+            or incomingRow(roomCoordinator, session, state, usee)
         if row == nil then return base(usee, args, user) end
         row = resolveTraitFallback(session, state, row, usee)
         if row == nil then report(runtime); return base(usee, args, user) end
@@ -228,8 +214,8 @@ function hooks.attach(module, session, getState, report)
 
     module.hooks.wrap("UseConsumableItem", "execution-v10-use-consumable", function(_, runtime, base, item, args, user)
         local state = getState(runtime)
-        local index = currentIndex(session, state)
-        local row = adapter.bound(index, item) or incomingRow(session, state, item)
+        local index = currentIndex(roomCoordinator, state)
+        local row = adapter.bound(index, item) or incomingRow(roomCoordinator, session, state, item)
         local originalUseFunctionArgs
         local carriesDirectLevel = false
         if row ~= nil then
@@ -315,7 +301,7 @@ function hooks.attach(module, session, getState, report)
     module.hooks.wrap("SpawnRoomReward", "execution-v10-bind-room-reward", function(_, runtime, base, source, args)
         local result = base(source, args)
         local state = getState(runtime)
-        incomingRow(session, state, result)
+        incomingRow(roomCoordinator, session, state, result)
         return result
     end)
 
@@ -325,7 +311,7 @@ function hooks.attach(module, session, getState, report)
         local sourceRow, child = childFor(state, target, "artificerReplacement")
         if child == nil then return base(target) end
         pendingProduced[target.ObjectId] = child
-        session.expectRewardSelection(state, child)
+        pendingRewardSelection = child
         local result = base(target)
         session.complete(state, sourceRow, true)
         report(runtime)
@@ -346,7 +332,7 @@ function hooks.attach(module, session, getState, report)
     local function bindProduced(state, sourceId, result)
         local child = sourceId and pendingProduced[sourceId] or pendingSeaStar and pendingSeaStar.child
         if child and result then
-            local current = session.current(state)
+            local current = roomCoordinator.current(state)
             adapter.bind(current and current.bindings, child, result)
         end
     end
@@ -363,7 +349,7 @@ function hooks.attach(module, session, getState, report)
         local result = base(args)
         local state = getState(runtime)
         if unwrappedTraitRow ~= nil and result ~= nil then
-            local current = session.current(state)
+            local current = roomCoordinator.current(state)
             local row, errorValue = adapter.materialized(current and current.bindings,
                 unwrappedTraitRow, result.Name, result)
             if errorValue ~= nil then
@@ -380,7 +366,7 @@ function hooks.attach(module, session, getState, report)
 
     module.hooks.wrap("UnwrapRandomLoot", "execution-v10-mystery-boon-source", function(_, runtime, base, source)
         local state = getState(runtime)
-        local current = session.current(state)
+        local current = roomCoordinator.current(state)
         local prior = unwrappedTraitRow
         local priorSource = unwrappedSourceKey
         unwrappedTraitRow = adapter.bound(current and current.bindings, source)
@@ -409,8 +395,8 @@ function hooks.attach(module, session, getState, report)
     module.hooks.wrap("CreateBoonLootButtons", "execution-v10-trait-screen", function(_, runtime, base, screen,
         lootData, reroll, args)
         local state = getState(runtime)
-        local row = adapter.bound(currentIndex(session, state), lootData)
-            or (pendingTrait and pendingTrait.row) or incomingRow(session, state, lootData)
+        local row = adapter.bound(currentIndex(roomCoordinator, state), lootData)
+            or (pendingTrait and pendingTrait.row) or incomingRow(roomCoordinator, session, state, lootData)
         if row ~= nil then
             lootData.__runPlannerTimelineRow = row
             local _, offer = adapter.expectedTrait(row)
@@ -683,7 +669,7 @@ function hooks.attach(module, session, getState, report)
 
     module.hooks.wrap("AddRarityToTraits", "execution-v10-steady-growth", function(_, runtime, base, source, args)
         local state = getState(runtime)
-        local current = session.current(state)
+        local current = roomCoordinator.current(state)
         local phase = current and current.window:match("^encounterEnd:(.+)$")
         local row = phase and adapter.automatic(current.bindings, "steadyGrowth", phase) or nil
         if row and type(args) == "table" then
@@ -703,7 +689,7 @@ function hooks.attach(module, session, getState, report)
 
     module.hooks.wrap("AddRandomChaosBlessing", "execution-v12-embryo", function(_, runtime, base, rarity)
         local state = getState(runtime)
-        local current = session.current(state)
+        local current = roomCoordinator.current(state)
         local phase = current and current.window:match("^encounterEnd:(.+)$")
         local row = phase and adapter.automatic(current.bindings, "transcendentEmbryo", phase) or nil
         embryoTarget = row and row.node.target or nil
@@ -717,7 +703,8 @@ function hooks.attach(module, session, getState, report)
                 target = type(result) == "table" and (result.Name or result.TraitName) or result,
                 rarity = type(result) == "table" and result.Rarity or nil,
                 blessingValues = type(result) == "table"
-                    and chaos.blessingValues(result, type(result) == "table" and (result.Name or result.TraitName) or result)
+                    and chaos.blessingValues(result,
+                        type(result) == "table" and (result.Name or result.TraitName) or result)
                     or nil,
             }), row.node, result)
         end
@@ -734,12 +721,12 @@ function hooks.attach(module, session, getState, report)
 
     module.hooks.wrap("Kill", "execution-v10-boss-defeated", function(_, runtime, base, victim, args)
         local state = getState(runtime)
-        local current = session.current(state)
+        local current = roomCoordinator.current(state)
         local prior = bossScope
         if victim and victim.IsBoss and current then
             local phase = current.occurrence.overview.encounterPhases[1]
             bossScope = phase and { state = state, current = current, phaseKey = phase.slotKey } or nil
-            if bossScope then session.window(state, "bossDefeated:" .. bossScope.phaseKey) end
+            if bossScope then roomCoordinator.window(state, "bossDefeated:" .. bossScope.phaseKey) end
         end
         local ok, result = pcall(base, victim, args)
         bossScope = prior
@@ -791,6 +778,17 @@ function hooks.attach(module, session, getState, report)
         end
         return base(values)
     end)
+
+    -- Generated acquisitions may ask the native room-reward chooser for a
+    -- second reward. Navigation owns that native structural contact; this
+    -- narrow capability exposes only the already-resolved pending override.
+    return {
+        takeRewardSelection = function()
+            local pending = pendingRewardSelection
+            pendingRewardSelection = nil
+            return pending
+        end,
+    }
 end
 
 return hooks

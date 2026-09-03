@@ -1,22 +1,52 @@
--- luacheck: globals TestNativeCheckpointsV10
+-- luacheck: globals TestRoomNavigationStructure
 local lu = require("luaunit")
-local overview = require("mods/native_overview")
-local doors = require("mods/native_doors")
-local nativeFacts = require("mods/native_fact_bindings")
+local overview = require("mods.room.overview")
+local encounters = require("mods.room.encounters")
+local features = require("mods.room.features.structure")
+local rewards = require("mods.navigation.rewards")
+local doors = require("mods.navigation.doors")
+local navigationHooks = require("mods.navigation.hooks")
+local timelineHooks = require("mods.hooks_timeline")
+local featureBindings = require("mods.room.features.native_bindings")
+local rewardBindings = require("mods.navigation.native_bindings")
 
-TestNativeCheckpointsV10 = {}
+TestRoomNavigationStructure = {}
 
-function TestNativeCheckpointsV10.testNativeFactVocabularyIsClosedAndDoesNotTranslatePlannerAddresses()
-    lu.assertEquals(nativeFacts.overview.features, {
+local function captureHooks()
+    local callbacks = {}
+    return {
+        hooks = {
+            wrap = function(name, _, callback) callbacks[name] = callback end,
+        },
+    }, callbacks
+end
+
+local function proveOverview(item, native, nativeContext)
+    return overview.prove(item, native)
+        and rewards.prove(item, native)
+        and encounters.prove(item, native)
+        and features.prove(item, native, nativeContext)
+end
+
+local function realizeOverview(item, game, native)
+    local result = assert(overview.realize(item, game, native))
+    rewards.realize(item, result)
+    features.realize(item, result)
+    return result
+end
+
+function TestRoomNavigationStructure.testNativeFactVocabularyIsClosedAndDoesNotTranslatePlannerAddresses()
+    lu.assertEquals(featureBindings.features, {
         stygianWell = { carrier = "roomField", key = "WellShop" },
         purgingPool = { carrier = "roomField", key = "SellTraitShop" },
         keepsakeRack = { carrier = "obstacleUseFunction", key = "UseKeepsakeRack" },
         fountain = { carrier = "obstacleUseFunction", key = "UseHealthFountain" },
         shop = { carrier = "roomField", key = "StoreDataName" },
     })
-    lu.assertNil(nativeFacts.exitKey)
-    lu.assertNil(nativeFacts.owner)
-    lu.assertNil(nativeFacts.generationKey)
+    lu.assertEquals(rewardBindings.logicalRoomAcquisitions, { InfernalContractBoon = true })
+    lu.assertNil(featureBindings.exitKey)
+    lu.assertNil(featureBindings.owner)
+    lu.assertNil(featureBindings.generationKey)
 end
 
 local function occurrence()
@@ -60,77 +90,104 @@ local function context()
     }
 end
 
-function TestNativeCheckpointsV10.testOverviewProvesConstructionAndBindsPublishedFacts()
+function TestRoomNavigationStructure.testRoomEntryComponentsProveThePublishedOverview()
     local item = occurrence()
     local native = room()
-    lu.assertTrue(overview.prove(item, native, context()))
-    local bound = overview.bind(item, native)
-    lu.assertNotNil(bound.resources.ore)
-    lu.assertNotNil(bound.additional.chaos)
-    lu.assertNil(overview.prove(item, native, { hasObject = function() return false end }))
+    lu.assertTrue(proveOverview(item, native, context()))
+    lu.assertNil(features.prove(item, native, { hasObject = function() return false end }))
 end
 
-function TestNativeCheckpointsV10.testResourceRealizationWinsOverCreateRoomRandomFields()
+function TestRoomNavigationStructure.testResourceRealizationWinsOverCreateRoomRandomFields()
     local item = occurrence()
     local native = room()
     native.PickaxePointSuccess = false
-    overview.applyResources(item, native)
-    lu.assertTrue(overview.prove(item, native, context()))
+    features.realize(item, native)
+    lu.assertTrue(proveOverview(item, native, context()))
     native.PickaxePointSuccess = false
-    lu.assertNil(overview.prove(item, native, context()))
+    lu.assertNil(features.prove(item, native, context()))
 end
 
-function TestNativeCheckpointsV10.testRoomsWithoutPlannedResourceSuccessSuppressAndRejectRandomSuccesses()
+function TestRoomNavigationStructure.testRoomsWithoutPlannedResourceSuccessSuppressAndRejectRandomSuccesses()
     local item = occurrence()
     item.overview.resources = nil
     local native = room()
     native.PickaxePointSuccess = true
 
-    overview.applyResources(item, native)
+    features.realize(item, native)
 
     lu.assertFalse(native.PickaxePointSuccess)
     lu.assertFalse(native.ExorcismPointSuccess)
     lu.assertFalse(native.ShovelPointSuccess)
     lu.assertFalse(native.FishingPointSuccess)
-    lu.assertTrue(overview.prove(item, native, context()))
+    lu.assertTrue(proveOverview(item, native, context()))
     native.PickaxePointSuccess = true
-    lu.assertNil(overview.prove(item, native, context()))
+    lu.assertNil(features.prove(item, native, context()))
 end
 
-function TestNativeCheckpointsV10.testOverviewRealizationReplacesRandomInputsButKeepsNativeFields()
+function TestRoomNavigationStructure.testRoomRealizationReplacesRandomInputsButKeepsNativeFields()
     local item = occurrence()
     local game = { RoomData = { F_Test = { NativeOnly = "keep" } } }
-    local realized = assert(overview.realize(item, game, { RandomNative = true }))
+    local realized = realizeOverview(item, game, { RandomNative = true })
     lu.assertEquals(realized.NativeOnly, "keep")
     lu.assertTrue(realized.RandomNative)
     lu.assertEquals(realized.__runPlannerExecutionRoomId, item.id)
     lu.assertNil(realized.ChosenRewardType)
     lu.assertNil(realized.EncounterPhases)
     lu.assertNil(realized.ObjectIds)
-    lu.assertEquals(overview.chooseEncounter(item, "Other"), nil)
-    lu.assertEquals(overview.chooseEncounter(item, "Encounter"), "Fight")
+    lu.assertEquals(encounters.choose(item, "Other"), nil)
+    lu.assertEquals(encounters.choose(item, "Encounter"), "Fight")
     realized.ChosenRewardType = "Boon"
     realized.Encounter = { Name = "Fight" }
     realized.WellShop = {}
     realized.SellTraitShop = {}
     realized.StoreDataName = "WorldShop"
-    lu.assertTrue(overview.prove(item, realized, context()))
+    lu.assertTrue(proveOverview(item, realized, context()))
 end
 
-function TestNativeCheckpointsV10.testOverviewRejectsAStaleNativeChosenReward()
+function TestRoomNavigationStructure.testIncomingRewardRejectsAStaleNativeChoice()
     local item = occurrence()
     local native = room()
     native.ChosenRewardType = "WeaponUpgrade"
-    lu.assertNil(overview.prove(item, native))
+    lu.assertNil(rewards.prove(item, native))
 end
 
-function TestNativeCheckpointsV10.testLogicalContractAcquisitionDoesNotReplaceItsNativeMetaReward()
+function TestRoomNavigationStructure.testIntermediateRewardReturnWaitsForRoomEntryProof()
+    local item = occurrence()
+    local module, callbacks = captureHooks()
+    local state = {
+        state = "synchronized",
+        plan = { occurrencesById = { target = item } },
+    }
+    local session = {
+        current = function() return { occurrence = item } end,
+    }
+    local producedRewards = timelineHooks.attach(module, session, function() return state end, function() end,
+        session)
+    navigationHooks.attach(module, session, function() return state end, function() end,
+        { reportDestination = function() return true end }, session, producedRewards)
+
+    local nativeRoom = room()
+    nativeRoom.__runPlannerExecutionRoomId = "target"
+    local intermediate = callbacks.ChooseRoomReward(nil, {}, function()
+        return "WeaponUpgrade"
+    end, {}, nativeRoom, "RunProgress", {}, {})
+
+    lu.assertEquals(intermediate, "WeaponUpgrade")
+    lu.assertNil(state.firstMismatch)
+
+    nativeRoom.ChosenRewardType = "WeaponUpgrade"
+    local ok, errorValue = rewards.prove(item, nativeRoom)
+    lu.assertNil(ok)
+    lu.assertEquals(errorValue.kind, "incomingReward")
+end
+
+function TestRoomNavigationStructure.testLogicalContractAcquisitionDoesNotReplaceItsNativeMetaReward()
     local item = occurrence()
     item.gameName = "C_Boss01"
     item.overview.incomingReward = { rewardType = "InfernalContractBoon" }
     local game = { RoomData = { C_Boss01 = { ForcedReward = "GemPointsBigDrop" } } }
 
-    local realized = assert(overview.realize(item, game))
+    local realized = realizeOverview(item, game)
 
     lu.assertEquals(realized.ForcedReward, "GemPointsBigDrop")
     lu.assertNil(realized.RewardType)
@@ -139,17 +196,17 @@ function TestNativeCheckpointsV10.testLogicalContractAcquisitionDoesNotReplaceIt
     realized.WellShop = {}
     realized.SellTraitShop = {}
     realized.StoreDataName = "WorldShop"
-    lu.assertTrue(overview.prove(item, realized, context()))
+    lu.assertTrue(proveOverview(item, realized, context()))
 end
 
-function TestNativeCheckpointsV10.testEffectNeutralRequiredRewardPreservesAndAcceptsNativeBossDrop()
+function TestRoomNavigationStructure.testEffectNeutralRequiredRewardPreservesAndAcceptsNativeBossDrop()
     local item = occurrence()
     item.gameName = "F_Boss01"
     item.overview.incomingReward = nil
     item.overview.effectNeutralRequiredReward = true
     local game = { RoomData = { F_Boss01 = { ForcedReward = "MixerFBossDrop" } } }
 
-    local realized = assert(overview.realize(item, game))
+    local realized = realizeOverview(item, game)
 
     lu.assertEquals(realized.ForcedReward, "MixerFBossDrop")
     lu.assertNil(realized.RewardType)
@@ -158,12 +215,12 @@ function TestNativeCheckpointsV10.testEffectNeutralRequiredRewardPreservesAndAcc
     realized.WellShop = {}
     realized.SellTraitShop = {}
     realized.StoreDataName = "WorldShop"
-    lu.assertTrue(overview.prove(item, realized, context()))
+    lu.assertTrue(proveOverview(item, realized, context()))
     realized.ChosenRewardType = nil
-    lu.assertNil(overview.prove(item, realized, context()))
+    lu.assertNil(rewards.prove(item, realized))
 end
 
-function TestNativeCheckpointsV10.testDoorsProveOrderTargetsRewardsAndTerminal()
+function TestRoomNavigationStructure.testDoorsProveOrderTargetsRewardsAndTerminal()
     local item = occurrence()
     local native = { sharedRewardStoreKey = "RunProgress",
         { Room = { GenusName = "F_One", ChosenRewardType = "Boon" } },
@@ -176,7 +233,40 @@ function TestNativeCheckpointsV10.testDoorsProveOrderTargetsRewardsAndTerminal()
     lu.assertNil(doors.prove(item, native))
 end
 
-function TestNativeCheckpointsV10.testDoorRealizationOverwritesRandomRowsAndChoosesPublishedTarget()
+function TestRoomNavigationStructure.testNavigationProvesTheCompleteAdditionalDoorSet()
+    local item = occurrence()
+    local expected = item.overview.additional[1]
+    local specialRoom = {
+        Name = expected.room.gameName,
+        __runPlannerExecutionRoomId = expected.room.id,
+        __runPlannerExecutionAdditionalOwner = expected.owner,
+        __runPlannerExecutionAdditionalKind = expected.kind,
+    }
+    local specialDoor = { Room = specialRoom }
+    doors.bindAdditional(specialDoor, expected)
+
+    lu.assertTrue(doors.proveAdditional(item, { specialDoor }))
+
+    local ok, errorValue = doors.proveAdditional(item, {})
+    lu.assertNil(ok)
+    lu.assertEquals(errorValue.kind, "additionalCount")
+
+    ok, errorValue = doors.proveAdditional(item, { specialDoor, specialDoor })
+    lu.assertNil(ok)
+    lu.assertEquals(errorValue.kind, "additionalCount")
+
+    specialRoom.__runPlannerExecutionRoomId = "wrong-occurrence"
+    ok, errorValue = doors.proveAdditional(item, { specialDoor })
+    lu.assertNil(ok)
+    lu.assertEquals(errorValue.kind, "additionalBinding")
+
+    item.overview.additional = nil
+    ok, errorValue = doors.proveAdditional(item, { specialDoor })
+    lu.assertNil(ok)
+    lu.assertEquals(errorValue.kind, "additionalCount")
+end
+
+function TestRoomNavigationStructure.testDoorRealizationOverwritesRandomRowsAndChoosesPublishedTarget()
     local item = occurrence()
     local game = { RoomData = { F_One = { GenusName = "wrong" }, F_Two = { GenusName = "wrong" } } }
     local realized = doors.realize(item, { { NativeOnly = true }, { Other = true } }, game)
@@ -187,7 +277,7 @@ function TestNativeCheckpointsV10.testDoorRealizationOverwritesRandomRowsAndChoo
     lu.assertEquals(doors.chooseNext(item, game, 2).GenusName, "F_Two")
 end
 
-function TestNativeCheckpointsV10.testDoorRealizationPreservesAndRequiresNativeBossReward()
+function TestRoomNavigationStructure.testDoorRealizationPreservesAndRequiresNativeBossReward()
     local item = occurrence()
     item.doors = { kind = "fixed", target = {
         id = "boss", biomeKey = "F", gameName = "F_Boss01",

@@ -1,9 +1,9 @@
--- luacheck: globals TestRoomSessionsV10
+-- luacheck: globals TestRouteRoomSessions
 local lu = require("luaunit")
-local room = require("mods/room_session")
-local route = require("mods/route_session")
+local room = require("mods.room.session")
+local route = require("mods.route.session")
 
-TestRoomSessionsV10 = {}
+TestRouteRoomSessions = {}
 
 local function occurrence()
     local optional, required, dependent = "optional", "required", "dependent"
@@ -22,7 +22,7 @@ local function occurrence()
     }
 end
 
-function TestRoomSessionsV10.testOptionalOwnerDoesNotBlockClosureButBlocksItsDependent()
+function TestRouteRoomSessions.testOptionalOwnerDoesNotBlockClosureButBlocksItsDependent()
     local session = room.new(occurrence())
     lu.assertTrue(room.openWindow(session, "roomEntered"))
     lu.assertNil(room.complete(session, "dependent"))
@@ -31,18 +31,24 @@ function TestRoomSessionsV10.testOptionalOwnerDoesNotBlockClosureButBlocksItsDep
     local closeable = room.new(occurrence())
     room.openWindow(closeable, "roomEntered")
     lu.assertTrue(room.complete(closeable, "required"))
-    lu.assertTrue(room.close(closeable, function() return "inactive" end))
+    lu.assertTrue(room.close(closeable, function() return true end))
 end
 
-function TestRoomSessionsV10.testConformanceMismatchIsAtomicAndBlocking()
+function TestRouteRoomSessions.testConformanceMismatchIsAtomicAndBlocking()
     local session = room.new(occurrence())
     lu.assertTrue(room.complete(session, "required"))
-    lu.assertNil(room.close(session, function() return "consumed" end))
+    lu.assertNil(room.close(session, function()
+        return nil, {
+            checkpoint = "room-exit-conformance:forfeit",
+            expected = "inactive",
+            observed = "consumed",
+        }
+    end))
     lu.assertFalse(session.closed)
     lu.assertEquals(session.firstMismatch.checkpoint, "room-exit-conformance:forfeit")
 end
 
-function TestRoomSessionsV10.testObligationAndDiagnosticRemainSeparate()
+function TestRouteRoomSessions.testObligationAndDiagnosticRemainSeparate()
     local session = room.new(occurrence())
     lu.assertNil(room.checkpoint(session, "roomExit"))
     lu.assertEquals(session.firstMismatch.checkpoint, "obligation:roomExit")
@@ -52,15 +58,14 @@ function TestRoomSessionsV10.testObligationAndDiagnosticRemainSeparate()
     lu.assertNil(routeState.firstMismatch)
 end
 
-function TestRoomSessionsV10.testTerminalPrefixIgnoresLaterRoomEntry()
+function TestRouteRoomSessions.testTerminalPrefixIgnoresLaterRoomEntry()
     local state = route.new({ selectedOccurrenceIds = { "one" }, occurrencesById = { one = occurrence() } })
     lu.assertNotNil(route.enter(state, "one", "F_Test"))
-    lu.assertTrue(room.complete(state.current, "required"))
-    lu.assertTrue(route.exit(state, function() return "inactive" end))
+    lu.assertTrue(route.exit(state))
     lu.assertTrue(route.enter(state, "unsupported", "H_Opening"))
 end
 
-function TestRoomSessionsV10.testBoundOwnerTypoMismatchesButDeclaredIncidentalDoesNot()
+function TestRouteRoomSessions.testBoundOwnerTypoMismatchesButDeclaredIncidentalDoesNot()
     local session = room.new(occurrence())
     lu.assertNil(room.complete(session, "requred"))
     lu.assertEquals(session.firstMismatch.checkpoint, "transaction-owner")
@@ -69,11 +74,11 @@ function TestRoomSessionsV10.testBoundOwnerTypoMismatchesButDeclaredIncidentalDo
     lu.assertNil(incidental.firstMismatch)
 end
 
-function TestRoomSessionsV10.testClosedRoomDisposesEveryPublicOperation()
+function TestRouteRoomSessions.testClosedRoomDisposesEveryPublicOperation()
     local session = room.new(occurrence())
     room.openWindow(session, "roomEntered")
     lu.assertTrue(room.complete(session, "required"))
-    lu.assertTrue(room.close(session, function() return "inactive" end))
+    lu.assertTrue(room.close(session, function() return true end))
     lu.assertNil(room.openWindow(session, "afterCombat"))
     lu.assertNil(room.complete(session, "optional"))
     lu.assertNil(room.incidental(session))
@@ -81,7 +86,7 @@ function TestRoomSessionsV10.testClosedRoomDisposesEveryPublicOperation()
     lu.assertNil(room.checkpoint(session, "roomExit"))
 end
 
-function TestRoomSessionsV10.testEveryPublishedLifecycleWindowAndCheckpointIsUsable()
+function TestRouteRoomSessions.testEveryPublishedLifecycleWindowAndCheckpointIsUsable()
     local windows = {
         { kind = "standard", phase = "beforeCombat", open = "roomEntered" },
         { kind = "standard", phase = "afterCombat", open = "afterCombat" },
@@ -108,7 +113,7 @@ function TestRoomSessionsV10.testEveryPublishedLifecycleWindowAndCheckpointIsUsa
     end
 end
 
-function TestRoomSessionsV10.testOutgoingGenerationDoesNotCloseTheAfterCombatWindow()
+function TestRouteRoomSessions.testOutgoingGenerationDoesNotCloseTheAfterCombatWindow()
     local afterCombatOwner = "after-combat"
     local postOutgoingOwner = "post-outgoing"
     local entry = occurrence()
@@ -133,7 +138,7 @@ function TestRoomSessionsV10.testOutgoingGenerationDoesNotCloseTheAfterCombatWin
     lu.assertTrue(room.complete(session, postOutgoingOwner))
 end
 
-function TestRoomSessionsV10.testRouteRefusesOverlapThenAdvancesExactlyOnce()
+function TestRouteRoomSessions.testRouteRefusesOverlapThenAdvancesExactlyOnce()
     local first, second = occurrence(), occurrence()
     second.id, second.gameName = "two", "F_Next"
     local plan = { selectedOccurrenceIds = { "one", "two" }, occurrencesById = { one = first, two = second } }
@@ -143,7 +148,7 @@ function TestRoomSessionsV10.testRouteRefusesOverlapThenAdvancesExactlyOnce()
     lu.assertEquals(state.index, 1)
 end
 
-function TestRoomSessionsV10.testRouteAdvancesAcrossSelectedOccurrences()
+function TestRouteRoomSessions.testRouteAdvancesAcrossSelectedOccurrences()
     local first, second = occurrence(), occurrence()
     second.id, second.gameName = "two", "F_Next"
     local plan = {
@@ -152,8 +157,20 @@ function TestRoomSessionsV10.testRouteAdvancesAcrossSelectedOccurrences()
     }
     local state = route.new(plan)
     lu.assertNotNil(route.enter(state, "one", "F_Test"))
-    lu.assertTrue(room.complete(state.current, "required"))
-    lu.assertTrue(route.exit(state, function() return "inactive" end))
+    lu.assertTrue(route.reportDestination(state, "two"))
+    lu.assertTrue(route.exit(state))
     lu.assertEquals(state.index, 2)
     lu.assertNotNil(route.enter(state, "two", "F_Next"))
+end
+
+function TestRouteRoomSessions.testRouteRejectsAnUnpublishedDestination()
+    local first, second = occurrence(), occurrence()
+    second.id, second.gameName = "two", "F_Next"
+    local state = route.new({
+        selectedOccurrenceIds = { "one", "two" },
+        occurrencesById = { one = first, two = second },
+    })
+    lu.assertNotNil(route.enter(state, "one", "F_Test"))
+    lu.assertNil(route.reportDestination(state, "other"))
+    lu.assertEquals(state.firstMismatch.checkpoint, "door-selection")
 end

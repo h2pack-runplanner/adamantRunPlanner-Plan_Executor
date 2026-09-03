@@ -1,7 +1,7 @@
 -- luacheck: globals TestNativeAdapters
 local lu = require("luaunit")
 local adapters = require("mods/native_timeline_adapters")
-local readers = require("mods/native_conformance")
+local readers = require("mods.room.conformance.readers")
 
 TestNativeAdapters = {}
 
@@ -196,6 +196,17 @@ function TestNativeAdapters.testReachableReadersProjectNativeState()
     })
     lu.assertNil(readers.read("echoShopDuplicate", run))
     lu.assertNil(readers.read("hermesShrineDeliveries", run))
+end
+
+function TestNativeAdapters.testStygianWellReaderRetainsIxionAndDurationStateExactlyOnce()
+    local run = { Hero = { Traits = {
+        { Name = "TemporaryForcedSecretDoorTrait", RemainingUses = 2 },
+        { Name = "TemporaryDiscountTrait", RemainingUses = 4 },
+    } } }
+    lu.assertEquals(readers.read("stygianWell", run), {
+        sparkUses = 2, yarnUses = 0, hymnUses = 0, discountUses = { 4 },
+        emptySlotUses = {}, extendedUses = 0,
+    })
 end
 
 function TestNativeAdapters.testKeepsakeReaderDerivesMutableFigurineStateFromNativeTraits()

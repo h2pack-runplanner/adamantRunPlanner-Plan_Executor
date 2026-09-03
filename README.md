@@ -4,7 +4,7 @@ Plan Executor is the thin Hades II consumer of the standalone Run Planner's
 execution-only JSON. It does not plan, simulate, or reinterpret a project.
 
 The module reads the fixed `active.runplanner.json` slot under the
-ReturnOfModding configuration, strictly decodes the bounded v10 Underworld F
+ReturnOfModding configuration, strictly decodes the bounded v12 Underworld F
 or F/G execution contract, and freezes it only when a new run starts. It
 follows the selected Room Occurrence cursor and reconciles Overview,
 consequential owners, lifecycle obligations, sparse room-exit state, and
@@ -27,6 +27,17 @@ seam status is explicitly unexecuted rather than inferred from Lua tests.
 
 The checked-in execution fixtures mirror RunPlanner-main's compiler fixtures
 byte for byte.
+
+The sole outer cursor lives in `src/mods/route/`; one volatile occurrence
+session lives in `src/mods/room/`. `src/mods/navigation/` is stateless and owns
+only destination Doors, their rewards, native Door bindings, and reporting the
+selected destination to the route session. Room identity, encounters, feature
+presence, lifecycle windows, and Timeline obligations remain inside the room
+envelope or their owning adapters. Within it, `room/features/` owns structural
+feature spawning and native inventories, `room/conformance/` owns room-exit
+readers and proof, and `room/timeline/` owns interactions with already-realized
+features. A `navigation/biomes/` subdirectory is added only when a biome
+contributes genuinely exceptional transition structure.
 
 Use the desktop Run Planner's **Publish to Game** action. The browser build
 cannot publish directly. The archived `archive/phase9-prototype/` directory is

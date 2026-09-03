@@ -1,4 +1,4 @@
--- Deterministic World Shop, Stygian Well, and Purging Pool construction from
+-- Deterministic room-feature inventory construction from
 -- the active occurrence Overview. Vanilla still owns costs and item records.
 local inventory = {}
 

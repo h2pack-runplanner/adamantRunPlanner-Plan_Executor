@@ -1,4 +1,4 @@
--- Occurrence-local reconciliation.  This module intentionally has no native
+-- Inner-room occurrence reconciliation. This module intentionally has no native
 -- API knowledge: hooks bind an opaque published owner and report one proof.
 local roomSession = {}
 
@@ -59,7 +59,7 @@ function roomSession.openWindow(session, window)
     return true
 end
 
-function roomSession.complete(session, owner, _outcome)
+function roomSession.ready(session, owner)
     if session.closed then return mismatch(session, "room-session", "open session", "closed") end
     if session.firstMismatch ~= nil then return nil, session.firstMismatch end
     local transaction = session.occurrence.transactionsByOwner[owner]
@@ -87,6 +87,12 @@ function roomSession.complete(session, owner, _outcome)
             return mismatch(session, "transaction-prerequisite", prerequisite, owner)
         end
     end
+    return true
+end
+
+function roomSession.complete(session, owner, _outcome)
+    local ready, errorValue = roomSession.ready(session, owner)
+    if not ready then return nil, errorValue end
     -- The adapter verifies its own published outcome before reporting this
     -- owner.  This session owns only atomic owner/window/dependency state.
     session.completedOwners[owner] = true
@@ -123,14 +129,14 @@ function roomSession.checkpoint(session, checkpoint)
     return true
 end
 
-function roomSession.close(session, readConformance)
+function roomSession.close(session, proveConformance)
     local ok, errorValue = roomSession.checkpoint(session, "roomExit")
     if not ok then return nil, errorValue end
-    for _, fact in ipairs((session.occurrence.roomExitConformance or {}).facts or {}) do
-        local expected = session.occurrence.conformanceExpected and session.occurrence.conformanceExpected[fact.kind]
-        local observed = readConformance and readConformance(fact.kind) or nil
-        if expected == nil or observed == nil or not equal(expected, observed) then
-            return mismatch(session, "room-exit-conformance:" .. fact.kind, expected, observed)
+    if proveConformance ~= nil then
+        local conformed, conformanceError = proveConformance()
+        if not conformed then
+            return mismatch(session, conformanceError.checkpoint,
+                conformanceError.expected, conformanceError.observed)
         end
     end
     session.closed = true
