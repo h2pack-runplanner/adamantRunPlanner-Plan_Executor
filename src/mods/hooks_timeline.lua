@@ -16,13 +16,42 @@ local function findTrait(key)
     return nil
 end
 
-local function keepSelectedTraitOptionAvailable(screen, offer)
+local function authoredOptionIndex(optionKey)
+    return type(optionKey) == "string" and tonumber(optionKey:match("(%d+)$")) or nil
+end
+
+local function realizedTraitKey(row, offer, index)
+    local option = offer.options and offer.options[index]
+    if option == nil then return nil end
+    if row and row.realizedKey and index == authoredOptionIndex(offer.selected) then
+        return row.realizedKey
+    end
+    return option.key
+end
+
+local function physicalTraitIndex(lootData, row, offer, optionKey)
+    local authoredIndex = authoredOptionIndex(optionKey)
+    local traitKey = authoredIndex and realizedTraitKey(row, offer, authoredIndex)
+    if traitKey == nil then return nil end
+    for index, option in ipairs(lootData and lootData.UpgradeOptions or {}) do
+        if option.ItemName == traitKey then return index end
+    end
+    return nil
+end
+
+local function alignBlockedTraitOption(screen, lootData, row, offer)
     if type(screen) ~= "table" or type(screen.BlockedIndexes) ~= "table"
         or type(offer) ~= "table" or type(offer.options) ~= "table" then
         return
     end
-    local selectedIndex = type(offer.selected) == "string"
-        and tonumber(offer.selected:match("(%d+)$")) or nil
+
+    local rejectedIndex = physicalTraitIndex(lootData, row, offer, offer.rejected)
+    if rejectedIndex ~= nil then
+        screen.BlockedIndexes = { rejectedIndex }
+        return
+    end
+
+    local selectedIndex = physicalTraitIndex(lootData, row, offer, offer.selected)
     if selectedIndex == nil then return end
 
     local selectedBlockPosition
@@ -40,6 +69,13 @@ local function keepSelectedTraitOptionAvailable(screen, offer)
         end
     end
     table.remove(screen.BlockedIndexes, selectedBlockPosition)
+end
+
+local function authoredTraitOption(row, offer, itemData)
+    for index, option in ipairs(offer.options or {}) do
+        if realizedTraitKey(row, offer, index) == itemData.ItemName then return option end
+    end
+    return nil
 end
 
 local function currentIndex(session, state)
@@ -125,6 +161,26 @@ function hooks.attach(module, session, getState, report)
         return sourceRow, nil
     end
 
+    local function attachNpcTraitChoice(functionName, giver)
+        module.hooks.wrap(functionName, "execution-v10-npc-trait-offer", function(_, runtime, base, source,
+            args, screen)
+            local state = getState(runtime)
+            local row = interactionRow(state, source)
+            local resolution = row and row.node and row.node.resolution
+            if resolution and resolution.kind == "traitOffer" and resolution.offer.giver == giver then
+                row = resolveTraitFallback(session, state, row, source)
+                if row ~= nil and adapter.applyNpcTraitOffer(row, args) then
+                    pendingTrait = { row = row, source = source }
+                elseif row ~= nil then
+                    session.mismatch(state, "npc-trait-offer", "published " .. giver .. " trait offer", nil)
+                end
+            end
+            local result = base(source, args, screen)
+            report(runtime)
+            return result
+        end)
+    end
+
     module.hooks.wrap("SetupRoomReward", "execution-v10-reward-source", function(_, runtime, base, currentRun,
         nativeRoom, prior, args)
         local state = getState(runtime)
@@ -173,6 +229,8 @@ function hooks.attach(module, session, getState, report)
         local state = getState(runtime)
         local index = currentIndex(session, state)
         local row = adapter.bound(index, item) or incomingRow(session, state, item)
+        local originalUseFunctionArgs
+        local carriesDirectLevel = false
         if row ~= nil then
             local materialized, errorValue = adapter.materialized(index, row, item.Name, item)
             if errorValue ~= nil then
@@ -184,10 +242,48 @@ function hooks.attach(module, session, getState, report)
             for _, role in ipairs(row.node and row.node.roles or {}) do
                 if role ~= row.detail then terminal = false end
             end
-            if terminal then pendingSimple = { row = row, source = item, gameName = item.Name } end
+            if terminal and row.detail.levelResolution ~= nil then
+                originalUseFunctionArgs = item.UseFunctionArgs
+                item.UseFunctionArgs = {}
+                for key, value in pairs(originalUseFunctionArgs or {}) do item.UseFunctionArgs[key] = value end
+                item.UseFunctionArgs.__runPlannerTimelineRow = row
+                carriesDirectLevel = true
+            elseif terminal then
+                pendingSimple = { row = row, source = item, gameName = item.Name }
+            end
         end
         local result = base(item, args, user)
+        if carriesDirectLevel then item.UseFunctionArgs = originalUseFunctionArgs end
         report(runtime)
+        return result
+    end)
+
+    module.hooks.wrap("AddStackToTraits", "execution-v10-direct-level", function(_, runtime, base, source, args)
+        local directArgs = args or source
+        local row = type(directArgs) == "table" and directArgs.__runPlannerTimelineRow or nil
+        local resolution = row and row.detail and row.detail.levelResolution or nil
+        if resolution == nil then return base(source, args) end
+
+        local threadedDispatch = directArgs.Thread == true
+        local target = type(resolution.selectedTarget) == "string" and resolution.selectedTarget or nil
+        local trait = target and findTrait(target) or nil
+        if target ~= nil and trait == nil then
+            local state = getState(runtime)
+            session.complete(state, row, false, resolution, target)
+            report(runtime)
+            return nil
+        end
+
+        directArgs.TraitName = target
+        directArgs.NumTraits = target == nil and 0 or 1
+        directArgs.NumStacks = resolution.levelCount
+        local before = trait and (trait.StackNum or 1) or nil
+        local result = base(source, args)
+        if not threadedDispatch then
+            local state = getState(runtime)
+            session.complete(state, row, adapter.verifyLevel(row, target, before, heroTraits()), resolution, target)
+            report(runtime)
+        end
         return result
     end)
 
@@ -322,22 +418,12 @@ function hooks.attach(module, session, getState, report)
         return base(screen, lootData, reroll, args)
     end)
 
-    module.hooks.wrap("NarcissusBenefitChoice", "execution-v10-narcissus-benefit", function(_, runtime, base, source,
-        args, screen)
-        local state = getState(runtime)
-        local row = interactionRow(state, source)
-        local resolution = row and row.node and row.node.resolution
-        if resolution and resolution.kind == "traitOffer" and resolution.offer.giver == "Narcissus" then
-            if not adapter.applyTraitOffer(row, args) then
-                session.mismatch(state, "narcissus-benefit", "published trait offer", nil)
-            else
-                pendingTrait = { row = row, source = source }
-            end
-        end
-        local result = base(source, args, screen)
-        report(runtime)
-        return result
-    end)
+    attachNpcTraitChoice("ArachneCostumeChoice", "Arachne")
+    attachNpcTraitChoice("NarcissusBenefitChoice", "Narcissus")
+    attachNpcTraitChoice("MedeaCurseChoice", "Medea")
+    attachNpcTraitChoice("CirceBlessingChoice", "Circe")
+    attachNpcTraitChoice("IcarusBenefitChoice", "Icarus")
+    attachNpcTraitChoice("EchoChoice", "Echo")
 
     module.hooks.wrap("SpawnNemesisForRandomEvents", "execution-v10-nemesis-spawn", function(_, _, base, source, args)
         nemesisSpawnDepth = nemesisSpawnDepth + 1
@@ -509,10 +595,10 @@ function hooks.attach(module, session, getState, report)
                 end
             end
         elseif offer and type(offer.options) == "table" then
-            keepSelectedTraitOptionAvailable(screen, offer)
-            if offer.options[itemIndex] == nil then return base(screen, lootData, itemIndex, itemData, args) end
-            local option = offer.options[itemIndex]
-            itemData.ItemName, itemData.Rarity, itemData.StackNum = option.key, option.rarity, option.effectiveLevel
+            if itemIndex == 1 then alignBlockedTraitOption(screen, lootData, row, offer) end
+            local option = authoredTraitOption(row, offer, itemData)
+            if option == nil then return base(screen, lootData, itemIndex, itemData, args) end
+            itemData.Rarity, itemData.StackNum = option.rarity, option.effectiveLevel
             if option.replacement then
                 itemData.TraitToReplace = option.replacement.replacedTraitKey
                 itemData.OldRarity = option.replacement.oldRarity

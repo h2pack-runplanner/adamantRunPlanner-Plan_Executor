@@ -13,7 +13,7 @@ nonblocking. The first mismatch records evidence and blocks the remaining
 configured prefix; it never searches for a replacement action.
 
 The supported F/G surface includes ordinary and fixed room links, typed reward
-generation, selected trait offers and actions, objects, Anomaly, Narcissus,
+generation, selected trait offers and actions, objects, Anomaly, Arachne, Narcissus,
 Nemesis, Zagreus Contract, and Chaos/Ixion. A Chaos additional exit carries all
 three displayed curse options, the selected curse/blessing pair, its
 acquisition, and the compiled fixed return. Run State comparison is a bounded

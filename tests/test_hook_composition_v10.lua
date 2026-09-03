@@ -3,6 +3,7 @@ local lu = require("luaunit")
 local rooms = require("mods/hooks_rooms")
 local timeline = require("mods/hooks_timeline")
 local features = require("mods/hooks_features")
+local logic = require("mods/logic")
 
 TestHookCompositionV10 = {}
 
@@ -540,6 +541,38 @@ function TestHookCompositionV10.testWorldShopCompletionUsesCurrentRoomPurchaseCo
     lu.assertTrue(completed.verified)
 end
 
+function TestHookCompositionV10.testSuccessfulNativeKeepsakeEquipCompletesTheRackTransaction()
+    local module, _, callbacks = capture()
+    local completed
+    local node = { owner = "rack", kind = "keepsakeChange", keepsakeKey = "GoldifyKeepsake" }
+    local row = { node = node }
+    local active = {
+        occurrence = { transactionsByOwner = { rack = node } },
+        bindings = {
+            keepsake = { GoldifyKeepsake = row }, owner = { rack = row }, native = {},
+        },
+    }
+    local state = { initialized = true }
+    local session = stub()
+    session.defineCache = function() end
+    session.get = function() return state end
+    session.current = function() return active end
+    session.complete = function(_, actualRow, verified)
+        completed = { row = actualRow, verified = verified }
+        return true
+    end
+    local priorImport = _G.import
+    _G.import = function(path)
+        return require((path:gsub("%.lua$", ""):gsub("/", ".")))
+    end
+    logic.attach(module, { session = session })
+    callbacks.EquipKeepsake(nil, {}, function() return true end, {}, "GoldifyKeepsake", {})
+    _G.import = priorImport
+
+    lu.assertEquals(completed.row, row)
+    lu.assertTrue(completed.verified)
+end
+
 function TestHookCompositionV10.testMysteryBoonPurchaseWaitsForItsTraitResolution()
     local module, _, callbacks = capture()
     local completed = 0
@@ -805,7 +838,75 @@ function TestHookCompositionV10.testMysteryBoonBindsItsUnwrappedSourceTraitOffer
     end, loot, {}, {})
 end
 
-function TestHookCompositionV10.testRejectedCurseCannotBlockTheAuthoredTraitOutcome()
+function TestHookCompositionV10.testEachNativeNpcChoiceFunctionBindsItsPublishedTraitOffer()
+    local contacts = {
+        ArachneCostumeChoice = "Arachne",
+        NarcissusBenefitChoice = "Narcissus",
+        MedeaCurseChoice = "Medea",
+        CirceBlessingChoice = "Circe",
+        IcarusBenefitChoice = "Icarus",
+        EchoChoice = "Echo",
+    }
+    for functionName, giver in pairs(contacts) do
+        local module, _, callbacks = capture()
+        local state = {}
+        local selected = giver .. "Selected"
+        local node = {
+            owner = giver .. "-offer", kind = "encounterInteraction",
+            resolution = {
+                kind = "traitOffer",
+                offer = {
+                    kind = "traits", giver = giver, selected = "option2",
+                    options = {
+                        { key = giver .. "First" }, { key = selected }, { key = giver .. "Third" },
+                    },
+                },
+            },
+        }
+        local row = { node = node }
+        local active = {
+            occurrence = { overview = { encounterPhases = {
+                { slotKey = "Encounter", encounterKey = giver .. "Encounter" },
+            } } },
+            bindings = { phase = { Encounter = row }, native = {} },
+        }
+        local completed
+        local session = stub()
+        session.current = function() return active end
+        session.complete = function(_, actualRow, verified)
+            completed = { row = actualRow, verified = verified }
+            return true
+        end
+        timeline.attach(module, session, function() return state end, function() end)
+        local priorRun = _G.CurrentRun
+        _G.CurrentRun = {
+            CurrentRoom = { Encounter = { Name = giver .. "Encounter" } },
+            Hero = { Traits = {} },
+        }
+        local args = { UpgradeOptions = {
+            { ItemName = giver .. "Third", Marker = 3 },
+            { ItemName = giver .. "First", Marker = 1, GameStateRequirements = { "ignored" } },
+            { ItemName = selected, Marker = 2, PriorityRequirements = { "ignored" } },
+        } }
+        callbacks[functionName](nil, {}, function(_, prepared)
+            lu.assertEquals(prepared.UpgradeOptions, {
+                { ItemName = giver .. "First", Marker = 1 },
+                { ItemName = selected, Marker = 2 },
+                { ItemName = giver .. "Third", Marker = 3 },
+            })
+            _G.CurrentRun.Hero.Traits = { { Name = selected } }
+            callbacks.HandleUpgradeChoiceSelection(nil, {}, function() return true end, {}, {
+                Data = { Name = selected },
+            }, {})
+            return true
+        end, {}, args, {})
+        _G.CurrentRun = priorRun
+        lu.assertEquals(completed.row, row, functionName)
+        lu.assertTrue(completed.verified, functionName)
+    end
+end
+
+function TestHookCompositionV10.testNativeTraitOrderRetainsAuthoredMetadataAndRejectedIdentity()
     local module, _, callbacks = capture()
     local row = {
         node = {
@@ -815,29 +916,44 @@ function TestHookCompositionV10.testRejectedCurseCannotBlockTheAuthoredTraitOutc
                 offer = {
                     kind = "traits",
                     selected = "option2",
+                    rejected = "option1",
                     options = {
                         { key = "AphroditeCastBoon", rarity = "Epic", effectiveLevel = 4 },
-                        { key = "AphroditeSpecialBoon", rarity = "Epic", effectiveLevel = 4 },
-                        { key = "AphroditeSprintBoon", rarity = "Epic", effectiveLevel = 4 },
+                        { key = "AphroditeSpecialBoon", rarity = "Rare", effectiveLevel = 2 },
+                        { key = "AphroditeSprintBoon", rarity = "Common", effectiveLevel = 1 },
                     },
                 },
             },
         },
     }
-    local loot = { __runPlannerTimelineRow = row }
+    local loot = {
+        __runPlannerTimelineRow = row,
+        UpgradeOptions = {
+            { ItemName = "AphroditeSpecialBoon" },
+            { ItemName = "AphroditeCastBoon" },
+            { ItemName = "AphroditeSprintBoon" },
+        },
+    }
     local screen = { BlockedIndexes = { 2 } }
     local seen = {}
     timeline.attach(module, stub(), function() return {} end, function() end)
 
     for index = 1, 3 do
         callbacks.CreateUpgradeChoiceButton(nil, {}, function(_, _, itemIndex, itemData)
-            seen[itemIndex] = { blocked = screen.BlockedIndexes[1], key = itemData.ItemName }
+            seen[itemIndex] = {
+                blocked = screen.BlockedIndexes[1], key = itemData.ItemName,
+                rarity = itemData.Rarity, level = itemData.StackNum,
+            }
             return {}
-        end, screen, loot, index, {}, {})
+        end, screen, loot, index, loot.UpgradeOptions[index], {})
     end
 
-    lu.assertEquals(screen.BlockedIndexes, { 1 })
-    lu.assertEquals(seen[2], { blocked = 1, key = "AphroditeSpecialBoon" })
+    lu.assertEquals(screen.BlockedIndexes, { 2 })
+    lu.assertEquals(seen, {
+        { blocked = 2, key = "AphroditeSpecialBoon", rarity = "Rare", level = 2 },
+        { blocked = 2, key = "AphroditeCastBoon", rarity = "Epic", level = 4 },
+        { blocked = 2, key = "AphroditeSprintBoon", rarity = "Common", level = 1 },
+    })
 end
 
 function TestHookCompositionV10.testIncidentalConsumableDoesNotClaimTheIncomingRewardTransaction()
@@ -875,6 +991,71 @@ function TestHookCompositionV10.testIncidentalConsumableDoesNotClaimTheIncomingR
 
     lu.assertEquals(completed, {})
     lu.assertNil(active.bindings.native[consolation])
+end
+
+function TestHookCompositionV10.testDirectConsumableLevelResolutionForcesAndCompletesThePublishedTarget()
+    local module, _, callbacks = capture()
+    local target = { Name = "ZeusWeaponBoon", StackNum = 2 }
+    local other = { Name = "ApolloSpecialBoon", StackNum = 4 }
+    local row = {
+        node = { owner = "pom-slice", kind = "shopPurchase", offerKey = "Minor", roles = {} },
+        detail = {
+            gameName = "GiftDrop",
+            levelResolution = {
+                offeredTargets = {}, selectedTarget = target.Name, levelCount = 1,
+            },
+        },
+    }
+    row.node.roles = { row.detail }
+    local item = {
+        Name = "StoreRewardRandomStack", __runPlannerOfferKey = "Minor",
+        UseFunctionArgs = { Thread = true, NumTraits = 1, NumStacks = 9 },
+    }
+    row.detail.gameName = item.Name
+    local active = {
+        occurrence = { overview = {} },
+        bindings = { offer = { Minor = row }, native = { [item] = row } },
+    }
+    local completions = {}
+    local session = stub()
+    session.current = function() return active end
+    session.complete = function(_, completedRow, verified, expected, observed)
+        completions[#completions + 1] = {
+            row = completedRow, verified = verified, expected = expected, observed = observed,
+        }
+    end
+    features.attach(module, session, function() return {} end, function() end)
+    timeline.attach(module, session, function() return {} end, function() end)
+
+    local priorRun = _G.CurrentRun
+    _G.CurrentRun = { Hero = { Traits = { target, other } } }
+    callbacks.HandleStorePurchase(nil, {}, function(_, button)
+        callbacks.UseConsumableItem(nil, {}, function(nativeItem)
+            callbacks.ConsumableUsedPresentation(nil, {}, function() return true end, _G.CurrentRun, nativeItem, {})
+            local threadedArgs = nativeItem.UseFunctionArgs
+            callbacks.AddStackToTraits(nil, {}, function(source)
+                lu.assertEquals(source.TraitName, target.Name)
+                lu.assertEquals(source.NumStacks, 1)
+                local realizedArgs = {}
+                for key, value in pairs(source) do realizedArgs[key] = value end
+                realizedArgs.Thread = false
+                callbacks.AddStackToTraits(nil, {}, function(_, directArgs)
+                    lu.assertEquals(directArgs.TraitName, target.Name)
+                    lu.assertEquals(directArgs.NumStacks, 1)
+                    target.StackNum = target.StackNum + directArgs.NumStacks
+                end, {}, realizedArgs)
+            end, threadedArgs)
+        end, button.Data, {}, {})
+    end, {}, { Data = item }, {})
+    _G.CurrentRun = priorRun
+
+    lu.assertEquals(item.UseFunctionArgs, { Thread = true, NumTraits = 1, NumStacks = 9 })
+    lu.assertEquals(target.StackNum, 3)
+    lu.assertEquals(other.StackNum, 4)
+    lu.assertEquals(#completions, 1)
+    lu.assertEquals(completions[1].row, row)
+    lu.assertTrue(completions[1].verified)
+    lu.assertEquals(completions[1].observed, target.Name)
 end
 
 function TestHookCompositionV10.testStoreFallbackUsesNativeCarrierEligibilityAtGenerationAndPurchase()
@@ -962,8 +1143,10 @@ function TestHookCompositionV10.testExplicitGateBHookGroupsStayInstalled()
     features.attach(module, session, function() end, function() end)
     for _, name in ipairs({
         "ChooseStartingRoom", "StartRoom", "DoUnlockRoomExits", "LeaveRoom",
-        "UseLoot", "HandleLootPickup", "ConvertMetaRewardPresentation", "CreateLoot", "UnwrapRandomLoot",
-        "NarcissusBenefitChoice", "SpawnNemesisForRandomEvents", "CheckAvailableTextLines",
+        "UseLoot", "UseConsumableItem", "AddStackToTraits", "HandleLootPickup",
+        "ConvertMetaRewardPresentation", "CreateLoot", "UnwrapRandomLoot",
+        "ArachneCostumeChoice", "NarcissusBenefitChoice", "MedeaCurseChoice", "CirceBlessingChoice",
+        "IcarusBenefitChoice", "EchoChoice", "SpawnNemesisForRandomEvents", "CheckAvailableTextLines",
         "NemesisTradeChoice", "NPCRewardDropPreProcess", "NPCRewardDropPreProcessArgs", "NemesisDamageContestTimer",
         "AddRandomMetaUpgrades", "FillInShopOptions", "CreateStoreButtons", "RestockWorldItem",
         "SpawnStoreItemInWorld", "RemoveStoreItem", "HandleStorePurchase",

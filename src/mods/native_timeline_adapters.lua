@@ -19,6 +19,20 @@ local function selectedOption(offer)
     return index and offer.options and offer.options[index] or nil
 end
 
+local function copyRecord(value)
+    local result = {}
+    for key, item in pairs(value or {}) do result[key] = item end
+    return result
+end
+
+local function realizedOptionKey(row, offer, index)
+    local option = offer.options and offer.options[index]
+    if option == nil then return nil end
+    local selected = type(offer.selected) == "string" and tonumber(offer.selected:match("(%d+)$")) or nil
+    if row.realizedKey and index == selected then return row.realizedKey end
+    return option.key
+end
+
 local function add(index, namespace, key, node, detail)
     if key == nil then return true end
     local rows = index[namespace]
@@ -197,16 +211,45 @@ function timeline.applyTraitOffer(row, lootData)
         return true
     end
     if offer.kind ~= "traits" then return false end
+    local existing = {}
+    for _, candidate in ipairs(lootData.UpgradeOptions or {}) do
+        if type(candidate) == "table" and candidate.ItemName ~= nil then
+            existing[candidate.ItemName] = candidate
+        end
+    end
     lootData.UpgradeOptions = {}
     for index, option in ipairs(offer.options or {}) do
-        local optionKey = option.key
-        local selected = type(offer.selected) == "string" and tonumber(offer.selected:match("(%d+)$"))
-        if row.realizedKey and index == selected then optionKey = row.realizedKey end
-        lootData.UpgradeOptions[index] = {
-            ItemName = optionKey, Rarity = option.rarity, StackNum = option.effectiveLevel,
-            TraitToReplace = option.replacement and option.replacement.replacedTraitKey or nil,
-            OldRarity = option.replacement and option.replacement.oldRarity or nil,
-        }
+        local optionKey = realizedOptionKey(row, offer, index)
+        local item = copyRecord(existing[optionKey])
+        item.ItemName = optionKey
+        if option.rarity ~= nil then item.Rarity = option.rarity end
+        if option.effectiveLevel ~= nil then item.StackNum = option.effectiveLevel end
+        item.TraitToReplace = option.replacement and option.replacement.replacedTraitKey or nil
+        item.OldRarity = option.replacement and option.replacement.oldRarity or nil
+        lootData.UpgradeOptions[index] = item
+    end
+    return true
+end
+
+function timeline.applyNpcTraitOffer(row, args)
+    local _, offer = timeline.expectedTrait(row)
+    if offer == nil or offer.kind ~= "traits" or type(args) ~= "table"
+        or type(args.UpgradeOptions) ~= "table" then
+        return false
+    end
+    local candidates = {}
+    for _, candidate in ipairs(args.UpgradeOptions) do
+        if type(candidate) == "table" and candidate.ItemName ~= nil then
+            candidates[candidate.ItemName] = candidate
+        end
+    end
+    for index in ipairs(offer.options or {}) do
+        if candidates[realizedOptionKey(row, offer, index)] == nil then return false end
+    end
+    if not timeline.applyTraitOffer(row, args) then return false end
+    for _, option in ipairs(args.UpgradeOptions) do
+        option.GameStateRequirements = nil
+        option.PriorityRequirements = nil
     end
     return true
 end

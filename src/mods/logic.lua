@@ -177,7 +177,8 @@ function logic.attach(module, data)
         equipScope = prior
         if not ok then error(result, 0) end
         if startDepth == 0 and row ~= nil then
-            state.lastKeepsakeEquip = completed
+            data.session.complete(state, row,
+                adapter.verifyKeepsake(row, key, completed.observed), row.node, key)
         end
         report(runtime)
         return result

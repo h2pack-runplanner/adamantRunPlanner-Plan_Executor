@@ -148,7 +148,9 @@ function hooks.attach(module, session, getState, report)
 
     local function completesAtPurchase(node)
         for _, role in ipairs(node and node.roles or {}) do
-            if role.lifecyclePoint ~= "purchase" then return false end
+            if role.lifecyclePoint ~= "purchase" or role.traitOffer ~= nil or role.levelResolution ~= nil then
+                return false
+            end
         end
         return true
     end
@@ -327,24 +329,6 @@ function hooks.attach(module, session, getState, report)
         local row = slot and active and adapter.lookup(active.bindings, "slot", slot) or nil
         local result = base(screen, button, args)
         if row then session.complete(state, row, adapter.verifyPool(row, slot, trait), row.node, trait) end
-        report(runtime)
-        return result
-    end)
-
-    module.hooks.wrap("KeepsakeScreenClose", "execution-v10-keepsake-change", function(_, runtime, base, screen, button)
-        local state = getState(runtime)
-        local active = current(session, state)
-        local before = _G.GameState and _G.GameState.LastAwardTrait
-        local result = base(screen, button)
-        local after = _G.GameState and _G.GameState.LastAwardTrait
-        if before ~= after and active then
-            local row = adapter.lookup(active.bindings, "keepsake", after)
-            local equip = state.lastKeepsakeEquip
-            local observed = equip and equip.key == after and equip.observed or nil
-            session.complete(state, row, adapter.verifyKeepsake(row, after, observed),
-                row and row.node, after)
-            state.lastKeepsakeEquip = nil
-        end
         report(runtime)
         return result
     end)
