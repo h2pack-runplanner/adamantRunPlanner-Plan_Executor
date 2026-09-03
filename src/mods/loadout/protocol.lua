@@ -1,4 +1,4 @@
--- Strict v13 decoder for the bounded run-start contract.
+-- Strict v14 decoder for the bounded run-start contract.
 local p = type(import) == "function" and import("mods/protocol_primitives.lua")
     or require("mods/protocol_primitives")
 

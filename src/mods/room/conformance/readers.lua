@@ -136,6 +136,20 @@ local function keepsakeEffects(run, _gameState, expected)
         gorgon = json.null, phial = json.null, figurine = json.null,
         stone = json.null, transcendentEmbryo = json.null,
     }
+    for _, source in ipairs(expected.olympianSources or {}) do
+        local trait = findTrait(run, source.keepsakeKey)
+        local rarityUpgrade = type(trait) == "table" and trait.RarityUpgradeData or nil
+        result.olympianSources[#result.olympianSources + 1] = {
+            keepsakeKey = source.keepsakeKey,
+            providerKey = source.providerKey,
+            origin = source.origin,
+            acquisitionOrder = source.acquisitionOrder,
+            remainingForceUses = type(trait) == "table" and (trait.Uses or 0) > 0 and 1 or 0,
+            remainingRarificationUses = type(rarityUpgrade) == "table"
+                and (rarityUpgrade.Uses or 0) > 0 and 1 or 0,
+            maximumSourceRarityLevel = source.maximumSourceRarityLevel,
+        }
+    end
     if expected.timePiece ~= nil and not json.isNull(expected.timePiece) then
         local trait = findTrait(run, conformanceBindings.keepsakeTraits.timePiece)
         result.timePiece = {

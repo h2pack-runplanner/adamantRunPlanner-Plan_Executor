@@ -250,6 +250,29 @@ function TestNativeAdapters.testKeepsakeReaderUsesNativeCardAndTimePieceFields()
     lu.assertEquals(observed.timePiece, { remainingCharges = 0 })
 end
 
+function TestNativeAdapters.testKeepsakeReaderUsesNativeOlympianSourceCharges()
+    local expected = {
+        olympianSources = {
+            {
+                keepsakeKey = "ForceApolloBoonKeepsake", providerKey = "Apollo", origin = "ordinary",
+                acquisitionOrder = 3, remainingForceUses = 1, remainingRarificationUses = 1,
+                maximumSourceRarityLevel = 3,
+            },
+        },
+    }
+    local run = {
+        Hero = { Traits = { {
+            Name = "ForceApolloBoonKeepsake", Uses = 1,
+            RarityUpgradeData = { Uses = 0, LootName = "ApolloUpgrade", MaxRarity = 3 },
+        } } },
+    }
+    lu.assertEquals(readers.read("keepsakeEffects", run, nil, expected).olympianSources, { {
+        keepsakeKey = "ForceApolloBoonKeepsake", providerKey = "Apollo", origin = "ordinary",
+        acquisitionOrder = 3, remainingForceUses = 1, remainingRarificationUses = 0,
+        maximumSourceRarityLevel = 3,
+    } })
+end
+
 function TestNativeAdapters.testEmbryoAutomaticComparisonIncludesExactBlessingValues()
     local row = {
         transaction = {

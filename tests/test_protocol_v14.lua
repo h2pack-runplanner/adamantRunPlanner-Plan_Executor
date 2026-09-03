@@ -1,9 +1,9 @@
--- luacheck: globals TestProtocolV13
+-- luacheck: globals TestProtocolV14
 local lu = require("luaunit")
 local json = require("mods/json")
 local protocol = require("mods/protocol")
 
-TestProtocolV13 = {}
+TestProtocolV14 = {}
 local root = "test/fixtures/execution-plan/"
 
 local function decode(name)
@@ -75,7 +75,7 @@ local function traitOffer()
         kind = "traits",
         giver = "Zeus",
         options = {
-            { key = "one" },
+            { key = "one", baseRarity = "Common", rarity = "Rare" },
             { key = "two" },
             { key = "three" },
         },
@@ -114,7 +114,7 @@ end
 local function minimalPlan(transactions)
     local plan = tagged({
         format = "run-planner-execution",
-        protocolVersion = 13,
+        protocolVersion = 14,
         catalogVersion = "0.54.0-required-boss-rewards",
         projectId = "test-project",
         planFingerprint = "00000000",
@@ -140,21 +140,21 @@ local function minimalPlan(transactions)
     return plan
 end
 
-function TestProtocolV13.testAllGateA2VectorsDecodeAndExpandDiagnostics()
+function TestProtocolV14.testAllGateA2VectorsDecodeAndExpandDiagnostics()
     for _, name in ipairs({ "f-opening", "fg", "fg-ixion-chaos", "fg-anomaly", "automatic-boss" }) do
         local plan, errorMessage = protocol.decode(decode(name))
         lu.assertNotNil(plan, errorMessage)
-        lu.assertEquals(plan.protocolVersion, 13)
+        lu.assertEquals(plan.protocolVersion, 14)
         lu.assertNotNil(plan.occurrences[1].diagnostics.roomEntered)
     end
 end
 
-function TestProtocolV13.testProtocolAcceptsTaggedNullsFromAnIndependentDecoderModule()
+function TestProtocolV14.testProtocolAcceptsTaggedNullsFromAnIndependentDecoderModule()
     local plan, errorMessage = protocol.decode(decodeWithIndependentJsonModule("f-opening"))
     lu.assertNotNil(plan, errorMessage)
 end
 
-function TestProtocolV13.testOpaqueOwnerReferencesAreLocalAndLaterContactsAreRejected()
+function TestProtocolV14.testOpaqueOwnerReferencesAreLocalAndLaterContactsAreRejected()
     local value = decode("f-opening")
     local room = value.occurrences[1]
     room.timeline.dependencies[1] = { owner = "missing", afterOwner = room.timeline.transactions[1].owner }
@@ -164,7 +164,7 @@ function TestProtocolV13.testOpaqueOwnerReferencesAreLocalAndLaterContactsAreRej
     lu.assertNil(protocol.decode(value))
 end
 
-function TestProtocolV13.testNestedSemanticOwnersUseTheOwnerSpecificBound()
+function TestProtocolV14.testNestedSemanticOwnersUseTheOwnerSpecificBound()
     local owner = string.rep("o", 420)
     local value = minimalPlan({ {
         kind = "acquisition",
@@ -184,7 +184,7 @@ function TestProtocolV13.testNestedSemanticOwnersUseTheOwnerSpecificBound()
     lu.assertNil(protocol.decode(value))
 end
 
-function TestProtocolV13.testForcedShortageTraitOfferSelectsAnExistingOption()
+function TestProtocolV14.testForcedShortageTraitOfferSelectsAnExistingOption()
     local offer = traitOffer()
     offer.options = { { key = "one" } }
     offer.selected = "option1"
@@ -208,7 +208,7 @@ function TestProtocolV13.testForcedShortageTraitOfferSelectsAnExistingOption()
     lu.assertNil(protocol.decode(value))
 end
 
-function TestProtocolV13.testRecomputedFingerprintCannotHideClosedUnionViolations()
+function TestProtocolV14.testRecomputedFingerprintCannotHideClosedUnionViolations()
     local value = decode("automatic-boss")
     local transaction = automatic(value)
     transaction.source = "not-valid-on-judgment"
@@ -236,7 +236,7 @@ function TestProtocolV13.testRecomputedFingerprintCannotHideClosedUnionViolation
     lu.assertNil(protocol.decode(value))
 end
 
-function TestProtocolV13.testEveryTimelineTransactionUnionDecodes()
+function TestProtocolV14.testEveryTimelineTransactionUnionDecodes()
     local transactions = {
         {
             kind = "acquisition",
@@ -405,7 +405,7 @@ function TestProtocolV13.testEveryTimelineTransactionUnionDecodes()
     lu.assertEquals(#plan.occurrences[1].timeline.transactions, #transactions)
 end
 
-function TestProtocolV13.testFountainUseRequiresItsPublishedInteractionContact()
+function TestProtocolV14.testFountainUseRequiresItsPublishedInteractionContact()
     local value = minimalPlan({ {
         kind = "fountainUse",
         owner = "fountain",

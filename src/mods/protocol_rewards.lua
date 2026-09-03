@@ -150,12 +150,13 @@ function rewards.traitOffer(value, label)
         local option, optionError = p.exact(
             optionValue,
             { "key" },
-            { "rarity", "effectiveLevel", "replacement" },
+            { "baseRarity", "rarity", "effectiveLevel", "replacement" },
             label .. ".options[" .. index .. "]"
         )
         if not option then return nil, optionError end
         if not p.str(option.key, label .. ".key")
             or (option.rarity ~= nil and not p.str(option.rarity, label .. ".rarity"))
+            or (option.baseRarity ~= nil and not p.str(option.baseRarity, label .. ".baseRarity"))
             or (option.effectiveLevel ~= nil
                 and not p.int(option.effectiveLevel, label .. ".effectiveLevel", 0)) then
             return p.fail(label .. " has malformed trait option")

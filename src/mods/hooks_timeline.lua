@@ -78,6 +78,11 @@ local function authoredTraitOption(row, offer, itemData)
     return nil
 end
 
+local function isOrdinaryTraitCarrier(value)
+    return type(value) == "table" and (value.GodLoot == true or value.Name == "HermesUpgrade"
+        or value.Name == "WeaponUpgrade")
+end
+
 local function incomingHandle(room, _, state, native)
     local current = room.current(state)
     if current == nil then return nil end
@@ -188,6 +193,11 @@ function hooks.attach(module, session, getState, report, room)
     end
 
     module.hooks.wrap("UseLoot", "execution-v10-use-loot", function(_, runtime, base, usee, args, user)
+        -- C1 owns ordinary Olympian/Hermes/Hammer acquisition. It begins only
+        -- after native UseLoot commits at HandleLootPickup.
+        if isOrdinaryTraitCarrier(usee) then
+            return base(usee, args, user)
+        end
         local state = getState(runtime)
         local current = roomCoordinator.current(state)
         local handle = roomCoordinator.bound(state, current, usee)
@@ -307,13 +317,6 @@ function hooks.attach(module, session, getState, report, room)
         return result
     end)
 
-    module.hooks.wrap("SpawnRoomReward", "execution-v10-bind-room-reward", function(_, runtime, base, source, args)
-        local result = base(source, args)
-        local state = getState(runtime)
-        incomingHandle(roomCoordinator, session, state, result)
-        return result
-    end)
-
     module.hooks.wrap("ConvertMetaRewardPresentation", "execution-v10-artificer-source", function(_, runtime, base,
         target)
         local state = getState(runtime)
@@ -401,6 +404,9 @@ function hooks.attach(module, session, getState, report, room)
 
     module.hooks.wrap("CreateBoonLootButtons", "execution-v10-trait-screen", function(_, runtime, base, screen,
         lootData, reroll, args)
+        if isOrdinaryTraitCarrier(lootData) then
+            return base(screen, lootData, reroll, args)
+        end
         local state = getState(runtime)
         local current = roomCoordinator.current(state)
         local handle = roomCoordinator.bound(state, current, lootData)
@@ -577,6 +583,9 @@ function hooks.attach(module, session, getState, report, room)
 
     module.hooks.wrap("CreateUpgradeChoiceButton", "execution-v10-trait-option", function(_, runtime, base, screen,
         lootData, itemIndex, itemData, args)
+        if isOrdinaryTraitCarrier(lootData) then
+            return base(screen, lootData, itemIndex, itemData, args)
+        end
         local handle = lootData and lootData.__runPlannerTimelineHandle or pendingTrait and pendingTrait.handle
         local payload = handle and roomCoordinator.begin(getState(runtime), handle)
             or pendingTrait and pendingTrait.payload
@@ -657,6 +666,10 @@ function hooks.attach(module, session, getState, report, room)
 
     module.hooks.wrap("HandleUpgradeChoiceSelection", "execution-v10-trait-selection", function(_, runtime, base,
         screen, button, args)
+        local lootData = button and button.LootData
+        if isOrdinaryTraitCarrier(lootData) then
+            return base(screen, button, args)
+        end
         local state = getState(runtime)
         local selected = button and button.Data and button.Data.Name
         if pendingLevel ~= nil then
@@ -706,7 +719,7 @@ function hooks.attach(module, session, getState, report, room)
         return result
     end)
 
-    module.hooks.wrap("AddRandomChaosBlessing", "execution-v13-embryo", function(_, runtime, base, rarity)
+    module.hooks.wrap("AddRandomChaosBlessing", "execution-v14-embryo", function(_, runtime, base, rarity)
         local state = getState(runtime)
         local current = roomCoordinator.current(state)
         local phase = roomCoordinator.activePhase(state, "encounterEnd")

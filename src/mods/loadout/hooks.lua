@@ -106,7 +106,7 @@ function hooks.attach(module, data, getState, report, room)
         recordEquipResult(runtime, "transcendentEmbryo", result)
         return result
     end)
-    module.hooks.wrap("GetProcessedTraitData", "execution-v13-equip-embryo-values", function(_, _, base, args)
+    module.hooks.wrap("GetProcessedTraitData", "execution-v14-equip-embryo-values", function(_, _, base, args)
         local result = base(args)
         if type(args) ~= "table" or type(result) ~= "table" or embryoContext == nil then return result end
         if args.TraitName ~= embryoContext.target then return result end
