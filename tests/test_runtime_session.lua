@@ -65,6 +65,8 @@ function TestRuntimeSession.testEveryFallbackContactAcceptsPreferredAndFallbackB
             function() return false end, {}))
         lu.assertEquals(neither.state, "desynchronized")
         lu.assertNil(neither.route.current.completedOwners.owner)
+        lu.assertNil(runtime.current(neither))
+        lu.assertNil(runtime.expectedOccurrence(neither))
     end
 end
 

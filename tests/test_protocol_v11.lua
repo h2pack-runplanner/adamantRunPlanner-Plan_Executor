@@ -1,9 +1,9 @@
--- luacheck: globals TestProtocolV10
+-- luacheck: globals TestProtocolV11
 local lu = require("luaunit")
 local json = require("mods/json")
 local protocol = require("mods/protocol")
 
-TestProtocolV10 = {}
+TestProtocolV11 = {}
 local root = "test/fixtures/execution-plan/"
 
 local function decode(name)
@@ -26,7 +26,7 @@ local function refreshFingerprint(plan)
     plan.planFingerprint = protocol.fingerprint({
         format = plan.format, protocolVersion = plan.protocolVersion,
         catalogVersion = plan.catalogVersion, projectId = plan.projectId,
-        routeKey = plan.routeKey, startingKeepsake = plan.startingKeepsake,
+        routeKey = plan.routeKey, startingLoadout = plan.startingLoadout, startingKeepsake = plan.startingKeepsake,
         extent = plan.extent, selectedOccurrenceIds = plan.selectedOccurrenceIds,
         occurrences = plan.occurrences,
     })
@@ -97,6 +97,7 @@ local arrayFields = {
     roles = true,
     options = true,
     runtimeFallbacks = true,
+    arcana = true,
     arcanaKeys = true,
 }
 
@@ -113,11 +114,12 @@ end
 local function minimalPlan(transactions)
     local plan = tagged({
         format = "run-planner-execution",
-        protocolVersion = 10,
+        protocolVersion = 11,
         catalogVersion = "0.54.0-required-boss-rewards",
         projectId = "test-project",
         planFingerprint = "00000000",
         routeKey = "Underworld",
+        startingLoadout = { weaponKey = "WeaponStaffSwing", aspectKey = "BaseStaffAspect", arcana = {}, fear = { configuredRanks = {}, effectiveRanks = {} } },
         startingKeepsake = { keepsakeKey = "None" },
         extent = { kind = "configuredPrefix", biomeKeys = { "F" }, terminalBiomeKey = "F" },
         selectedOccurrenceIds = { "opening" },
@@ -138,21 +140,21 @@ local function minimalPlan(transactions)
     return plan
 end
 
-function TestProtocolV10.testAllGateA2VectorsDecodeAndExpandDiagnostics()
+function TestProtocolV11.testAllGateA2VectorsDecodeAndExpandDiagnostics()
     for _, name in ipairs({ "f-opening", "fg", "fg-ixion-chaos", "fg-anomaly", "automatic-boss" }) do
         local plan, errorMessage = protocol.decode(decode(name))
         lu.assertNotNil(plan, errorMessage)
-        lu.assertEquals(plan.protocolVersion, 10)
+        lu.assertEquals(plan.protocolVersion, 11)
         lu.assertNotNil(plan.occurrences[1].diagnostics.roomEntered)
     end
 end
 
-function TestProtocolV10.testProtocolAcceptsTaggedNullsFromAnIndependentDecoderModule()
+function TestProtocolV11.testProtocolAcceptsTaggedNullsFromAnIndependentDecoderModule()
     local plan, errorMessage = protocol.decode(decodeWithIndependentJsonModule("f-opening"))
     lu.assertNotNil(plan, errorMessage)
 end
 
-function TestProtocolV10.testOpaqueOwnerReferencesAreLocalAndLaterContactsAreRejected()
+function TestProtocolV11.testOpaqueOwnerReferencesAreLocalAndLaterContactsAreRejected()
     local value = decode("f-opening")
     local room = value.occurrences[1]
     room.timeline.dependencies[1] = { owner = "missing", afterOwner = room.timeline.transactions[1].owner }
@@ -162,7 +164,7 @@ function TestProtocolV10.testOpaqueOwnerReferencesAreLocalAndLaterContactsAreRej
     lu.assertNil(protocol.decode(value))
 end
 
-function TestProtocolV10.testNestedSemanticOwnersUseTheOwnerSpecificBound()
+function TestProtocolV11.testNestedSemanticOwnersUseTheOwnerSpecificBound()
     local owner = string.rep("o", 420)
     local value = minimalPlan({ {
         kind = "acquisition",
@@ -182,7 +184,7 @@ function TestProtocolV10.testNestedSemanticOwnersUseTheOwnerSpecificBound()
     lu.assertNil(protocol.decode(value))
 end
 
-function TestProtocolV10.testForcedShortageTraitOfferSelectsAnExistingOption()
+function TestProtocolV11.testForcedShortageTraitOfferSelectsAnExistingOption()
     local offer = traitOffer()
     offer.options = { { key = "one" } }
     offer.selected = "option1"
@@ -206,7 +208,7 @@ function TestProtocolV10.testForcedShortageTraitOfferSelectsAnExistingOption()
     lu.assertNil(protocol.decode(value))
 end
 
-function TestProtocolV10.testRecomputedFingerprintCannotHideClosedUnionViolations()
+function TestProtocolV11.testRecomputedFingerprintCannotHideClosedUnionViolations()
     local value = decode("automatic-boss")
     local transaction = automatic(value)
     transaction.source = "not-valid-on-judgment"
@@ -234,7 +236,7 @@ function TestProtocolV10.testRecomputedFingerprintCannotHideClosedUnionViolation
     lu.assertNil(protocol.decode(value))
 end
 
-function TestProtocolV10.testEveryTimelineTransactionUnionDecodes()
+function TestProtocolV11.testEveryTimelineTransactionUnionDecodes()
     local transactions = {
         {
             kind = "acquisition",

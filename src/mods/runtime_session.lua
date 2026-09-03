@@ -1,6 +1,6 @@
--- Thin coordinator for protocol-v10 route and occurrence sessions. Semantic
+-- Thin coordinator for protocol-v11 route and occurrence sessions. Semantic
 -- comparison stays in the native fact adapters; this module only propagates
--- their exact owner proofs and the first blocking mismatch.
+-- their exact owner proofs and the first mismatch that disables enforcement.
 local route = type(import) == "function" and import("mods/route_session.lua")
     or require("mods/route_session")
 local room = type(import) == "function" and import("mods/room_session.lua")
@@ -20,14 +20,6 @@ local supportedConformance = {
     rewardPriorities = true, pathOfStars = true, forfeit = true, stygianWell = true,
 }
 
-local function same(left, right)
-    if type(left) ~= type(right) then return false end
-    if type(left) ~= "table" then return left == right end
-    for key, value in pairs(left) do if not same(value, right[key]) then return false end end
-    for key in pairs(right) do if left[key] == nil then return false end end
-    return true
-end
-
 local function fail(state, errorValue, expected, observed)
     if state.firstMismatch == nil then
         state.firstMismatch = type(errorValue) == "table" and errorValue or {
@@ -46,7 +38,7 @@ function runtime.defineCache(module)
             factory = function()
                 return {
                     initialized = false, state = "inactive", reason = "not-started",
-                    diagnostics = {}, startingKeepsake = { active = false, results = {} },
+                    diagnostics = {},
                 }
             end,
         },
@@ -72,7 +64,7 @@ function runtime.start(state, inbox)
     if not loaded or type(plan) ~= "table" or plan.kind ~= "ready" then
         local inboxStatus = inbox.status and inbox.status() or nil
         local observed = inboxStatus and inboxStatus.error or plan
-        return fail(state, "run-start", "ready protocol-v10 plan", observed)
+        return fail(state, "run-start", "ready protocol-v11 plan", observed)
     end
     for _, occurrence in ipairs(plan.occurrences) do
         for _, fact in ipairs((occurrence.roomExitConformance or {}).facts or {}) do
@@ -87,6 +79,7 @@ function runtime.start(state, inbox)
 end
 
 function runtime.expectedOccurrence(state)
+    if state.state ~= "synchronized" then return nil end
     local routeState = state.route
     local id = routeState and routeState.plan.selectedOccurrenceIds[routeState.index]
     return id and routeState.plan.occurrencesById[id] or nil
@@ -115,47 +108,12 @@ function runtime.realizeStartingRoom(state, game, nativeRoom)
 end
 
 function runtime.realizeOccurrence(state, occurrenceId, game, nativeRoom)
+    if state.state ~= "synchronized" then return nativeRoom end
     local occurrence = state.plan and state.plan.occurrencesById[occurrenceId]
     if occurrence == nil then return fail(state, "room-realization", "published occurrence", occurrenceId) end
     local realized, errorValue = overview.realize(occurrence, game, nativeRoom)
     if realized == nil then return fail(state, errorValue) end
     return realized
-end
-
-function runtime.beginStartingKeepsake(state, key)
-    local expected = state.plan and state.plan.startingKeepsake
-    if expected == nil then return nil end
-    if key ~= expected.keepsakeKey then return fail(state, "starting-keepsake", expected.keepsakeKey, key) end
-    state.startingKeepsake = { active = true, expected = expected, results = {} }
-    return expected
-end
-
-function runtime.recordStartingKeepsakeResult(state, kind, value)
-    local pending = state.startingKeepsake
-    if not pending or not pending.active then return true end
-    pending.results[kind] = value
-    return true
-end
-
-function runtime.finishStartingKeepsake(state)
-    local pending = state.startingKeepsake
-    if not pending or not pending.active then return true end
-    local expected = pending.expected.equipResults or {}
-    for kind, value in pairs(expected) do
-        local observed = pending.results[kind]
-        local equivalent = observed ~= nil and same(value, observed)
-        if not equivalent and kind == "jeweledPom" and type(value.runtimeFallbacks) == "table" then
-            for _, fallback in ipairs(value.runtimeFallbacks) do
-                if observed and (observed.traitKey == fallback.preferredKey
-                    or observed.traitKey == fallback.fallbackKey) then equivalent = true end
-            end
-        end
-        if not equivalent then
-            return fail(state, "starting-keepsake:" .. kind, value, observed)
-        end
-    end
-    pending.active = false
-    return true
 end
 
 function runtime.enter(state, occurrenceId, gameName, nativeRoom)
@@ -191,7 +149,10 @@ function runtime.proveOverview(state, nativeRoom, nativeContext)
     return current
 end
 
-function runtime.current(state) return state.route and state.route.current or nil end
+function runtime.current(state)
+    if state.state ~= "synchronized" then return nil end
+    return state.route and state.route.current or nil
+end
 
 function runtime.realizeOverview(state, game, nativeRoom)
     local occurrence = runtime.expectedOccurrence(state)

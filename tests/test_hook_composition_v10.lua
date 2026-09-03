@@ -47,7 +47,7 @@ function TestHookCompositionV10.testDoorChoiceIsForcedDuringNativeGeneration()
         proved = doors
         return true
     end
-    rooms.attach(module, session, function() return {} end, function() end, function() end)
+    rooms.attach(module, session, function() return { state = "synchronized" } end, function() end, function() end)
     local priorMap, priorGame, priorCollapse = _G.MapState, _G.game, _G.CollapseTableOrdered
     local physicalDoor = { ObjectId = 101 }
     _G.MapState, _G.game = { OfferedExitDoors = { [101] = physicalDoor } }, { RoomData = {} }
@@ -88,7 +88,7 @@ function TestHookCompositionV10.testChaosDoorIsExcludedAfterNormalDoorGeneration
         proved = nativeDoors
         return true
     end
-    rooms.attach(module, session, function() return {} end, function() end, function() end)
+    rooms.attach(module, session, function() return { state = "synchronized" } end, function() end, function() end)
 
     local normalDoor = { ObjectId = 101 }
     local chaosRoom = {
@@ -137,7 +137,7 @@ function TestHookCompositionV10.testRoomSessionStartsBeforeNativeFeatureSpawns()
         lu.assertEquals(nativeRoom.__runPlannerExecutionRoomId, "opening")
         return true
     end
-    rooms.attach(module, session, function() return {} end, function() end, function() end)
+    rooms.attach(module, session, function() return { state = "synchronized" } end, function() end, function() end)
 
     local room = { Name = "F_Opening01", __runPlannerExecutionRoomId = "opening" }
     local eligible
@@ -166,7 +166,7 @@ function TestHookCompositionV10.testZagreusContractRemainsAnAdditionalDoorDuring
             { room = { id = "two", gameName = "F_Two" } },
         } },
     }
-    local state = { plan = { occurrencesById = {
+    local state = { state = "synchronized", plan = { occurrencesById = {
         shop = occurrence,
         contract = { id = "contract", gameName = "C_Boss01", overview = {} },
     } } }
@@ -222,7 +222,7 @@ function TestHookCompositionV10.testEncounterForcingKeepsNativeSetupAndGeneratio
         id = "opening",
         overview = { encounterPhases = { { slotKey = "Encounter", encounterKey = "OpeningGeneratedF" } } },
     }
-    local state = { plan = { occurrencesById = { opening = occurrence } } }
+    local state = { state = "synchronized", plan = { occurrencesById = { opening = occurrence } } }
     local session = stub()
     local priorGame, priorGlobalForce = _G.game, _G.ForceNextEncounter
     _G.game = { EncounterData = { OpeningGeneratedF = declaration } }
@@ -254,6 +254,7 @@ function TestHookCompositionV10.testRoomRewardForcingConsumesTheMatchingNativeBa
         overview = { incomingReward = { rewardType = "WeaponUpgrade" } },
     }
     local state = {
+        state = "synchronized",
         plan = { occurrencesById = { opening = occurrence } },
     }
     local session = stub()
@@ -295,7 +296,7 @@ function TestHookCompositionV10.testPublishedRewardStoreOverridesAStaleNativeSto
             },
         },
     }
-    local state = { plan = { occurrencesById = { target = occurrence } } }
+    local state = { state = "synchronized", plan = { occurrencesById = { target = occurrence } } }
     local session = stub()
     session.current = function() return { occurrence = occurrence } end
     rooms.attach(module, session, function() return state end, function() end, function() end)
@@ -340,7 +341,7 @@ function TestHookCompositionV10.testContractTraitAcquisitionDoesNotOwnTheNativeM
         id = "contract",
         overview = { incomingReward = { rewardType = "InfernalContractBoon" } },
     }
-    local state = { plan = { occurrencesById = { contract = occurrence } } }
+    local state = { state = "synchronized", plan = { occurrencesById = { contract = occurrence } } }
     local mismatches = {}
     local session = stub()
     session.current = function() return { occurrence = occurrence } end
@@ -362,7 +363,7 @@ function TestHookCompositionV10.testEffectNeutralBossRewardUsesNativeForcedRewar
         id = "boss",
         overview = { effectNeutralRequiredReward = true },
     }
-    local state = { plan = { occurrencesById = { boss = occurrence } } }
+    local state = { state = "synchronized", plan = { occurrencesById = { boss = occurrence } } }
     local session = stub()
     session.current = function() return { occurrence = occurrence } end
     rooms.attach(module, session, function() return state end, function() end, function() end)
@@ -395,7 +396,7 @@ function TestHookCompositionV10.testProducedRewardSelectionDoesNotReuseTheIncomi
             reward = { rewardType = "Boon", source = "ZeusUpgrade" },
         },
     }
-    local state = { plan = { occurrencesById = { target = occurrence } } }
+    local state = { state = "synchronized", plan = { occurrencesById = { target = occurrence } } }
     local pending = produced
     local session = stub()
     session.takeRewardSelection = function()
@@ -1153,4 +1154,28 @@ function TestHookCompositionV10.testExplicitGateBHookGroupsStayInstalled()
     }) do
         lu.assertNotNil(names[name], name)
     end
+end
+
+function TestHookCompositionV10.testMismatchStopsEnforcementWithoutBlockingNativeRoomFlow()
+    local module, _, callbacks = capture()
+    local session = stub()
+    session.checkpoint = function() return nil end
+    session.exit = function() return nil end
+    rooms.attach(module, session, function()
+        return { state = "desynchronized", loadoutClosed = false }
+    end, function() end, function() end)
+
+    local starting = callbacks.ChooseStartingRoom(nil, {}, function()
+        return { Name = "NativeOpening" }
+    end, {}, {})
+    local used = callbacks.UseExitDoor(nil, {}, function(door)
+        return door.Name
+    end, { Name = "NativeDoor" }, {})
+    local left = callbacks.LeaveRoom(nil, {}, function()
+        return "native-exit"
+    end, {}, {})
+
+    lu.assertEquals(starting, { Name = "NativeOpening" })
+    lu.assertEquals(used, "NativeDoor")
+    lu.assertEquals(left, "native-exit")
 end

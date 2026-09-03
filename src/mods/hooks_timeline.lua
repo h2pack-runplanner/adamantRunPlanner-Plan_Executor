@@ -203,7 +203,7 @@ function hooks.attach(module, session, getState, report)
         local row = adapter.bound(currentIndex(session, state), usee) or incomingRow(session, state, usee)
         if row == nil then return base(usee, args, user) end
         row = resolveTraitFallback(session, state, row, usee)
-        if row == nil then report(runtime); return nil end
+        if row == nil then report(runtime); return base(usee, args, user) end
         usee.__runPlannerTimelineRow = row
         local _, seaStarChild = childFor(state, usee, "seaStarDuplicate")
         if seaStarChild then pendingSeaStar = { source = usee, child = seaStarChild } end
@@ -271,7 +271,7 @@ function hooks.attach(module, session, getState, report)
             local state = getState(runtime)
             session.complete(state, row, false, resolution, target)
             report(runtime)
-            return nil
+            return base(source, args)
         end
 
         directArgs.TraitName = target

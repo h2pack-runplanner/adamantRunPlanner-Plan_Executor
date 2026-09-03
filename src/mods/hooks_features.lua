@@ -228,8 +228,8 @@ function hooks.attach(module, session, getState, report)
                     local key = session.resolveFallback(state, row, "storePurchase", fallback, function(candidate)
                         return eligibleCarrier(candidate, args, true)
                     end, item)
-                    if key == nil then report(runtime); return nil end
-                    if materializeCarrier(item, key) == nil then report(runtime); return nil end
+                    if key == nil then report(runtime); return base(screen, button, args) end
+                    if materializeCarrier(item, key) == nil then report(runtime); return base(screen, button, args) end
                     itemKey = key
                 end
             end

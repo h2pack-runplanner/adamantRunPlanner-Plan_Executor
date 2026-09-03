@@ -1,4 +1,4 @@
--- Strict protocol-v10 composition. Fact-family modules validate closed wire
+-- Strict protocol-v11 composition. Fact-family modules validate closed wire
 -- shapes; this root owns only the execution-plan envelope and derived indexes.
 local p = type(import) == "function" and import("mods/protocol_primitives.lua")
     or require("mods/protocol_primitives")
@@ -6,10 +6,12 @@ local rewards = type(import) == "function" and import("mods/protocol_rewards.lua
     or require("mods/protocol_rewards")
 local occurrences = type(import) == "function" and import("mods/protocol_occurrences.lua")
     or require("mods/protocol_occurrences")
+local loadout = type(import) == "function" and import("mods/loadout/protocol.lua")
+    or require("mods.loadout.protocol")
 
 local protocol = {
     FORMAT = "run-planner-execution",
-    VERSION = 10,
+    VERSION = 11,
     CATALOG_VERSION = "0.54.0-required-boss-rewards",
     MAX_ITEMS = p.MAX_ITEMS,
     MAX_STRING = p.MAX_STRING,
@@ -67,6 +69,7 @@ local function fingerprintBody(plan, decodedOccurrences)
         catalogVersion = plan.catalogVersion,
         projectId = plan.projectId,
         routeKey = plan.routeKey,
+        startingLoadout = plan.startingLoadout,
         startingKeepsake = plan.startingKeepsake,
         extent = plan.extent,
         selectedOccurrenceIds = plan.selectedOccurrenceIds,
@@ -99,7 +102,7 @@ function protocol.decode(value)
         value,
         {
             "format", "protocolVersion", "catalogVersion", "projectId", "planFingerprint",
-            "routeKey", "startingKeepsake", "extent", "selectedOccurrenceIds", "occurrences",
+            "routeKey", "startingLoadout", "startingKeepsake", "extent", "selectedOccurrenceIds", "occurrences",
         },
         {},
         "execution plan"
@@ -117,6 +120,8 @@ function protocol.decode(value)
     end
     local _, extentError = extent(plan.extent)
     if extentError then return nil, extentError end
+    local _, loadoutError = loadout.decode(plan.startingLoadout)
+    if loadoutError then return nil, loadoutError end
     local _, keepsakeError = startingKeepsake(plan.startingKeepsake)
     if keepsakeError then return nil, keepsakeError end
     local selected, selectedError = p.strings(
