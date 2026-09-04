@@ -207,17 +207,22 @@ function overview.decode(value, label)
     local _, objectsError = p.strings(record.requiredObjects, label .. ".requiredObjects")
     if objectsError then return nil, objectsError end
     for index, valueRow in ipairs(phases) do
+        local phaseLabel = label .. ".encounterPhases[" .. index .. "]"
         local row, rowError = p.exact(
             valueRow,
             { "slotKey", "encounterKey", "kind" },
-            {},
-            label .. ".encounterPhases[" .. index .. "]"
+            { "figLeafSkip" },
+            phaseLabel
         )
         if not row then return nil, rowError end
-        if not p.str(row.slotKey, label .. ".slotKey")
-            or not p.str(row.encounterKey, label .. ".encounterKey")
-            or not p.str(row.kind, label .. ".kind") then
-            return p.fail(label .. " has invalid encounter phase")
+        if not p.str(row.slotKey, phaseLabel .. ".slotKey")
+            or not p.str(row.encounterKey, phaseLabel .. ".encounterKey")
+            or not p.str(row.kind, phaseLabel .. ".kind") then
+            return p.fail(phaseLabel .. " has invalid encounter phase")
+        end
+        if row.figLeafSkip ~= nil then
+            local _, figLeafError = p.bool(row.figLeafSkip, phaseLabel .. ".figLeafSkip")
+            if figLeafError then return nil, figLeafError end
         end
     end
     if record.incomingReward ~= nil then

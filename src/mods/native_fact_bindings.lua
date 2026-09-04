@@ -19,6 +19,8 @@ return {
             timePiece = "GoldifyKeepsake",
             callingCard = "RarifyKeepsake",
             figurine = "BossMetaUpgradeKeepsake",
+            figLeaf = "PersistentDionysusSkipKeepsake",
+            gorgon = "AthenaEncounterKeepsake",
         },
     },
     keepsakeEquipContacts = {

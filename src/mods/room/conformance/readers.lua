@@ -163,6 +163,45 @@ local function keepsakeEffects(run, _gameState, expected)
             remainingCharges = type(upgrade) == "table" and (upgrade.Uses or 0) or 0,
         }
     end
+    if expected.figLeaf ~= nil and not json.isNull(expected.figLeaf) then
+        local figLeafKey = conformanceBindings.keepsakeTraits.figLeaf
+        local remainingUses, activatedThisBiome = 0, false
+        for _, trait in pairs(traits(run) or {}) do
+            if traitKey(trait) == figLeafKey and type(trait) == "table" then
+                local uses = type(trait.RemainingUses) == "number" and trait.RemainingUses or 0
+                remainingUses = math.max(remainingUses, uses)
+                activatedThisBiome = activatedThisBiome or trait.ActivatedThisBiome == true
+            end
+        end
+        local currentRoom = type(run) == "table" and run.CurrentRoom or nil
+        local roomTraitUses = type(currentRoom) == "table" and currentRoom.TraitUses or nil
+        if type(roomTraitUses) == "table" and type(roomTraitUses[figLeafKey]) == "number"
+            and roomTraitUses[figLeafKey] > 0 then
+            activatedThisBiome = true
+        end
+        result.figLeaf = {
+            remainingUses = remainingUses,
+            activatedThisBiome = activatedThisBiome,
+        }
+    end
+    if expected.gorgon ~= nil and not json.isNull(expected.gorgon) then
+        local trait = findTrait(run, conformanceBindings.keepsakeTraits.gorgon)
+        local expiredKeepsakes = type(run) == "table" and run.ExpiredKeepsakes or nil
+        local consumed = type(expiredKeepsakes) == "table"
+            and expiredKeepsakes[conformanceBindings.keepsakeTraits.gorgon] == true
+        if type(trait) == "table" and type(trait.RemainingUses) == "number"
+            and trait.RemainingUses <= 0 then
+            consumed = true
+        end
+        if consumed then
+            result.gorgon = { status = "consumed" }
+        elseif type(trait) == "table" and trait.Slot == "Keepsake"
+            and type(trait.RemainingUses) == "number" and trait.RemainingUses > 0 then
+            result.gorgon = { status = "pending", rarity = trait.Rarity }
+        else
+            result.gorgon = { status = "expired" }
+        end
+    end
     if expected.figurine ~= nil and not json.isNull(expected.figurine) then
         local trait = findTrait(run, conformanceBindings.keepsakeTraits.figurine)
         local temporary = type(run) == "table" and next(run.TemporaryMetaUpgrades or {}) ~= nil

@@ -294,6 +294,90 @@ function TestNativeAdapters.testKeepsakeReaderUsesNativeCardAndTimePieceFields()
     lu.assertEquals(observed.timePiece, { remainingCharges = 0 })
 end
 
+function TestNativeAdapters.testKeepsakeReaderProjectsFigLeafUsesAndBiomeLatch()
+    local expected = { figLeaf = { remainingUses = 2, activatedThisBiome = false } }
+    local run = {
+        Hero = { Traits = {
+            {
+                Name = "PersistentDionysusSkipKeepsake",
+                RemainingUses = 2,
+                ActivatedThisBiome = false,
+            },
+        } },
+        CurrentRoom = { TraitUses = {} },
+    }
+    local observed = readers.read("keepsakeEffects", run, nil, expected)
+    lu.assertEquals(observed.figLeaf, { remainingUses = 2, activatedThisBiome = false })
+
+    run.Hero.Traits[1].RemainingUses = 1
+    run.Hero.Traits[1].ActivatedThisBiome = true
+    lu.assertEquals(readers.read("keepsakeEffects", run, nil, expected).figLeaf, {
+        remainingUses = 1, activatedThisBiome = true,
+    })
+
+    run.Hero.Traits[1].ActivatedThisBiome = false
+    lu.assertEquals(readers.read("keepsakeEffects", run, nil, expected).figLeaf, {
+        remainingUses = 1, activatedThisBiome = false,
+    })
+
+    run.Hero.Traits = {}
+    run.CurrentRoom.TraitUses.PersistentDionysusSkipKeepsake = 1
+    lu.assertEquals(readers.read("keepsakeEffects", run, nil, expected).figLeaf, {
+        remainingUses = 0, activatedThisBiome = true,
+    })
+
+    run.CurrentRoom.TraitUses = {}
+    lu.assertEquals(readers.read("keepsakeEffects", run, nil, expected).figLeaf, {
+        remainingUses = 0, activatedThisBiome = false,
+    })
+
+    run.Hero.Traits = {
+        { Name = "PersistentDionysusSkipKeepsake", RemainingUses = 1, ActivatedThisBiome = false },
+        { Name = "PersistentDionysusSkipKeepsake", RemainingUses = 3, ActivatedThisBiome = true },
+    }
+    lu.assertEquals(readers.read("keepsakeEffects", run, nil, expected).figLeaf, {
+        remainingUses = 3, activatedThisBiome = true,
+    })
+end
+
+function TestNativeAdapters.testKeepsakeReaderProjectsGorgonPendingConsumedAndExpired()
+    local expected = { gorgon = { status = "pending", rarity = "Epic" } }
+    local run = {
+        Hero = { Traits = {
+            {
+                Name = "AthenaEncounterKeepsake", Slot = "Keepsake",
+                RemainingUses = 1, Rarity = "Epic",
+            },
+        } },
+        ExpiredKeepsakes = {},
+    }
+    lu.assertEquals(readers.read("keepsakeEffects", run, nil, expected).gorgon, {
+        status = "pending", rarity = "Epic",
+    })
+
+    run.Hero.Traits[1].RemainingUses = 0
+    lu.assertEquals(readers.read("keepsakeEffects", run, nil, expected).gorgon, {
+        status = "consumed",
+    })
+
+    run.Hero.Traits[1].RemainingUses = 1
+    run.ExpiredKeepsakes.AthenaEncounterKeepsake = true
+    lu.assertEquals(readers.read("keepsakeEffects", run, nil, expected).gorgon, {
+        status = "consumed",
+    })
+
+    run.ExpiredKeepsakes = {}
+    run.Hero.Traits[1].Slot = nil
+    lu.assertEquals(readers.read("keepsakeEffects", run, nil, expected).gorgon, {
+        status = "expired",
+    })
+
+    run.Hero.Traits = {}
+    lu.assertEquals(readers.read("keepsakeEffects", run, nil, expected).gorgon, {
+        status = "expired",
+    })
+end
+
 function TestNativeAdapters.testKeepsakeReaderUsesNativeOlympianSourceCharges()
     local expected = {
         olympianSources = {

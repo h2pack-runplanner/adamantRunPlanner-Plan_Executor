@@ -1,9 +1,9 @@
--- luacheck: globals TestProtocolV15
+-- luacheck: globals TestProtocolV16
 local lu = require("luaunit")
 local json = require("mods/json")
 local protocol = require("mods/protocol")
 
-TestProtocolV15 = {}
+TestProtocolV16 = {}
 local root = "test/fixtures/execution-plan/"
 
 local function decode(name)
@@ -118,12 +118,15 @@ local function minimalPlan(transactions)
     end
     local plan = tagged({
         format = "run-planner-execution",
-        protocolVersion = 15,
+        protocolVersion = 16,
         catalogVersion = "0.54.0-required-boss-rewards",
         projectId = "test-project",
         planFingerprint = "00000000",
         routeKey = "Underworld",
-        startingLoadout = { weaponKey = "WeaponStaffSwing", aspectKey = "BaseStaffAspect", arcana = {}, fear = { configuredRanks = {}, effectiveRanks = {} } },
+        startingLoadout = {
+            weaponKey = "WeaponStaffSwing", aspectKey = "BaseStaffAspect", arcana = {},
+            fear = { configuredRanks = {}, effectiveRanks = {} },
+        },
         startingKeepsake = { keepsakeKey = "None" },
         extent = { kind = "configuredPrefix", biomeKeys = { "F" }, terminalBiomeKey = "F" },
         selectedOccurrenceIds = { "opening" },
@@ -144,7 +147,7 @@ local function minimalPlan(transactions)
     return plan
 end
 
-function TestProtocolV15.testArtificerRoleCarriesSourceOwnedReplacement()
+function TestProtocolV16.testArtificerRoleCarriesSourceOwnedReplacement()
     local value = minimalPlan({ {
         kind = "acquisition",
         owner = "source",
@@ -168,7 +171,7 @@ function TestProtocolV15.testArtificerRoleCarriesSourceOwnedReplacement()
     lu.assertNil(protocol.decode(value))
 end
 
-function TestProtocolV15.testTimePieceDispositionIsNotPublished()
+function TestProtocolV16.testTimePieceDispositionIsNotPublished()
     local value = minimalPlan({ {
         kind = "acquisition",
         owner = "source",
@@ -184,7 +187,7 @@ function TestProtocolV15.testTimePieceDispositionIsNotPublished()
     lu.assertNil(protocol.decode(value))
 end
 
-function TestProtocolV15.testEveryPublishedTransactionHasExactlyOneObligation()
+function TestProtocolV16.testEveryPublishedTransactionHasExactlyOneObligation()
     local value = minimalPlan({ {
         kind = "acquisition",
         owner = "source",
@@ -208,21 +211,21 @@ function TestProtocolV15.testEveryPublishedTransactionHasExactlyOneObligation()
     lu.assertNil(protocol.decode(value))
 end
 
-function TestProtocolV15.testAllGateA2VectorsDecodeAndExpandDiagnostics()
+function TestProtocolV16.testAllGateA2VectorsDecodeAndExpandDiagnostics()
     for _, name in ipairs({ "f-opening", "fg", "fg-ixion-chaos", "fg-anomaly", "automatic-boss" }) do
         local plan, errorMessage = protocol.decode(decode(name))
         lu.assertNotNil(plan, errorMessage)
-        lu.assertEquals(plan.protocolVersion, 15)
+        lu.assertEquals(plan.protocolVersion, 16)
         lu.assertNotNil(plan.occurrences[1].diagnostics.roomEntered)
     end
 end
 
-function TestProtocolV15.testProtocolAcceptsTaggedNullsFromAnIndependentDecoderModule()
+function TestProtocolV16.testProtocolAcceptsTaggedNullsFromAnIndependentDecoderModule()
     local plan, errorMessage = protocol.decode(decodeWithIndependentJsonModule("f-opening"))
     lu.assertNotNil(plan, errorMessage)
 end
 
-function TestProtocolV15.testOpaqueOwnerReferencesAreLocalAndLaterContactsAreRejected()
+function TestProtocolV16.testOpaqueOwnerReferencesAreLocalAndLaterContactsAreRejected()
     local value = decode("f-opening")
     local room = value.occurrences[1]
     room.timeline.dependencies[1] = { owner = "missing", afterOwner = room.timeline.transactions[1].owner }
@@ -232,7 +235,7 @@ function TestProtocolV15.testOpaqueOwnerReferencesAreLocalAndLaterContactsAreRej
     lu.assertNil(protocol.decode(value))
 end
 
-function TestProtocolV15.testNestedSemanticOwnersUseTheOwnerSpecificBound()
+function TestProtocolV16.testNestedSemanticOwnersUseTheOwnerSpecificBound()
     local owner = string.rep("o", 420)
     local value = minimalPlan({ {
         kind = "acquisition",
@@ -252,7 +255,7 @@ function TestProtocolV15.testNestedSemanticOwnersUseTheOwnerSpecificBound()
     lu.assertNil(protocol.decode(value))
 end
 
-function TestProtocolV15.testForcedShortageTraitOfferSelectsAnExistingOption()
+function TestProtocolV16.testForcedShortageTraitOfferSelectsAnExistingOption()
     local offer = traitOffer()
     offer.options = { { key = "one" } }
     offer.selected = "option1"
@@ -276,7 +279,7 @@ function TestProtocolV15.testForcedShortageTraitOfferSelectsAnExistingOption()
     lu.assertNil(protocol.decode(value))
 end
 
-function TestProtocolV15.testRecomputedFingerprintCannotHideClosedUnionViolations()
+function TestProtocolV16.testRecomputedFingerprintCannotHideClosedUnionViolations()
     local value = decode("automatic-boss")
     local transaction = automatic(value)
     transaction.source = "not-valid-on-judgment"
@@ -304,7 +307,7 @@ function TestProtocolV15.testRecomputedFingerprintCannotHideClosedUnionViolation
     lu.assertNil(protocol.decode(value))
 end
 
-function TestProtocolV15.testEveryTimelineTransactionUnionDecodes()
+function TestProtocolV16.testEveryTimelineTransactionUnionDecodes()
     local transactions = {
         {
             kind = "acquisition",
@@ -473,7 +476,7 @@ function TestProtocolV15.testEveryTimelineTransactionUnionDecodes()
     lu.assertEquals(#plan.occurrences[1].timeline.transactions, #transactions)
 end
 
-function TestProtocolV15.testFountainUseRequiresItsPublishedInteractionContact()
+function TestProtocolV16.testFountainUseRequiresItsPublishedInteractionContact()
     local value = minimalPlan({ {
         kind = "fountainUse",
         owner = "fountain",
@@ -489,4 +492,26 @@ function TestProtocolV15.testFountainUseRequiresItsPublishedInteractionContact()
     value.occurrences[1].timeline.transactions[1].interactionKey = "other"
     refreshFingerprint(value)
     lu.assertNil(protocol.decode(value))
+end
+
+function TestProtocolV16.testEncounterPhaseAcceptsOnlyTheOptionalFigLeafDecision()
+    local value = minimalPlan({})
+    value.occurrences[1].overview.encounterPhases[1] = tagged(
+        { slotKey = "phase", encounterKey = "Encounter", kind = "combat", figLeafSkip = false },
+        "phaseRow"
+    )
+    refreshFingerprint(value)
+    local plan, errorMessage = protocol.decode(value)
+    lu.assertNotNil(plan, errorMessage)
+    lu.assertFalse(plan.occurrences[1].overview.encounterPhases[1].figLeafSkip)
+
+    local invalidValue = minimalPlan({})
+    invalidValue.occurrences[1].overview.encounterPhases[1] = tagged(
+        { slotKey = "phase", encounterKey = "Encounter", kind = "combat", figLeafSkip = "false" },
+        "phaseRow"
+    )
+    refreshFingerprint(invalidValue)
+    local invalid, invalidError = protocol.decode(invalidValue)
+    lu.assertNil(invalid)
+    lu.assertStrContains(invalidError, "encounterPhases[1].figLeafSkip")
 end

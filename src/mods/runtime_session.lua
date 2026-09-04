@@ -1,4 +1,4 @@
--- Thin coordinator for protocol-v15 route and room sessions. Semantic
+-- Thin coordinator for protocol-v16 route and room sessions. Semantic
 -- comparison stays in the native fact adapters; this module only propagates
 -- their exact owner proofs and the first mismatch that disables enforcement.
 local route = type(import) == "function" and import("mods/route/session.lua")
@@ -57,7 +57,7 @@ function runtime.start(state, inbox, phase)
     if not loaded or type(plan) ~= "table" or plan.kind ~= "ready" then
         local inboxStatus = inbox.status and inbox.status() or nil
         local observed = inboxStatus and inboxStatus.error or plan
-        return fail(state, "run-start", "ready protocol-v15 plan", observed)
+        return fail(state, "run-start", "ready protocol-v16 plan", observed)
     end
     for _, occurrence in ipairs(plan.occurrences) do
         for _, fact in ipairs((occurrence.roomExitConformance or {}).facts or {}) do
