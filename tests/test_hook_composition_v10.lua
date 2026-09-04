@@ -8,6 +8,7 @@ local roomFeatureHooks = require("mods.room.features.hooks")
 local routeSession = require("mods.route.session")
 local timeline = require("mods/hooks_timeline")
 local acquisitions = require("mods.room.timeline.acquisitions.hooks")
+local directPickups = require("mods.room.timeline.acquisitions.pickups.hooks")
 local featureInventoryHooks = require("mods.room.features.inventory_hooks")
 local featureInteractionHooks = require("mods.room.timeline.feature_interactions")
 local logic = require("mods/logic")
@@ -860,6 +861,7 @@ function TestHookCompositionV10.testMysteryBoonPurchaseWaitsForItsTraitResolutio
     session.complete = function() completed = completed + 1 end
     attachFeatureHooks(module, session, function() return {} end, function() end, session)
     timeline.attach(module, session, function() return {} end, function() end, session)
+    directPickups.attach(module, session, function() return {} end, function() end, session)
 
     local priorRun = _G.CurrentRun
     _G.CurrentRun = {
@@ -1022,11 +1024,9 @@ function TestHookCompositionV10.testTravelDealRefillKeepsSlotBindingSeparateFrom
     lu.assertTrue(completed.verified)
 end
 
-function TestHookCompositionV10.testSynchronousLootAndChaosChoiceCompleteBoundOwners()
+function TestHookCompositionV10.testChaosChoiceCompletesItsBoundOwner()
     local module, _, callbacks = capture()
     local completed = {}
-    local loot = { Name = "Onion" }
-    local simple = { transaction = { owner = "onion" }, detail = { gameName = "Onion" } }
     local chaos = {
         transaction = {
             owner = "chaos",
@@ -1040,7 +1040,7 @@ function TestHookCompositionV10.testSynchronousLootAndChaosChoiceCompleteBoundOw
             },
         },
     }
-    local active = opaque({}, function() return nil end, { [loot] = simple })
+    local active = opaque({}, function() return nil end)
     local session = stub()
     session.current = function() return active end
     session.complete = function(_, row, verified)
@@ -1048,12 +1048,6 @@ function TestHookCompositionV10.testSynchronousLootAndChaosChoiceCompleteBoundOw
         return true
     end
     timeline.attach(module, session, function() return {} end, function() end, session)
-    callbacks.UseLoot(nil, {}, function()
-        callbacks.HandleLootPickup(nil, {}, function() return true end, {}, loot, {})
-    end, loot, {}, {})
-    lu.assertEquals(fakePayload(completed[1].row).transaction.owner, "onion")
-    lu.assertTrue(completed[1].verified)
-
     local chaosLoot = { Name = "ChaosBoon" }
     active.bind(chaos, chaosLoot)
     local priorRun = _G.CurrentRun
@@ -1067,8 +1061,8 @@ function TestHookCompositionV10.testSynchronousLootAndChaosChoiceCompleteBoundOw
         end, {}, { Data = { Name = "ChaosNoMoneyCurse" } }, {})
     end, chaosLoot, {}, {})
     _G.CurrentRun = priorRun
-    lu.assertEquals(fakePayload(completed[2].row).transaction.owner, "chaos")
-    lu.assertTrue(completed[2].verified)
+    lu.assertEquals(fakePayload(completed[1].row).transaction.owner, "chaos")
+    lu.assertTrue(completed[1].verified)
 end
 
 function TestHookCompositionV10.testMysteryBoonBindsItsUnwrappedSourceTraitOffer()
@@ -1268,6 +1262,7 @@ function TestHookCompositionV10.testIncidentalConsumableDoesNotClaimTheIncomingR
         completed[#completed + 1] = { row = row, verified = verified }
     end
     timeline.attach(module, session, function() return {} end, function() end, session)
+    directPickups.attach(module, session, function() return {} end, function() end, session)
 
     local consolation = { Name = "RoomRewardConsolationPrize" }
     callbacks.UseConsumableItem(nil, {}, function() return true end, consolation, {}, {})

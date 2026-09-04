@@ -56,7 +56,7 @@ function binding.attach(module, _session, getState, _report, room)
 
     module.hooks.wrap("CreateConsumableItem", "execution-c2-bind-direct-carrier", function(_, _runtime, base, ...)
         local result = base(...)
-        if producerScope ~= nil and levels.isDirectCarrier(result) then
+        if producerScope ~= nil and type(result) == "table" then
             local scope = producerScope
             local handle = room.resolve(scope.state, scope.current, {
                 kind = "materialized", source = scope.handle,
@@ -65,8 +65,8 @@ function binding.attach(module, _session, getState, _report, room)
             if handle ~= nil then
                 room.bind(scope.state, scope.current, handle, result)
                 scope.bound = true
+                if producerScope == scope then producerScope = nil end
             end
-            if producerScope == scope then producerScope = nil end
         end
         return result
     end)

@@ -125,7 +125,6 @@ function hooks.attach(module, session, getState, report, room)
     local pendingProduced = {}
     local pendingRewardSelection
     local pendingSeaStar
-    local pendingSimple
     local nemesisSpawnDepth = 0
     local pendingNemesis
     local npcRewardSource
@@ -218,68 +217,9 @@ function hooks.attach(module, session, getState, report, room)
         elseif traitOffer and traitOffer.kind == "chaos" then
             pendingTrait = { handle = handle, payload = payload, source = usee }
         end
-        if expected == nil and pendingTrait == nil then
-            pendingSimple = { handle = handle, payload = payload, source = usee, gameName = usee.Name }
-        end
         local result = base(usee, args, user)
         pendingSeaStar = nil
         report(runtime)
-        return result
-    end)
-
-    module.hooks.wrap("UseConsumableItem", "execution-v10-use-consumable", function(_, runtime, base, item, args, user)
-        -- The direct level adapter transports its bound handle through the
-        -- consumable but begins only at UseStoreRewardRandomStack, after all
-        -- native UseConsumableItem guards have accepted the interaction.
-        if item and item.__runPlannerLevelCarrier then
-            return base(item, args, user)
-        end
-        local state = getState(runtime)
-        local current = roomCoordinator.current(state)
-        local handle = roomCoordinator.bound(state, current, item)
-            or incomingHandle(roomCoordinator, session, state, item)
-        local payload = handle and roomCoordinator.begin(state, handle) or nil
-        if payload ~= nil then
-            local materialized = roomCoordinator.resolve(state, current,
-                { kind = "materialized", source = handle, gameName = item.Name })
-            if materialized ~= nil then
-                handle = roomCoordinator.bind(state, current, materialized, item)
-                payload = handle and roomCoordinator.begin(state, handle) or payload
-            end
-            local terminal = payload.detail ~= nil
-            for _, role in ipairs(payload.transaction.roles or {}) do
-                if role ~= payload.detail then terminal = false end
-            end
-            if terminal then
-                pendingSimple = { handle = handle, payload = payload, source = item, gameName = item.Name }
-            end
-        end
-        local result = base(item, args, user)
-        report(runtime)
-        return result
-    end)
-
-    local function completeSimpleAcquisition(runtime, item)
-        local pending = pendingSimple
-        if pending == nil or pending.source ~= item then return end
-        pendingSimple = nil
-        local state = getState(runtime)
-        session.complete(state, pending.handle, adapter.verifySimple(pending.payload, pending.gameName),
-            pending.payload.detail, pending.gameName)
-        report(runtime)
-    end
-
-    module.hooks.wrap("HandleLootPickup", "execution-v10-confirm-loot", function(_, runtime, base, currentRun, loot,
-        args)
-        local result = base(currentRun, loot, args)
-        completeSimpleAcquisition(runtime, loot)
-        return result
-    end)
-
-    module.hooks.wrap("ConsumableUsedPresentation", "execution-v10-confirm-consumable", function(_, runtime, base,
-        currentRun, item, args)
-        local result = base(currentRun, item, args)
-        completeSimpleAcquisition(runtime, item)
         return result
     end)
 

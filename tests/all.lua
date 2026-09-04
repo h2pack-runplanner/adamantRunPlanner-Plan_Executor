@@ -11,6 +11,7 @@ require("tests/structure/test_f_g_matrix")
 require("tests/test_native_adapters")
 require("tests/room/test_ordinary_traits")
 require("tests/room/test_level_acquisitions")
+require("tests/room/test_direct_pickup_acquisitions")
 require("tests/test_loadout_v11")
 require("tests/test_hook_composition_v10")
 

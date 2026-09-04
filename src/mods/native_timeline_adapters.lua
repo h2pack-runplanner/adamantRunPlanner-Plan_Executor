@@ -166,10 +166,6 @@ function timeline.verifyTrait(row, selectedKey, heroTraits)
     return false
 end
 
-function timeline.verifySimple(row, gameName)
-    return row ~= nil and row.detail ~= nil and row.detail.gameName == gameName
-end
-
 function timeline.verifyWell(row, generationKey, offerKey, twistResultKey)
     local node = row and row.transaction
     return node ~= nil and (node.kind == "wellPurchase" or node.kind == "wellRefill")
