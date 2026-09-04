@@ -202,6 +202,14 @@ function coordinator.begin(state, handle)
     return payload
 end
 
+function coordinator.peek(state, handle)
+    local active = coordinator.current(state)
+    if active == nil then return fail(state, "timeline-handle", "active occurrence", "none") end
+    local payload, errorValue = timelineSession.peek(portFor(active), handle)
+    if payload == nil and errorValue ~= nil then return fail(state, errorValue) end
+    return payload
+end
+
 function coordinator.complete(state, handle, proof, expected, observed)
     if handle == nil then return coordinator.incidental(state) end
     if proof ~= true then return fail(state, "transaction-outcome", expected, observed) end

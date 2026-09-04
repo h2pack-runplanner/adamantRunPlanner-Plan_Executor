@@ -1,7 +1,8 @@
 -- luacheck: globals TestOrdinaryTraits
 local lu = require("luaunit")
-local ordinary = require("mods.room.timeline.traits.ordinary")
-local hooks = require("mods.room.timeline.traits.hooks")
+local ordinary = require("mods.room.timeline.acquisitions.traits.ordinary")
+local hooks = require("mods.room.timeline.acquisitions.traits.hooks")
+local binding = require("mods.room.timeline.acquisitions.binding")
 
 TestOrdinaryTraits = {}
 
@@ -120,6 +121,7 @@ local function attached(offer)
             return nil
         end,
     }
+    binding.attach(module, session, function() return state end, function() end, room)
     hooks.attach(module, session, function() return state end, function() end, room)
     return callbacks, function() return begins end, function() return completed end
 end

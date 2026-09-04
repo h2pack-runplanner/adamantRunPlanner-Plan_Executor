@@ -141,6 +141,17 @@ function timeline.begin(session, handle)
     return bindings.payload(row)
 end
 
+-- Read the published transaction without opening it.  Accepted native
+-- interaction is still the only operation that advances a Timeline owner;
+-- adapters use this for contacts that can return before native guards pass.
+function timeline.peek(session, handle)
+    if session.closed then return mismatch(session, "room-session", "open session", "closed") end
+    if session.firstMismatch ~= nil then return nil, session.firstMismatch end
+    local row, errorValue = rowFor(session, handle)
+    if row == nil then return nil, errorValue end
+    return bindings.payload(row)
+end
+
 function timeline.activePhase(session, kind)
     if session.closed or session.firstMismatch ~= nil then return nil end
     return lifecycle.activePhase(session.capabilities, kind)

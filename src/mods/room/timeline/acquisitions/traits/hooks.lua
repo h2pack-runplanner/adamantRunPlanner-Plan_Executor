@@ -1,7 +1,7 @@
 -- Bounded ordinary Olympian/Hermes/Hammer offer chain. The bound native loot
 -- is its sole correlation carrier; no global pending action or screen handle.
-local ordinary = type(import) == "function" and import("mods/room/timeline/traits/ordinary.lua")
-    or require("mods.room.timeline.traits.ordinary")
+local ordinary = type(import) == "function" and import("mods/room/timeline/acquisitions/traits/ordinary.lua")
+    or require("mods.room.timeline.acquisitions.traits.ordinary")
 
 local hooks = {}
 
@@ -28,43 +28,6 @@ local function resolveFallback(session, room, state, handle, payload, native)
 end
 
 function hooks.attach(module, session, getState, report, room)
-    local producerScope
-
-    module.hooks.wrap("SpawnRoomReward", "execution-c1-scope-ordinary-producer", function(_, runtime, base, source, args)
-        local state = getState(runtime)
-        local current = room.current(state)
-        local reward = current and current.occurrence.overview.incomingReward
-        local prior = producerScope
-        if current and reward then
-            producerScope = {
-                state = state, current = current,
-                handle = room.resolve(state, current, {
-                    kind = "producer", producerLifecycleKey = reward.producerLifecycleKey,
-                    rewardType = reward.rewardType,
-                }),
-            }
-        end
-        local ok, result = pcall(base, source, args)
-        producerScope = prior
-        if not ok then error(result, 0) end
-        return result
-    end)
-
-    module.hooks.wrap("CreateLoot", "execution-c1-bind-ordinary-loot", function(_, runtime, base, args)
-        local result = base(args)
-        local scope = producerScope
-        if scope and ordinary.isNativeCarrier(result) then
-            local handle = room.resolve(scope.state, scope.current, {
-                kind = "materialized", source = scope.handle, gameName = result.Name,
-            })
-            room.bind(scope.state, scope.current, handle, result)
-            -- One producer materializes one C1 loot carrier. Do not let a
-            -- later BonusLoot/trait consequence inherit this source scope.
-            if producerScope == scope then producerScope = nil end
-        end
-        return result
-    end)
-
     module.hooks.wrap("HandleLootPickup", "execution-c1-begin-ordinary-loot", function(_, runtime, base, currentRun, loot, args)
         if not ordinary.isNativeCarrier(loot) then return base(currentRun, loot, args) end
         local state = getState(runtime)

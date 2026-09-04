@@ -166,28 +166,6 @@ function timeline.verifyTrait(row, selectedKey, heroTraits)
     return false
 end
 
-function timeline.applyLevelResolution(row, lootData)
-    local role = row and row.detail
-    local resolution = role and role.levelResolution
-    if resolution == nil or type(lootData) ~= "table" then return false end
-    lootData.StackOnly, lootData.StackNum, lootData.UpgradeOptions = true, resolution.levelCount, {}
-    for index, key in ipairs(resolution.offeredTargets) do lootData.UpgradeOptions[index] = { ItemName = key } end
-    return true
-end
-
-function timeline.verifyLevel(row, selectedKey, before, heroTraits)
-    local role = row and row.detail
-    local resolution = role and role.levelResolution
-    if resolution == nil or resolution.selectedTarget ~= selectedKey then return false end
-    if selectedKey == nil then return true end
-    for _, trait in pairs(heroTraits or {}) do
-        if type(trait) == "table" and (trait.Name == selectedKey or trait.TraitName == selectedKey) then
-            return type(before) == "number" and trait.StackNum == before + resolution.levelCount
-        end
-    end
-    return false
-end
-
 function timeline.verifySimple(row, gameName)
     return row ~= nil and row.detail ~= nil and row.detail.gameName == gameName
 end

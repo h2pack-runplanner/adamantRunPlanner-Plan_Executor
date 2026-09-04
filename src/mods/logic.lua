@@ -28,7 +28,7 @@ function logic.attach(module, data)
     local timelineHooks = import("mods/hooks_timeline.lua")
     local featureInventoryHooks = import("mods/room/features/inventory_hooks.lua")
     local featureInteractionHooks = import("mods/room/timeline/feature_interactions.lua")
-    local ordinaryTraitHooks = import("mods/room/timeline/traits/hooks.lua")
+    local acquisitionHooks = import("mods/room/timeline/acquisitions/hooks.lua")
 
     local function getState(runtime) return data.session.get(runtime) end
     local function diagnosticValue(value, depth)
@@ -65,7 +65,7 @@ function logic.attach(module, data)
     loadoutHooks.attach(module, data, getState, report, room)
 
     local producedRewards = timelineHooks.attach(module, data.session, getState, report, room)
-    ordinaryTraitHooks.attach(module, data.session, getState, report, room)
+    acquisitionHooks.attach(module, data.session, getState, report, room)
     local featureScope = roomFeatureHooks.attach(module, data.session, getState, report, room)
     local navigation = navigationHooks.attach(module, data.session, getState, report, route, room, producedRewards)
     roomHooks.attach(module, data.session, getState, report, route, room, featureScope, navigation)

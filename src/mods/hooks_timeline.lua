@@ -118,7 +118,6 @@ function hooks.attach(module, session, getState, report, room)
     local roomCoordinator = room
     local chaosContext
     local pendingTrait
-    local pendingLevel
     local embryoTarget
     local embryoContext
     local bossScope
@@ -195,7 +194,10 @@ function hooks.attach(module, session, getState, report, room)
     module.hooks.wrap("UseLoot", "execution-v10-use-loot", function(_, runtime, base, usee, args, user)
         -- C1 owns ordinary Olympian/Hermes/Hammer acquisition. It begins only
         -- after native UseLoot commits at HandleLootPickup.
-        if isOrdinaryTraitCarrier(usee) then
+        -- C2 owns the visible Pom carrier. Its adapter marks the exact loot
+        -- while this call is in flight so this legacy family hook cannot begin
+        -- an acquisition before native pickup acceptance.
+        if isOrdinaryTraitCarrier(usee) or usee and usee.__runPlannerLevelCarrier then
             return base(usee, args, user)
         end
         local state = getState(runtime)
@@ -215,10 +217,8 @@ function hooks.attach(module, session, getState, report, room)
             pendingTrait = { handle = handle, payload = payload, source = usee }
         elseif traitOffer and traitOffer.kind == "chaos" then
             pendingTrait = { handle = handle, payload = payload, source = usee }
-        elseif adapter.applyLevelResolution(payload, usee) then
-            pendingLevel = { handle = handle, payload = payload, source = usee }
         end
-        if expected == nil and pendingTrait == nil and pendingLevel == nil then
+        if expected == nil and pendingTrait == nil then
             pendingSimple = { handle = handle, payload = payload, source = usee, gameName = usee.Name }
         end
         local result = base(usee, args, user)
@@ -228,13 +228,17 @@ function hooks.attach(module, session, getState, report, room)
     end)
 
     module.hooks.wrap("UseConsumableItem", "execution-v10-use-consumable", function(_, runtime, base, item, args, user)
+        -- The direct level adapter transports its bound handle through the
+        -- consumable but begins only at UseStoreRewardRandomStack, after all
+        -- native UseConsumableItem guards have accepted the interaction.
+        if item and item.__runPlannerLevelCarrier then
+            return base(item, args, user)
+        end
         local state = getState(runtime)
         local current = roomCoordinator.current(state)
         local handle = roomCoordinator.bound(state, current, item)
             or incomingHandle(roomCoordinator, session, state, item)
         local payload = handle and roomCoordinator.begin(state, handle) or nil
-        local originalUseFunctionArgs
-        local carriesDirectLevel = false
         if payload ~= nil then
             local materialized = roomCoordinator.resolve(state, current,
                 { kind = "materialized", source = handle, gameName = item.Name })
@@ -246,50 +250,12 @@ function hooks.attach(module, session, getState, report, room)
             for _, role in ipairs(payload.transaction.roles or {}) do
                 if role ~= payload.detail then terminal = false end
             end
-            if terminal and payload.detail.levelResolution ~= nil then
-                originalUseFunctionArgs = item.UseFunctionArgs
-                item.UseFunctionArgs = {}
-                for key, value in pairs(originalUseFunctionArgs or {}) do item.UseFunctionArgs[key] = value end
-                item.UseFunctionArgs.__runPlannerTimelineHandle = handle
-                carriesDirectLevel = true
-            elseif terminal then
+            if terminal then
                 pendingSimple = { handle = handle, payload = payload, source = item, gameName = item.Name }
             end
         end
         local result = base(item, args, user)
-        if carriesDirectLevel then item.UseFunctionArgs = originalUseFunctionArgs end
         report(runtime)
-        return result
-    end)
-
-    module.hooks.wrap("AddStackToTraits", "execution-v10-direct-level", function(_, runtime, base, source, args)
-        local directArgs = args or source
-        local handle = type(directArgs) == "table" and directArgs.__runPlannerTimelineHandle or nil
-        local payload = handle and roomCoordinator.begin(getState(runtime), handle) or nil
-        local resolution = payload and payload.detail and payload.detail.levelResolution or nil
-        if resolution == nil then return base(source, args) end
-
-        local threadedDispatch = directArgs.Thread == true
-        local target = type(resolution.selectedTarget) == "string" and resolution.selectedTarget or nil
-        local trait = target and findTrait(target) or nil
-        if target ~= nil and trait == nil then
-            local state = getState(runtime)
-            session.complete(state, handle, false, resolution, target)
-            report(runtime)
-            return base(source, args)
-        end
-
-        directArgs.TraitName = target
-        directArgs.NumTraits = target == nil and 0 or 1
-        directArgs.NumStacks = resolution.levelCount
-        local before = trait and (trait.StackNum or 1) or nil
-        local result = base(source, args)
-        if not threadedDispatch then
-            local state = getState(runtime)
-            session.complete(state, handle, adapter.verifyLevel(payload, target, before, heroTraits()),
-                resolution, target)
-            report(runtime)
-        end
         return result
     end)
 
@@ -404,7 +370,7 @@ function hooks.attach(module, session, getState, report, room)
 
     module.hooks.wrap("CreateBoonLootButtons", "execution-v10-trait-screen", function(_, runtime, base, screen,
         lootData, reroll, args)
-        if isOrdinaryTraitCarrier(lootData) then
+        if isOrdinaryTraitCarrier(lootData) or lootData and lootData.__runPlannerLevelCarrier then
             return base(screen, lootData, reroll, args)
         end
         local state = getState(runtime)
@@ -667,26 +633,16 @@ function hooks.attach(module, session, getState, report, room)
     module.hooks.wrap("HandleUpgradeChoiceSelection", "execution-v10-trait-selection", function(_, runtime, base,
         screen, button, args)
         local lootData = button and button.LootData
-        if isOrdinaryTraitCarrier(lootData) then
+        if isOrdinaryTraitCarrier(lootData) or lootData and lootData.__runPlannerLevelCarrier then
             return base(screen, button, args)
         end
         local state = getState(runtime)
         local selected = button and button.Data and button.Data.Name
-        if pendingLevel ~= nil then
-            local trait = findTrait(selected)
-            pendingLevel.before = trait and trait.StackNum
-            pendingLevel.selected = selected
-        elseif pendingTrait ~= nil then
+        if pendingTrait ~= nil then
             pendingTrait.selected = selected
         end
         local result = base(screen, button, args)
-        if pendingLevel ~= nil then
-            local pending = pendingLevel
-            pendingLevel = nil
-            session.complete(state, pending.handle,
-                adapter.verifyLevel(pending.payload, pending.selected, pending.before, heroTraits()),
-                pending.payload.detail.levelResolution, pending.selected)
-        elseif pendingTrait ~= nil then
+        if pendingTrait ~= nil then
             local pending = pendingTrait
             pendingTrait = nil
             session.complete(state, pending.handle,

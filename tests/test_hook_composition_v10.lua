@@ -7,6 +7,7 @@ local encounterHooks = require("mods.room.encounter_hooks")
 local roomFeatureHooks = require("mods.room.features.hooks")
 local routeSession = require("mods.route.session")
 local timeline = require("mods/hooks_timeline")
+local acquisitions = require("mods.room.timeline.acquisitions.hooks")
 local featureInventoryHooks = require("mods.room.features.inventory_hooks")
 local featureInteractionHooks = require("mods.room.timeline.feature_interactions")
 local logic = require("mods/logic")
@@ -72,6 +73,7 @@ local function stub()
             return fakePayload(handle)
         end,
         activePhase = function() return nil end,
+        peek = function(_, handle) return fakePayload(handle) end,
     }
 end
 
@@ -1303,7 +1305,10 @@ function TestHookCompositionV10.testDirectConsumableLevelResolutionForcesAndComp
     local target = { Name = "ZeusWeaponBoon", StackNum = 2 }
     local other = { Name = "ApolloSpecialBoon", StackNum = 4 }
     local row = {
-        transaction = { owner = "pom-slice", kind = "shopPurchase", offerKey = "Minor", roles = {} },
+        transaction = {
+            owner = "room-nectar", kind = "acquisition", producerLifecycleKey = "RoomReward",
+            reward = { rewardType = "GiftDrop" }, roles = {},
+        },
         detail = {
             gameName = "GiftDrop",
             levelResolution = {
@@ -1313,10 +1318,9 @@ function TestHookCompositionV10.testDirectConsumableLevelResolutionForcesAndComp
     }
     row.transaction.roles = { row.detail }
     local item = {
-        Name = "StoreRewardRandomStack", __runPlannerOfferKey = "Minor",
+        Name = "GiftDrop",
         UseFunctionArgs = { Thread = true, NumTraits = 1, NumStacks = 9 },
     }
-    row.detail.gameName = item.Name
     local active = opaque({
         occurrence = { overview = {} },
     }, function(contact)
@@ -1332,29 +1336,29 @@ function TestHookCompositionV10.testDirectConsumableLevelResolutionForcesAndComp
             row = completedRow, verified = verified, expected = expected, observed = observed,
         }
     end
-    attachFeatureHooks(module, session, function() return {} end, function() end, session)
-    timeline.attach(module, session, function() return {} end, function() end, session)
+    acquisitions.attach(module, session, function() return {} end, function() end, session)
 
     local priorRun = _G.CurrentRun
     _G.CurrentRun = { Hero = { Traits = { target, other } } }
-    callbacks.HandleStorePurchase(nil, {}, function(_, button)
-        callbacks.UseConsumableItem(nil, {}, function(nativeItem)
-            callbacks.ConsumableUsedPresentation(nil, {}, function() return true end, _G.CurrentRun, nativeItem, {})
-            local threadedArgs = nativeItem.UseFunctionArgs
-            callbacks.AddStackToTraits(nil, {}, function(source)
-                lu.assertEquals(source.TraitName, target.Name)
-                lu.assertEquals(source.NumStacks, 1)
+    callbacks.UseConsumableItem(nil, {}, function(nativeItem)
+        local threadedArgs = nativeItem.UseFunctionArgs
+        callbacks.UseStoreRewardRandomStack(nil, {}, function(directArgs)
+            callbacks.AddStackToTraits(nil, {}, function(firstSource, firstArgs)
+                firstArgs = firstArgs or firstSource
+                lu.assertEquals(firstArgs.TraitName, target.Name)
+                lu.assertEquals(firstArgs.NumStacks, 1)
                 local realizedArgs = {}
-                for key, value in pairs(source) do realizedArgs[key] = value end
+                for key, value in pairs(firstArgs) do realizedArgs[key] = value end
                 realizedArgs.Thread = false
-                callbacks.AddStackToTraits(nil, {}, function(_, directArgs)
-                    lu.assertEquals(directArgs.TraitName, target.Name)
-                    lu.assertEquals(directArgs.NumStacks, 1)
-                    target.StackNum = target.StackNum + directArgs.NumStacks
-                end, {}, realizedArgs)
-            end, threadedArgs)
-        end, button.Data, {}, {})
-    end, {}, { Data = item }, {})
+                callbacks.AddStackToTraits(nil, {}, function(terminalSource, terminalArgs)
+                    terminalArgs = terminalArgs or terminalSource
+                    lu.assertEquals(terminalArgs.TraitName, target.Name)
+                    lu.assertEquals(terminalArgs.NumStacks, 1)
+                    target.StackNum = target.StackNum + terminalArgs.NumStacks
+                end, realizedArgs)
+            end, directArgs)
+        end, threadedArgs, nativeItem)
+    end, item, {}, {})
     _G.CurrentRun = priorRun
 
     lu.assertEquals(item.UseFunctionArgs, { Thread = true, NumTraits = 1, NumStacks = 9 })
@@ -1451,6 +1455,7 @@ function TestHookCompositionV10.testExplicitGateBHookGroupsStayInstalled()
     local getState, report = function() end, function() end
     local route = { expected = function() end, reportDestination = function() return true end }
     local produced = timeline.attach(module, session, getState, report, session)
+    acquisitions.attach(module, session, getState, report, session)
     local featureScope = roomFeatureHooks.attach(module, session, getState, report, session)
     local navigationEntry = navigation.attach(module, session, getState, report, route, session, produced)
     roomHooks.attach(module, session, getState, report, route, session, featureScope, navigationEntry)
