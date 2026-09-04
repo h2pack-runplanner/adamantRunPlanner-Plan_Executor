@@ -179,7 +179,7 @@ function TestTransformations.testArtificerPublishesChildButCompletesOnlyAfterVer
     end, {}, { IgnoreRoomSpawnOnLootPoint = true, SpawnRewardOnId = 17 })
     lu.assertEquals(created.Name, "RoomRewardConsolationPrize")
     lu.assertEquals(completed, {})
-    module.registered.Destroy["execution-c4-artificer-source-destroyed"](
+    module.registered.Destroy["run-planner-artificer-source-destroyed"](
         nil, {}, function() return true end, { Id = 17 })
     lu.assertEquals(#completed, 1)
     lu.assertTrue(completed[1].proof)
@@ -221,7 +221,7 @@ function TestTransformations.testArtificerRetainsSourceSteeringWhenTimePieceCons
             return { Name = "RoomRewardConsolationPrize" }
         end, {})
     end, {}, { IgnoreRoomSpawnOnLootPoint = true, SpawnRewardOnId = target.ObjectId })
-    module.registered.Destroy["execution-c4-artificer-source-destroyed"](
+    module.registered.Destroy["run-planner-artificer-source-destroyed"](
         nil, {}, function() return true end, { Id = target.ObjectId })
     lu.assertEquals(#completed, 1)
     lu.assertTrue(completed[1].proof)
@@ -242,7 +242,7 @@ function TestTransformations.testArtificerWrongSpawnReportsMismatchAndPassesThro
     lu.assertEquals(completed, {
         { handle = source, proof = false, expected = "RoomRewardConsolationPrize", observed = "WeaponUpgrade" },
     })
-    module.registered.Destroy["execution-c4-artificer-source-destroyed"](
+    module.registered.Destroy["run-planner-artificer-source-destroyed"](
         nil, {}, function() return true end, { Id = target.ObjectId })
     lu.assertEquals(#completed, 1)
 end

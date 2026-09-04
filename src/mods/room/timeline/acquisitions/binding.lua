@@ -22,7 +22,7 @@ end
 function binding.attach(module, _session, getState, _report, room)
     local producerScope
 
-    module.hooks.wrap("SpawnRoomReward", "execution-c2-scope-acquisition-producer", function(_, runtime, base,
+    module.hooks.wrap("SpawnRoomReward", "run-planner-scope-acquisition-producer", function(_, runtime, base,
         source, args)
         local state = getState(runtime)
         local prior = producerScope
@@ -41,7 +41,7 @@ function binding.attach(module, _session, getState, _report, room)
         return result
     end)
 
-    module.hooks.wrap("CreateLoot", "execution-c2-bind-loot-carrier", function(_, _runtime, base, args)
+    module.hooks.wrap("CreateLoot", "run-planner-bind-loot-carrier", function(_, _runtime, base, args)
         local result = base(args)
         if producerScope ~= nil and (ordinary.isNativeCarrier(result) or levels.isVisibleCarrier(result)) then
             local scope = producerScope
@@ -61,7 +61,7 @@ function binding.attach(module, _session, getState, _report, room)
         return result
     end)
 
-    module.hooks.wrap("CreateConsumableItem", "execution-c2-bind-direct-carrier", function(_, _runtime, base, ...)
+    module.hooks.wrap("CreateConsumableItem", "run-planner-bind-direct-carrier", function(_, _runtime, base, ...)
         local result = base(...)
         if producerScope ~= nil and type(result) == "table" then
             local scope = producerScope

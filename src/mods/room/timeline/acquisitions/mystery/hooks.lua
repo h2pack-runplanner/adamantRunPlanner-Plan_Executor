@@ -24,7 +24,7 @@ function mystery.attach(module, session, getState, report, room)
     local boxUses = setmetatable({}, { __mode = "k" })
     local unwrapScope
 
-    module.hooks.wrap("CreateLoot", "execution-c3-mystery-provider-bind", function(_, _, base, args)
+    module.hooks.wrap("CreateLoot", "run-planner-mystery-provider-bind", function(_, _, base, args)
         local result = base(args)
         local scope = unwrapScope
         if scope ~= nil and type(result) == "table"
@@ -68,7 +68,7 @@ function mystery.attach(module, session, getState, report, room)
         return nil
     end
 
-    module.hooks.wrap("UseConsumableItem", "execution-c3-mystery-use", function(_, runtime, base,
+    module.hooks.wrap("UseConsumableItem", "run-planner-mystery-use", function(_, runtime, base,
         item, args, user)
         local state = getState(runtime)
         local scope = boundScope(state, item)
@@ -88,7 +88,7 @@ function mystery.attach(module, session, getState, report, room)
         return result
     end)
 
-    module.hooks.wrap("ConsumableUsedPresentation", "execution-c3-mystery-accepted", function(_, _, base,
+    module.hooks.wrap("ConsumableUsedPresentation", "run-planner-mystery-accepted", function(_, _, base,
         currentRun, item, args)
         local result = base(currentRun, item, args)
         local scope = boxUses[item]
@@ -105,7 +105,7 @@ function mystery.attach(module, session, getState, report, room)
         return result
     end)
 
-    module.hooks.wrap("UnwrapRandomLoot", "execution-c3-mystery-unwrap", function(_, runtime, base, source)
+    module.hooks.wrap("UnwrapRandomLoot", "run-planner-mystery-unwrap", function(_, runtime, base, source)
         local scope = boxUses[source]
         if scope == nil or scope.payload == nil then return base(source) end
         local hidden = lifecycleRole(scope.payload, "afterUnwrap")
@@ -122,7 +122,7 @@ function mystery.attach(module, session, getState, report, room)
         return result
     end)
 
-    module.hooks.wrap("GiveLoot", "execution-c3-mystery-provider", function(_, _, base, args)
+    module.hooks.wrap("GiveLoot", "run-planner-mystery-provider", function(_, _, base, args)
         if unwrapScope == nil or unwrapScope.forcedName == nil then return base(args) end
         local forcedArgs = copy(args)
         forcedArgs.ForceLootName = unwrapScope.forcedName

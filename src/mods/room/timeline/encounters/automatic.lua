@@ -22,7 +22,7 @@ function automatic.attach(module, session, getState, report, room)
     local embryoTarget
     local embryoContext
 
-    module.hooks.wrap("AddRarityToTraits", "execution-v10-steady-growth", function(_, runtime, base, source, args)
+    module.hooks.wrap("AddRarityToTraits", "run-planner-steady-growth", function(_, runtime, base, source, args)
         local state = getState(runtime)
         local current = room.current(state)
         local phase = room.activePhase(state, "encounterEnd")
@@ -44,7 +44,7 @@ function automatic.attach(module, session, getState, report, room)
         return result
     end)
 
-    module.hooks.wrap("AddRandomChaosBlessing", "execution-v14-embryo", function(_, runtime, base, rarity)
+    module.hooks.wrap("AddRandomChaosBlessing", "run-planner-embryo", function(_, runtime, base, rarity)
         local state = getState(runtime)
         local current = room.current(state)
         local phase = room.activePhase(state, "encounterEnd")
@@ -71,7 +71,7 @@ function automatic.attach(module, session, getState, report, room)
         return result
     end)
 
-    module.hooks.wrap("GetRandomArrayValue", "execution-v10-automatic-selection", function(_, _, base, values, rng)
+    module.hooks.wrap("GetRandomArrayValue", "run-planner-automatic-selection", function(_, _, base, values, rng)
         if embryoTarget and type(values) == "table" then
             for _, value in ipairs(values) do if value == embryoTarget then return value end end
         end
@@ -80,7 +80,7 @@ function automatic.attach(module, session, getState, report, room)
 
     -- Keep the native trait data override available while Embryo's callback is
     -- executing; this is the same scoped value used by its existing carrier.
-    module.hooks.wrap("GetProcessedTraitData", "execution-v10-embryo-values", function(_, _, base, args)
+    module.hooks.wrap("GetProcessedTraitData", "run-planner-embryo-values", function(_, _, base, args)
         local result = base(args)
         if embryoContext == nil or type(args) ~= "table" or type(result) ~= "table"
             or args.TraitName ~= embryoContext.target then return result end

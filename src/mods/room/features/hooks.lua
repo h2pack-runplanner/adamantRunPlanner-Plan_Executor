@@ -6,7 +6,7 @@ function hooks.attach(module, _, getState, report, room)
     local secretScope
     local pendingAdditional
 
-    module.hooks.wrap("HandleSecretSpawns", "execution-v10-room-features", function(_, runtime, base, currentRun)
+    module.hooks.wrap("HandleSecretSpawns", "run-planner-room-features", function(_, runtime, base, currentRun)
         local state = getState(runtime)
         if state == nil or state.state ~= "synchronized" then return base(currentRun) end
         secretScope = room.additional(state, "chaos") ~= nil
@@ -17,7 +17,7 @@ function hooks.attach(module, _, getState, report, room)
         return result
     end)
 
-    module.hooks.wrap("IsSecretDoorEligible", "execution-v10-chaos-eligibility", function(_, runtime, base,
+    module.hooks.wrap("IsSecretDoorEligible", "run-planner-chaos-eligibility", function(_, runtime, base,
         currentRun, currentRoom)
         local state = getState(runtime)
         if state == nil or state.state ~= "synchronized" then return base(currentRun, currentRoom) end
@@ -25,7 +25,7 @@ function hooks.attach(module, _, getState, report, room)
         return base(currentRun, currentRoom)
     end)
 
-    module.hooks.wrap("IsSellTraitShopEligible", "execution-v10-purging-pool-presence", function(_, runtime, base,
+    module.hooks.wrap("IsSellTraitShopEligible", "run-planner-purging-pool-presence", function(_, runtime, base,
         currentRoom)
         local state = getState(runtime)
         if state == nil then return base(currentRoom) end
@@ -33,7 +33,7 @@ function hooks.attach(module, _, getState, report, room)
         return base(currentRoom)
     end)
 
-    module.hooks.wrap("IsWellShopEligible", "execution-v10-well-presence", function(_, runtime, base, currentRun,
+    module.hooks.wrap("IsWellShopEligible", "run-planner-well-presence", function(_, runtime, base, currentRun,
         currentRoom)
         local state = getState(runtime)
         if state == nil then return base(currentRun, currentRoom) end
@@ -41,7 +41,7 @@ function hooks.attach(module, _, getState, report, room)
         return base(currentRun, currentRoom)
     end)
 
-    module.hooks.wrap("SpawnZagContract", "execution-v10-zagreus-contract", function(_, runtime, base, nativeRoom,
+    module.hooks.wrap("SpawnZagContract", "run-planner-zagreus-contract", function(_, runtime, base, nativeRoom,
         args)
         local state = getState(runtime)
         if state == nil or state.state ~= "synchronized" then return base(nativeRoom, args) end

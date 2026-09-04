@@ -103,7 +103,7 @@ function npc.attach(module, session, getState, report, room)
     end
 
     local function attachChoice(functionName, giver)
-        module.hooks.wrap(functionName, "execution-c3-npc-entry", function(_, runtime, base, source,
+        module.hooks.wrap(functionName, "run-planner-npc-entry", function(_, runtime, base, source,
             args, screen)
             local state = getState(runtime)
             local current = room.current(state)
@@ -133,7 +133,7 @@ function npc.attach(module, session, getState, report, room)
     attachChoice("ArachneCostumeChoice", "Arachne")
     attachChoice("NarcissusBenefitChoice", "Narcissus")
 
-    module.hooks.wrap("OpenUpgradeChoiceMenu", "execution-c3-npc-menu", function(_, runtime, base, source, args)
+    module.hooks.wrap("OpenUpgradeChoiceMenu", "run-planner-npc-menu", function(_, runtime, base, source, args)
         local scope = choices[source]
         if scope ~= nil and not scope.invalid then
             if not install(scope) then
@@ -148,7 +148,7 @@ function npc.attach(module, session, getState, report, room)
         return result
     end)
 
-    module.hooks.wrap("HandleUpgradeChoiceSelection", "execution-c3-npc-selection", function(_, runtime,
+    module.hooks.wrap("HandleUpgradeChoiceSelection", "run-planner-npc-selection", function(_, runtime,
         base, screen, button, args)
         local source = screen and screen.Source
         local scope = choices[source]

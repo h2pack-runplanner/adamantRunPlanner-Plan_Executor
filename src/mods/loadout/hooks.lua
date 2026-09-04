@@ -82,15 +82,15 @@ function hooks.attach(module, data, getState, report, room)
         end)
     end
     wrapEquipResult(nativeFacts.keepsakeEquipContacts.experimentalHammer,
-        "execution-v11-equip-hammer", "experimentalHammer")
+        "run-planner-equip-hammer", "experimentalHammer")
     wrapEquipResult(nativeFacts.keepsakeEquipContacts.jeweledPom,
-        "execution-v11-equip-pom", "jeweledPom")
+        "run-planner-equip-pom", "jeweledPom")
     wrapEquipResult(nativeFacts.keepsakeEquipContacts.transcendentEmbryo,
-        "execution-v11-equip-embryo", "transcendentEmbryo")
-    module.hooks.wrap("AddRandomHammer", "execution-v11-equip-hammer-result", function(_, runtime, base, args)
+        "run-planner-equip-embryo", "transcendentEmbryo")
+    module.hooks.wrap("AddRandomHammer", "run-planner-equip-hammer-result", function(_, runtime, base, args)
         local result = base(args); recordEquipResult(runtime, "experimentalHammer", result); return result
     end)
-    module.hooks.wrap("AddRandomChaosBlessing", "execution-v11-equip-embryo-result", function(_, runtime, base, rarity)
+    module.hooks.wrap("AddRandomChaosBlessing", "run-planner-equip-embryo-result", function(_, runtime, base, rarity)
         local expected = equipScope and equipScope.expected and equipScope.expected.transcendentEmbryo
         local prior = embryoContext
         if expected ~= nil then
@@ -106,14 +106,14 @@ function hooks.attach(module, data, getState, report, room)
         recordEquipResult(runtime, "transcendentEmbryo", result)
         return result
     end)
-    module.hooks.wrap("GetProcessedTraitData", "execution-v14-equip-embryo-values", function(_, _, base, args)
+    module.hooks.wrap("GetProcessedTraitData", "run-planner-equip-embryo-values", function(_, _, base, args)
         local result = base(args)
         if type(args) ~= "table" or type(result) ~= "table" or embryoContext == nil then return result end
         if args.TraitName ~= embryoContext.target then return result end
         result.Rarity = embryoContext.rarity
         return chaos.applyBlessing(result, embryoContext.target, embryoContext.blessingValues)
     end)
-    module.hooks.wrap("GetRandomArrayValue", "execution-v11-equip-selection", function(_, runtime, base, values, rng)
+    module.hooks.wrap("GetRandomArrayValue", "run-planner-equip-selection", function(_, runtime, base, values, rng)
         if not enforcing(runtime) then return base(values, rng) end
         local expected = equipScope and equipScope.kind and equipScope.expected[equipScope.kind]
         local key = expected and (expected.traitKey or expected.blessingKey)
@@ -142,7 +142,7 @@ function hooks.attach(module, data, getState, report, room)
         end
         return base(values, rng)
     end)
-    module.hooks.wrap("CreateTalentTree", "execution-v11-selene-tree", function(_, runtime, base, spellData)
+    module.hooks.wrap("CreateTalentTree", "run-planner-selene-tree", function(_, runtime, base, spellData)
         if not enforcing(runtime) then return base(spellData) end
         local prior = treeScope
         treeScope = hexScope
@@ -151,7 +151,7 @@ function hooks.attach(module, data, getState, report, room)
         if not ok then error(tree, 0) end
         return tree
     end)
-    module.hooks.wrap("GetRandomValue", "execution-v11-selene-layout", function(_, runtime, base, values, ...)
+    module.hooks.wrap("GetRandomValue", "run-planner-selene-layout", function(_, runtime, base, values, ...)
         if not enforcing(runtime) then return base(values, ...) end
         if treeScope and type(values) == "table" then
             for _, value in ipairs(values) do
@@ -160,7 +160,7 @@ function hooks.attach(module, data, getState, report, room)
         end
         return base(values, ...)
     end)
-    module.hooks.wrap("RemoveRandomValue", "execution-v11-selene-god-sent", function(_, runtime, base, values, ...)
+    module.hooks.wrap("RemoveRandomValue", "run-planner-selene-god-sent", function(_, runtime, base, values, ...)
         if not enforcing(runtime) then return base(values, ...) end
         if treeScope and type(values) == "table" then
             local candidates = {}
@@ -175,7 +175,7 @@ function hooks.attach(module, data, getState, report, room)
         end
         return base(values, ...)
     end)
-    module.hooks.wrap("StartNewRun", "execution-v11-start", function(_, runtime, base, previousRun, args)
+    module.hooks.wrap("StartNewRun", "run-planner-start", function(_, runtime, base, previousRun, args)
         startDepth = startDepth + 1
         local ok, result = pcall(base, previousRun, args)
         startDepth, hexScope = startDepth - 1, nil
@@ -187,7 +187,7 @@ function hooks.attach(module, data, getState, report, room)
         report(runtime)
         return result
     end)
-    module.hooks.wrap("CreateNewHero", "execution-v11-session-start", function(_, runtime, base, previousRun, args)
+    module.hooks.wrap("CreateNewHero", "run-planner-session-start", function(_, runtime, base, previousRun, args)
         if startDepth <= 0 then return base(previousRun, args) end
         local state = getState(runtime)
         if not state.initialized then data.session.start(state, data.inbox, "starting") end
@@ -199,7 +199,7 @@ function hooks.attach(module, data, getState, report, room)
         if not ok then error(result, 0) end
         return result
     end)
-    module.hooks.wrap("EquipKeepsake", "execution-v11-equip-keepsake", function(_, runtime, base, hero,
+    module.hooks.wrap("EquipKeepsake", "run-planner-equip-keepsake", function(_, runtime, base, hero,
         keepsakeKey, args)
         local state = getState(runtime)
         if state == nil then return base(hero, keepsakeKey, args) end

@@ -8,7 +8,7 @@ function boss.attach(module, session, getState, report, room)
     local bossScope
     local arcanaQueue
 
-    module.hooks.wrap("Kill", "execution-v10-boss-defeated", function(_, runtime, base, victim, args)
+    module.hooks.wrap("Kill", "run-planner-boss-defeated", function(_, runtime, base, victim, args)
         local state = getState(runtime)
         local current = room.current(state)
         local prior = bossScope
@@ -26,7 +26,7 @@ function boss.attach(module, session, getState, report, room)
         return result
     end)
 
-    module.hooks.wrap("AddRandomMetaUpgrades", "execution-v10-boss-arcana", function(_, runtime, base, count, args)
+    module.hooks.wrap("AddRandomMetaUpgrades", "run-planner-boss-arcana", function(_, runtime, base, count, args)
         if bossScope == nil then return base(count, args) end
         local effect = type(args) == "table" and args.RarityLevel ~= nil
             and "crystalFigurine" or "judgment"
@@ -59,7 +59,7 @@ function boss.attach(module, session, getState, report, room)
         return result
     end)
 
-    module.hooks.wrap("RemoveRandomValue", "execution-v10-boss-arcana-selection", function(_, _, base, values)
+    module.hooks.wrap("RemoveRandomValue", "run-planner-boss-arcana-selection", function(_, _, base, values)
         if arcanaQueue and arcanaQueue.keys[arcanaQueue.index] then
             local key = arcanaQueue.keys[arcanaQueue.index]
             for index, value in ipairs(values or {}) do

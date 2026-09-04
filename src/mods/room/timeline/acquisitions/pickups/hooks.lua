@@ -40,7 +40,7 @@ end
 function pickups.attach(module, session, getState, report, room)
     local activeUses = setmetatable({}, { __mode = "k" })
 
-    module.hooks.wrap("UseConsumableItem", "execution-c2-direct-pickup-use", function(_, runtime, base,
+    module.hooks.wrap("UseConsumableItem", "run-planner-direct-pickup-use", function(_, runtime, base,
         item, args, user)
         local state = getState(runtime)
         local current = room.current(state)
@@ -71,7 +71,7 @@ function pickups.attach(module, session, getState, report, room)
         return result
     end)
 
-    module.hooks.wrap("ConsumableUsedPresentation", "execution-c2-direct-pickup-accepted",
+    module.hooks.wrap("ConsumableUsedPresentation", "run-planner-direct-pickup-accepted",
         function(_, _, base, currentRun, item, args)
             local result = base(currentRun, item, args)
             local scope = activeUses[item]

@@ -123,7 +123,7 @@ function artificer.attach(module, _session, getState, report, room)
         if not action.spawnVerified then failSpawn(action, observed) end
     end
 
-    module.hooks.wrap("ConvertMetaRewardPresentation", "execution-c4-artificer-accepted", function(_, runtime,
+    module.hooks.wrap("ConvertMetaRewardPresentation", "run-planner-artificer-accepted", function(_, runtime,
         base, target)
         local state = getState(runtime)
         local current = room.current(state)
@@ -168,18 +168,18 @@ function artificer.attach(module, _session, getState, report, room)
         return result
     end
 
-    module.hooks.wrap("CreateLoot", "execution-c4-artificer-replacement-loot", function(_, runtime, base, args)
+    module.hooks.wrap("CreateLoot", "run-planner-artificer-replacement-loot", function(_, runtime, base, args)
         local result = base(args)
         return observeCreatedReplacement(runtime, result)
     end)
 
-    module.hooks.wrap("CreateConsumableItem", "execution-c4-artificer-replacement-consumable",
+    module.hooks.wrap("CreateConsumableItem", "run-planner-artificer-replacement-consumable",
         function(_, runtime, base, ...)
             local result = base(...)
             return observeCreatedReplacement(runtime, result)
         end)
 
-    module.hooks.wrap("SpawnRoomReward", "execution-c4-artificer-replacement-spawn", function(_, runtime, base,
+    module.hooks.wrap("SpawnRoomReward", "run-planner-artificer-replacement-spawn", function(_, runtime, base,
         eventSource, args)
         local sourceId = type(args) == "table" and args.IgnoreRoomSpawnOnLootPoint == true
             and args.SpawnRewardOnId or nil
@@ -204,7 +204,7 @@ function artificer.attach(module, _session, getState, report, room)
         return result
     end)
 
-    module.hooks.wrap("Destroy", "execution-c4-artificer-source-destroyed", function(_, runtime, base, args)
+    module.hooks.wrap("Destroy", "run-planner-artificer-source-destroyed", function(_, runtime, base, args)
         local result = base(args)
         local objectId = type(args) == "table" and args.Id or nil
         local action = objectId and pending[objectId]

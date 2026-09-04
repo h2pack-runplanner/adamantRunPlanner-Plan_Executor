@@ -165,13 +165,13 @@ function levels.attach(module, session, getState, report, room)
         return result
     end
 
-    module.hooks.wrap("GetTotalHeroTraitValue", "execution-c2-level-fated-bonus", function(_, _, base,
+    module.hooks.wrap("GetTotalHeroTraitValue", "run-planner-level-fated-bonus", function(_, _, base,
         propertyName, args)
         if propertyName == "FatedPomLevelBonus" and suppressFatedPomBonus > 0 then return 0 end
         return base(propertyName, args)
     end)
 
-    module.hooks.wrap("UseLoot", "execution-c2-level-use-loot", function(_, runtime, base, usee, args, user)
+    module.hooks.wrap("UseLoot", "run-planner-level-use-loot", function(_, runtime, base, usee, args, user)
         if not levels.isVisibleCarrier(usee) then return base(usee, args, user) end
         local state = getState(runtime)
         local _, payload = carrier(state, roomCoordinator, usee)
@@ -188,7 +188,7 @@ function levels.attach(module, session, getState, report, room)
         return result
     end)
 
-    module.hooks.wrap("HandleLootPickup", "execution-c2-level-begin-loot", function(_, runtime, base,
+    module.hooks.wrap("HandleLootPickup", "run-planner-level-begin-loot", function(_, runtime, base,
         currentRun, loot, args)
         if not levels.isVisibleCarrier(loot) then return base(currentRun, loot, args) end
         local state = getState(runtime)
@@ -215,7 +215,7 @@ function levels.attach(module, session, getState, report, room)
         return result
     end)
 
-    module.hooks.wrap("CreateBoonLootButtons", "execution-c2-level-screen", function(_, runtime, base,
+    module.hooks.wrap("CreateBoonLootButtons", "run-planner-level-screen", function(_, runtime, base,
         screen, loot, reroll, args)
         if not levels.isVisibleCarrier(loot) then return base(screen, loot, reroll, args) end
         local state = getState(runtime)
@@ -237,7 +237,7 @@ function levels.attach(module, session, getState, report, room)
         return base(screen, loot, reroll, args)
     end)
 
-    module.hooks.wrap("HandleUpgradeChoiceSelection", "execution-c2-level-selection", function(_, runtime, base,
+    module.hooks.wrap("HandleUpgradeChoiceSelection", "run-planner-level-selection", function(_, runtime, base,
         screen, button, args)
         local loot = button and button.LootData
         if not levels.isVisibleCarrier(loot) then return base(screen, button, args) end
@@ -263,7 +263,7 @@ function levels.attach(module, session, getState, report, room)
         return result
     end)
 
-    module.hooks.wrap("UseConsumableItem", "execution-c2-level-use-consumable", function(_, runtime, base,
+    module.hooks.wrap("UseConsumableItem", "run-planner-level-use-consumable", function(_, runtime, base,
         item, args, user)
         if not levels.isDirectCarrier(item) then return base(item, args, user) end
         local state = getState(runtime)
@@ -290,7 +290,7 @@ function levels.attach(module, session, getState, report, room)
         return result
     end)
 
-    module.hooks.wrap("ConsumableUsedPresentation", "execution-c2-level-direct-accepted", function(_, runtime, base,
+    module.hooks.wrap("ConsumableUsedPresentation", "run-planner-level-direct-accepted", function(_, runtime, base,
         currentRun, item, args)
         local result = base(currentRun, item, args)
         local scope = activeDirectUses[item]
@@ -308,7 +308,7 @@ function levels.attach(module, session, getState, report, room)
         return result
     end)
 
-    module.hooks.wrap("UseStoreRewardRandomStack", "execution-c2-level-direct-entry", function(_, runtime, base,
+    module.hooks.wrap("UseStoreRewardRandomStack", "run-planner-level-direct-entry", function(_, runtime, base,
         source, args)
         -- CallFunctionName passes UseFunctionArgs first and the consumable
         -- object second. The object is not the carrier; the first argument is.
@@ -325,7 +325,7 @@ function levels.attach(module, session, getState, report, room)
         return base(source, args)
     end)
 
-    module.hooks.wrap("AddStackToTraits", "execution-c2-level-direct-terminal", function(_, runtime, base,
+    module.hooks.wrap("AddStackToTraits", "run-planner-level-direct-terminal", function(_, runtime, base,
         source, args)
         local directArgs = markedArguments(source, args)
         if directArgs == nil then return base(source, args) end

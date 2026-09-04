@@ -6,7 +6,7 @@ local function roomName(value)
 end
 
 function hooks.attach(module, session, getState, report, route, room, featureScope, navigation)
-    module.hooks.wrap("ChooseStartingRoom", "execution-v10-starting-room", function(_, runtime, base, currentRun,
+    module.hooks.wrap("ChooseStartingRoom", "run-planner-starting-room", function(_, runtime, base, currentRun,
         args)
         local state = getState(runtime)
         if state == nil then return base(currentRun, args) end
@@ -25,7 +25,7 @@ function hooks.attach(module, session, getState, report, route, room, featureSco
         return base(currentRun, args)
     end)
 
-    module.hooks.wrap("CreateRoom", "execution-v10-create-room", function(_, runtime, base, roomData, args)
+    module.hooks.wrap("CreateRoom", "run-planner-create-room", function(_, runtime, base, roomData, args)
         local state = getState(runtime)
         if state == nil or state.state ~= "synchronized" then return base(roomData, args) end
         local additional = featureScope and featureScope.currentAdditional()
@@ -59,7 +59,7 @@ function hooks.attach(module, session, getState, report, route, room, featureSco
         return result
     end)
 
-    module.hooks.wrap("StartRoom", "execution-v10-room-entry", function(_, runtime, base, currentRun, nativeRoom)
+    module.hooks.wrap("StartRoom", "run-planner-room-entry", function(_, runtime, base, currentRun, nativeRoom)
         local state = getState(runtime)
         if state == nil or state.state ~= "synchronized" then return base(currentRun, nativeRoom) end
         local expected = route.expected(state.route)
@@ -93,7 +93,7 @@ function hooks.attach(module, session, getState, report, route, room, featureSco
         return result
     end)
 
-    module.hooks.wrap("LeaveRoom", "execution-v10-room-exit", function(_, runtime, base, currentRun, door)
+    module.hooks.wrap("LeaveRoom", "run-planner-room-exit", function(_, runtime, base, currentRun, door)
         local state = getState(runtime)
         if state == nil or state.state ~= "synchronized" then return base(currentRun, door) end
         room.close(state, currentRun, _G.GameState)

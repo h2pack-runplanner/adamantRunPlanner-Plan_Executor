@@ -71,7 +71,7 @@ function hooks.attach(module, session, getState, report, room, route)
         end
     end
 
-    module.hooks.wrap("FillInShopOptions", "execution-v10-inventory", function(_, runtime, base, args)
+    module.hooks.wrap("FillInShopOptions", "run-planner-inventory", function(_, runtime, base, args)
         local state = getState(runtime)
         local active = current(session, state, room, route)
         local prepared, errorValue = inventory.prepare(active and active.occurrence, args,
@@ -105,12 +105,12 @@ function hooks.attach(module, session, getState, report, room, route)
         return result
     end)
 
-    module.hooks.wrap("GetEligibleInteractedGod", "execution-v10-inventory-source", function(_, _, base, ignored)
+    module.hooks.wrap("GetEligibleInteractedGod", "run-planner-inventory-source", function(_, _, base, ignored)
         if inventorySources and inventorySources[1] then return table.remove(inventorySources, 1) end
         return base(ignored)
     end)
 
-    module.hooks.wrap("CreateSellButtons", "execution-v10-pool-inventory", function(_, runtime, base, screen)
+    module.hooks.wrap("CreateSellButtons", "run-planner-pool-inventory", function(_, runtime, base, screen)
         local state = getState(runtime)
         local active = current(session, state, room, route)
         local nativeRoom = _G.CurrentRun and _G.CurrentRun.CurrentRoom
@@ -121,7 +121,7 @@ function hooks.attach(module, session, getState, report, room, route)
         return result
     end)
 
-    module.hooks.wrap("CreateStoreButtons", "execution-v10-store-button-bindings", function(_, _, base, screen,
+    module.hooks.wrap("CreateStoreButtons", "run-planner-store-button-bindings", function(_, _, base, screen,
         instant)
         local bindings = captureStoreBindings()
         local result = base(screen, instant)
@@ -129,7 +129,7 @@ function hooks.attach(module, session, getState, report, room, route)
         return result
     end)
 
-    module.hooks.wrap("RestockWorldItem", "execution-v10-travel-deal-refill", function(_, runtime, base, index, kitId,
+    module.hooks.wrap("RestockWorldItem", "run-planner-travel-deal-refill", function(_, runtime, base, index, kitId,
         args)
         local state = getState(runtime)
         local active = current(session, state, room, route)
@@ -148,7 +148,7 @@ function hooks.attach(module, session, getState, report, room, route)
         return result
     end)
 
-    module.hooks.wrap("SpawnStoreItemInWorld", "execution-v10-bind-world-shop-item", function(_, runtime, base,
+    module.hooks.wrap("SpawnStoreItemInWorld", "run-planner-bind-world-shop-item", function(_, runtime, base,
         itemData, kitId)
         local state = getState(runtime)
         local active = current(session, state, room, route)

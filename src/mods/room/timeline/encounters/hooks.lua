@@ -30,7 +30,7 @@ end
 function hooks.attach(module, session, getState, report, room)
     local encounterIndex
 
-    module.hooks.wrap("SetupRoomMultipleEncountersData", "execution-v10-encounter-assembly", function(_, runtime,
+    module.hooks.wrap("SetupRoomMultipleEncountersData", "run-planner-encounter-assembly", function(_, runtime,
         base, nativeRoom, args)
         local state = getState(runtime)
         if state == nil or state.state ~= "synchronized" then return base(nativeRoom, args) end
@@ -42,7 +42,7 @@ function hooks.attach(module, session, getState, report, room)
         return result
     end)
 
-    module.hooks.wrap("ChooseEncounter", "execution-v10-encounter-choice", function(_, runtime, base, currentRun,
+    module.hooks.wrap("ChooseEncounter", "run-planner-encounter-choice", function(_, runtime, base, currentRun,
         nativeRoom, args)
         local state = getState(runtime)
         if state == nil or state.state ~= "synchronized" then return base(currentRun, nativeRoom, args) end
@@ -71,7 +71,7 @@ function hooks.attach(module, session, getState, report, room)
         return result
     end)
 
-    module.hooks.wrap("StartEncounter", "execution-v10-encounter-start", function(_, runtime, base, currentRun,
+    module.hooks.wrap("StartEncounter", "run-planner-encounter-start", function(_, runtime, base, currentRun,
         nativeRoom, encounter)
         local state = getState(runtime)
         if state == nil or state.state ~= "synchronized" then
@@ -83,7 +83,7 @@ function hooks.attach(module, session, getState, report, room)
         return result
     end)
 
-    module.hooks.wrap("EndEncounterEffects", "execution-v10-encounter-end", function(_, runtime, base, currentRun,
+    module.hooks.wrap("EndEncounterEffects", "run-planner-encounter-end", function(_, runtime, base, currentRun,
         nativeRoom, encounter)
         local state = getState(runtime)
         if state == nil or state.state ~= "synchronized" then return base(currentRun, nativeRoom, encounter) end

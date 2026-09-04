@@ -135,7 +135,7 @@ function hooks.attach(module, session, getState, report, room)
     end
 
     local function attachNpcTraitChoice(functionName, giver)
-        module.hooks.wrap(functionName, "execution-v10-npc-trait-offer", function(_, runtime, base, source,
+        module.hooks.wrap(functionName, "run-planner-npc-trait-offer", function(_, runtime, base, source,
             args, screen)
             local state = getState(runtime)
             local handle = type(roomCoordinator.encounterHandle) == "function"
@@ -156,7 +156,7 @@ function hooks.attach(module, session, getState, report, room)
         end)
     end
 
-    module.hooks.wrap("UseLoot", "execution-v10-use-loot", function(_, runtime, base, usee, args, user)
+    module.hooks.wrap("UseLoot", "run-planner-use-loot", function(_, runtime, base, usee, args, user)
         -- C1 owns ordinary Olympian/Hermes/Hammer acquisition. It begins only
         -- after native UseLoot commits at HandleLootPickup.
         -- C2 owns the visible Pom carrier. Its adapter marks the exact loot
@@ -189,13 +189,13 @@ function hooks.attach(module, session, getState, report, room)
         return result
     end)
 
-    module.hooks.wrap("GetTotalHeroTraitValue", "execution-v10-sea-star-gate", function(_, _runtime, base,
+    module.hooks.wrap("GetTotalHeroTraitValue", "run-planner-sea-star-gate", function(_, _runtime, base,
         propertyName, args)
         if propertyName == "DoubleRewardChance" and pendingSeaStar ~= nil then return 1 end
         return base(propertyName, args)
     end)
 
-    module.hooks.wrap("RandomChance", "execution-v10-sea-star-duplicate", function(_, _, base, chance, args)
+    module.hooks.wrap("RandomChance", "run-planner-sea-star-duplicate", function(_, _, base, chance, args)
         if pendingSeaStar ~= nil then return true end
         return base(chance, args)
     end)
@@ -206,19 +206,19 @@ function hooks.attach(module, session, getState, report, room)
         roomCoordinator.bind(state, current, pendingSeaStar.child, result)
     end
 
-    module.hooks.wrap("CreateLoot", "execution-v10-created-loot", function(_, runtime, base, args)
+    module.hooks.wrap("CreateLoot", "run-planner-created-loot", function(_, runtime, base, args)
         local result = base(args)
         bindSeaStar(getState(runtime), result)
         return result
     end)
 
-    module.hooks.wrap("CreateConsumableItem", "execution-v10-created-consumable", function(_, runtime, base, ...)
+    module.hooks.wrap("CreateConsumableItem", "run-planner-created-consumable", function(_, runtime, base, ...)
         local result = base(...)
         bindSeaStar(getState(runtime), result)
         return result
     end)
 
-    module.hooks.wrap("CreateBoonLootButtons", "execution-v10-trait-screen", function(_, runtime, base, screen,
+    module.hooks.wrap("CreateBoonLootButtons", "run-planner-trait-screen", function(_, runtime, base, screen,
         lootData, reroll, args)
         if isOrdinaryTraitCarrier(lootData) or lootData and lootData.__runPlannerLevelCarrier then
             return base(screen, lootData, reroll, args)
@@ -242,7 +242,7 @@ function hooks.attach(module, session, getState, report, room)
     attachNpcTraitChoice("IcarusBenefitChoice", "Icarus")
     attachNpcTraitChoice("EchoChoice", "Echo")
 
-    module.hooks.wrap("CreateUpgradeChoiceButton", "execution-v10-trait-option", function(_, runtime, base, screen,
+    module.hooks.wrap("CreateUpgradeChoiceButton", "run-planner-trait-option", function(_, runtime, base, screen,
         lootData, itemIndex, itemData, args)
         if isOrdinaryTraitCarrier(lootData) then
             return base(screen, lootData, itemIndex, itemData, args)
@@ -282,7 +282,7 @@ function hooks.attach(module, session, getState, report, room)
         return result
     end)
 
-    module.hooks.wrap("GetProcessedTraitData", "execution-v10-chaos-values", function(_, _, base, args)
+    module.hooks.wrap("GetProcessedTraitData", "run-planner-chaos-values", function(_, _, base, args)
         local result = base(args)
         local context = chaosContext
         if type(args) ~= "table" or type(result) ~= "table" then return result end
@@ -299,7 +299,7 @@ function hooks.attach(module, session, getState, report, room)
         return result
     end)
 
-    module.hooks.wrap("SetTransformingTraitsOnLoot", "execution-v10-chaos-reservation",
+    module.hooks.wrap("SetTransformingTraitsOnLoot", "run-planner-chaos-reservation",
         function(_, runtime, base, lootData,
         choices)
         local result = base(lootData, choices)
@@ -323,7 +323,7 @@ function hooks.attach(module, session, getState, report, room)
         return result
     end)
 
-    module.hooks.wrap("HandleUpgradeChoiceSelection", "execution-v10-trait-selection", function(_, runtime, base,
+    module.hooks.wrap("HandleUpgradeChoiceSelection", "run-planner-trait-selection", function(_, runtime, base,
         screen, button, args)
         local lootData = button and button.LootData
         if isOrdinaryTraitCarrier(lootData) or lootData and lootData.__runPlannerLevelCarrier then

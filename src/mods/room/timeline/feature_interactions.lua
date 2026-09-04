@@ -40,7 +40,7 @@ end
 function hooks.attach(module, session, getState, report, room, inventoryBindings)
     local pendingTwist
 
-    module.hooks.wrap("HandleStorePurchase", "execution-v10-store-purchase", function(_, runtime, base, screen,
+    module.hooks.wrap("HandleStorePurchase", "run-planner-store-purchase", function(_, runtime, base, screen,
         button, args)
         local state = getState(runtime)
         local active = current(state, room)
@@ -93,7 +93,7 @@ function hooks.attach(module, session, getState, report, room, inventoryBindings
         return result
     end)
 
-    module.hooks.wrap("GetRandomValue", "execution-v10-well-twist", function(_, _, base, values, args)
+    module.hooks.wrap("GetRandomValue", "run-planner-well-twist", function(_, _, base, values, args)
         if pendingTwist and type(values) == "table" then
             for _, value in pairs(values) do
                 if type(value) == "table" and value.Name == pendingTwist then return value end
@@ -102,7 +102,7 @@ function hooks.attach(module, session, getState, report, room, inventoryBindings
         return base(values, args)
     end)
 
-    module.hooks.wrap("RemoveStoreItem", "execution-v10-world-shop-purchase", function(_, runtime, base, args)
+    module.hooks.wrap("RemoveStoreItem", "run-planner-world-shop-purchase", function(_, runtime, base, args)
         local state = getState(runtime)
         local binding = type(args) == "table" and inventoryBindings.find(args.Id) or nil
         local handle = binding and binding.handle
@@ -121,7 +121,7 @@ function hooks.attach(module, session, getState, report, room, inventoryBindings
         return result
     end)
 
-    module.hooks.wrap("HandleSellChoiceSelection", "execution-v10-pool-sale", function(_, runtime, base, screen,
+    module.hooks.wrap("HandleSellChoiceSelection", "run-planner-pool-sale", function(_, runtime, base, screen,
         button, args)
         local state = getState(runtime)
         local active = current(state, room)
@@ -138,7 +138,7 @@ function hooks.attach(module, session, getState, report, room, inventoryBindings
         return result
     end)
 
-    module.hooks.wrap("UseHealthFountain", "execution-v10-fountain", function(_, runtime, base, source, args)
+    module.hooks.wrap("UseHealthFountain", "run-planner-fountain", function(_, runtime, base, source, args)
         local state = getState(runtime)
         local active = current(state, room)
         local handle = active and room.resolve(state, active,
@@ -155,7 +155,7 @@ function hooks.attach(module, session, getState, report, room, inventoryBindings
         return result
     end)
 
-    module.hooks.wrap("GrantElementFromTool", "execution-v10-resource", function(_, runtime, base, toolName, args)
+    module.hooks.wrap("GrantElementFromTool", "run-planner-resource", function(_, runtime, base, toolName, args)
         local state = getState(runtime)
         local active = current(state, room)
         local expected

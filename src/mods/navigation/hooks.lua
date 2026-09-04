@@ -39,7 +39,7 @@ function hooks.attach(module, session, getState, report, routeSession, room, tra
     local doorScope
     local rewardChoiceScope
 
-    module.hooks.wrap("SetupRoomReward", "execution-v10-reward-source", function(_, runtime, base, currentRun,
+    module.hooks.wrap("SetupRoomReward", "run-planner-reward-source", function(_, runtime, base, currentRun,
         nativeRoom, prior, args)
         local state = getState(runtime)
         local occurrence = occurrenceForRoom(state, nativeRoom)
@@ -55,7 +55,7 @@ function hooks.attach(module, session, getState, report, routeSession, room, tra
         return result
     end)
 
-    module.hooks.wrap("IsRoomRewardEligible", "execution-v10-room-reward-eligibility", function(_, runtime, base,
+    module.hooks.wrap("IsRoomRewardEligible", "run-planner-room-reward-eligibility", function(_, runtime, base,
         run, nativeRoom, reward, previouslyChosen, args)
         local state = getState(runtime)
         if state == nil or state.state ~= "synchronized" then
@@ -67,7 +67,7 @@ function hooks.attach(module, session, getState, report, routeSession, room, tra
         return base(run, nativeRoom, reward, previouslyChosen, args)
     end)
 
-    module.hooks.wrap("ChooseRoomReward", "execution-v10-room-reward", function(_, runtime, base, run, nativeRoom,
+    module.hooks.wrap("ChooseRoomReward", "run-planner-room-reward", function(_, runtime, base, run, nativeRoom,
         rewardStore, chosen, args)
         if rewardChoiceScope ~= nil then return base(run, nativeRoom, rewardStore, chosen, args) end
         local state = getState(runtime)
@@ -101,7 +101,7 @@ function hooks.attach(module, session, getState, report, routeSession, room, tra
         return result
     end)
 
-    module.hooks.wrap("AssignRoomToExitDoor", "execution-v10-additional-exit-binding", function(_, runtime, base,
+    module.hooks.wrap("AssignRoomToExitDoor", "run-planner-additional-exit-binding", function(_, runtime, base,
         door, nativeRoom)
         local result = base(door, nativeRoom)
         if type(door) == "table" and type(nativeRoom) == "table" then
@@ -114,7 +114,7 @@ function hooks.attach(module, session, getState, report, routeSession, room, tra
         return result
     end)
 
-    module.hooks.wrap("ChooseNextRoomData", "execution-v10-door-room", function(_, runtime, base, currentRun, args,
+    module.hooks.wrap("ChooseNextRoomData", "run-planner-door-room", function(_, runtime, base, currentRun, args,
         otherDoors)
         local state = getState(runtime)
         if state == nil or state.state ~= "synchronized" then return base(currentRun, args, otherDoors) end
@@ -139,7 +139,7 @@ function hooks.attach(module, session, getState, report, routeSession, room, tra
         return doors.chooseNext(occurrence, gameValue, index)
     end)
 
-    module.hooks.wrap("DoUnlockRoomExits", "execution-v10-doors", function(_, runtime, base, currentRun, nativeRoom)
+    module.hooks.wrap("DoUnlockRoomExits", "run-planner-doors", function(_, runtime, base, currentRun, nativeRoom)
         local state = getState(runtime)
         if state == nil or state.state ~= "synchronized" then return base(currentRun, nativeRoom) end
         local occurrence = routeSession.current(state.route)
@@ -173,7 +173,7 @@ function hooks.attach(module, session, getState, report, routeSession, room, tra
         return result
     end)
 
-    module.hooks.wrap("UseExitDoor", "execution-v10-exit-usable", function(_, runtime, base, door, args)
+    module.hooks.wrap("UseExitDoor", "run-planner-exit-usable", function(_, runtime, base, door, args)
         local state = getState(runtime)
         if state == nil or state.state ~= "synchronized" then return base(door, args) end
         room.checkpoint(state, "exitUsable")

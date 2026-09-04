@@ -40,7 +40,7 @@ local function resolveFallback(session, _room, state, handle, payload, native)
 end
 
 function hooks.attach(module, session, getState, report, room)
-    module.hooks.wrap("HandleLootPickup", "execution-c1-begin-ordinary-loot", function(_, runtime, base,
+    module.hooks.wrap("HandleLootPickup", "run-planner-begin-ordinary-loot", function(_, runtime, base,
         currentRun, loot, args)
         if not ordinary.isNativeCarrier(loot) then return base(currentRun, loot, args) end
         local state = getState(runtime)
@@ -71,7 +71,7 @@ function hooks.attach(module, session, getState, report, room)
         return result
     end)
 
-    module.hooks.wrap("CreateBoonLootButtons", "execution-c1-install-ordinary-offer", function(_, runtime, base,
+    module.hooks.wrap("CreateBoonLootButtons", "run-planner-install-ordinary-offer", function(_, runtime, base,
         screen, loot, reroll, args)
         local state = getState(runtime)
         local current = room.current(state)
@@ -82,7 +82,7 @@ function hooks.attach(module, session, getState, report, room)
         return base(screen, loot, reroll, args)
     end)
 
-    module.hooks.wrap("CreateUpgradeChoiceButton", "execution-c1-align-ordinary-rejected", function(_, runtime,
+    module.hooks.wrap("CreateUpgradeChoiceButton", "run-planner-align-ordinary-rejected", function(_, runtime,
         base, screen, loot, index, item, args)
         local state = getState(runtime)
         local current = room.current(state)
@@ -93,7 +93,7 @@ function hooks.attach(module, session, getState, report, room)
         return base(screen, loot, index, item, args)
     end)
 
-    module.hooks.wrap("HandleUpgradeChoiceSelection", "execution-c1-complete-ordinary-offer", function(_, runtime,
+    module.hooks.wrap("HandleUpgradeChoiceSelection", "run-planner-complete-ordinary-offer", function(_, runtime,
         base, screen, button, args)
         -- Concave Stone's second native selection is a consequential residual,
         -- not another terminal for this outer acquisition.

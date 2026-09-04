@@ -21,7 +21,7 @@ function nemesis.attach(module, session, getState, report, room)
         return nil
     end
 
-    module.hooks.wrap("SpawnNemesisForRandomEvents", "execution-v10-nemesis-spawn", function(_, _, base, source, args)
+    module.hooks.wrap("SpawnNemesisForRandomEvents", "run-planner-nemesis-spawn", function(_, _, base, source, args)
         nemesisSpawnDepth = nemesisSpawnDepth + 1
         local ok, result = pcall(base, source, args)
         nemesisSpawnDepth = nemesisSpawnDepth - 1
@@ -29,7 +29,7 @@ function nemesis.attach(module, session, getState, report, room)
         return result
     end)
 
-    module.hooks.wrap("CheckAvailableTextLines", "execution-v10-nemesis-family", function(_, runtime, base, source,
+    module.hooks.wrap("CheckAvailableTextLines", "run-planner-nemesis-family", function(_, runtime, base, source,
         args)
         if nemesisSpawnDepth == 0 then return base(source, args) end
         local state = getState(runtime)
@@ -58,7 +58,7 @@ function nemesis.attach(module, session, getState, report, room)
         return result
     end)
 
-    module.hooks.wrap("NemesisTradeChoice", "execution-v10-nemesis-trade", function(_, runtime, base, source, args,
+    module.hooks.wrap("NemesisTradeChoice", "run-planner-nemesis-trade", function(_, runtime, base, source, args,
         screen)
         local state = getState(runtime)
         local handle, payload, outcome = row(state, source)
@@ -87,7 +87,7 @@ function nemesis.attach(module, session, getState, report, room)
         return result
     end)
 
-    module.hooks.wrap("RemoveTrait", "execution-v10-nemesis-trait-removal", function(_, runtime, base, unit,
+    module.hooks.wrap("RemoveTrait", "run-planner-nemesis-trait-removal", function(_, runtime, base, unit,
         traitName, args)
         local result = base(unit, traitName, args)
         if pendingNemesis then
@@ -100,7 +100,7 @@ function nemesis.attach(module, session, getState, report, room)
         return result
     end)
 
-    module.hooks.wrap("NemesisDamageContestTimer", "execution-v10-nemesis-contest", function(_, runtime, base, source,
+    module.hooks.wrap("NemesisDamageContestTimer", "run-planner-nemesis-contest", function(_, runtime, base, source,
         args)
         local priorSource = npcRewardSource
         npcRewardSource = source
@@ -120,7 +120,7 @@ function nemesis.attach(module, session, getState, report, room)
         return result
     end)
 
-    module.hooks.wrap("NPCRewardDropPreProcess", "execution-v10-nemesis-reward-source", function(_, _runtime,
+    module.hooks.wrap("NPCRewardDropPreProcess", "run-planner-nemesis-reward-source", function(_, _runtime,
         base, source, args, line)
         local priorSource = npcRewardSource
         npcRewardSource = source
@@ -130,7 +130,7 @@ function nemesis.attach(module, session, getState, report, room)
         return result
     end)
 
-    module.hooks.wrap("NPCRewardDropPreProcessArgs", "execution-v10-nemesis-reward-options", function(_, runtime,
+    module.hooks.wrap("NPCRewardDropPreProcessArgs", "run-planner-nemesis-reward-options", function(_, runtime,
         base, args, choice, line)
         local state = getState(runtime)
         local source = npcRewardSource or type(args) == "table" and args.Source or nil
@@ -162,7 +162,7 @@ function nemesis.attach(module, session, getState, report, room)
         return result
     end)
 
-    module.hooks.wrap("NPCRewardDrop", "execution-v10-nemesis-reward", function(_, runtime, base, source, args)
+    module.hooks.wrap("NPCRewardDrop", "run-planner-nemesis-reward", function(_, runtime, base, source, args)
         local result = base(source, args)
         local pending = pendingNemesis
         if pending and pending.reward then
