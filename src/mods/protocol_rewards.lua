@@ -177,11 +177,11 @@ function rewards.acquisitionRole(value, label)
     local record, errorMessage = p.exact(
         value,
         { "role", "disposition", "lifecyclePoint", "kind", "gameName" },
-        { "producer", "settlement", "traitOffer", "levelResolution" },
+        { "producer", "replacement", "settlement", "traitOffer", "levelResolution" },
         label
     )
     if not record then return nil, errorMessage end
-    if not p.one(record.disposition, { normal = true, timePiece = true, artificer = true }, label) then
+    if not p.one(record.disposition, { normal = true, artificer = true }, label) then
         return p.fail(label .. " has invalid disposition")
     end
     for _, key in ipairs({ "role", "lifecyclePoint", "kind", "gameName" }) do
@@ -205,6 +205,23 @@ function rewards.acquisitionRole(value, label)
             or not p.str(producer.sourceOwner, label .. ".producer.sourceOwner", p.MAX_OWNER_STRING)
             or not p.str(producer.sourceRole, label .. ".producer.sourceRole") then
             return p.fail(label .. " has invalid producer")
+        end
+    end
+    if record.replacement ~= nil then
+        if record.disposition ~= "artificer" then
+            return p.fail(label .. ".replacement is only valid for artificer roles")
+        end
+        local replacementRow, replacementError = p.exact(
+            record.replacement,
+            { "reward", "gameName" },
+            {},
+            label .. ".replacement"
+        )
+        if not replacementRow then return nil, replacementError end
+        local _, rewardError = rewards.reward(replacementRow.reward, label .. ".replacement.reward")
+        if rewardError then return nil, rewardError end
+        if not p.str(replacementRow.gameName, label .. ".replacement.gameName") then
+            return p.fail(label .. ".replacement has invalid gameName")
         end
     end
     if record.settlement ~= nil then

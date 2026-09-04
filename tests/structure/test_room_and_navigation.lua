@@ -161,10 +161,9 @@ function TestRoomNavigationStructure.testIntermediateRewardReturnWaitsForRoomEnt
     local session = {
         current = function() return { occurrence = item } end,
     }
-    local producedRewards = timelineHooks.attach(module, session, function() return state end, function() end,
-        session)
+    timelineHooks.attach(module, session, function() return state end, function() end, session)
     navigationHooks.attach(module, session, function() return state end, function() end,
-        { reportDestination = function() return true end }, session, producedRewards)
+        { reportDestination = function() return true end }, session)
 
     local nativeRoom = room()
     nativeRoom.__runPlannerExecutionRoomId = "target"

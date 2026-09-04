@@ -3,6 +3,26 @@
 -- menu behavior, trait application, replacement, and rarification clicks.
 local ordinary = {}
 
+local function normalRole(transaction, contact)
+    if type(transaction) ~= "table" or transaction.kind ~= "acquisition" then return nil end
+    for _, role in ipairs(transaction.roles or {}) do
+        if role.gameName == contact.gameName and role.disposition == "normal"
+            and role.traitOffer ~= nil then
+            return role
+        end
+    end
+    return nil
+end
+
+function ordinary.isNormalPayload(payload)
+    local detail = type(payload) == "table" and payload.detail or nil
+    return type(detail) == "table" and detail.disposition == "normal" and detail.traitOffer ~= nil
+end
+
+function ordinary.normalRole(transaction, contact)
+    return normalRole(transaction, contact)
+end
+
 local function optionIndex(key)
     return type(key) == "string" and tonumber(key:match("(%d+)$")) or nil
 end
@@ -20,6 +40,7 @@ function ordinary.offer(payload)
             and payload.transaction.resolution.kind == "traitOffer"
             and payload.transaction.resolution.offer
     if type(offer) ~= "table" then return nil end
+    if not ordinary.isNormalPayload(payload) then return nil end
     if offer.kind == "fallbackGold" then return offer end
     return offer.kind == "traits" and offer or nil
 end

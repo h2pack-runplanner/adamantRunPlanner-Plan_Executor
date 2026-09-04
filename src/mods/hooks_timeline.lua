@@ -111,6 +111,7 @@ local function resolveTraitFallback(session, state, handle, payload, native)
             handle, payload = resolved, resolvedPayload
         end
     end
+
     return handle, payload
 end
 
@@ -125,12 +126,27 @@ function hooks.attach(module, session, getState, report, room)
     local embryoContext
     local bossScope
     local arcanaQueue
-    local pendingProduced = {}
-    local pendingRewardSelection
     local pendingSeaStar
     local nemesisSpawnDepth = 0
     local pendingNemesis
     local npcRewardSource
+
+    -- Sea Star remains outside C4. Its existing duplicate-carrier path still
+    -- binds the native duplicate while the source interaction is in flight.
+    local function seaStarChildFor(state, source)
+        local current = roomCoordinator.current(state)
+        local sourceHandle = roomCoordinator.bound(state, current, source)
+            or incomingHandle(roomCoordinator, session, state, source)
+        local sourceRole = roomCoordinator.sourceRole(state, current, sourceHandle, source and source.Name)
+        local child = roomCoordinator.resolve(state, current,
+            { kind = "produced", source = sourceHandle, role = sourceRole })
+        local payload = child and roomCoordinator.begin(state, child) or nil
+        if payload and payload.detail and payload.detail.producer
+            and payload.detail.producer.kind == "seaStarDuplicate" then
+            return sourceHandle, child, payload
+        end
+        return sourceHandle, nil
+    end
 
     local function interactionRow(state, source)
         local current = roomCoordinator.current(state)
@@ -154,20 +170,6 @@ function hooks.attach(module, session, getState, report, room)
         local resolution = payload and payload.transaction.resolution
         if resolution and resolution.kind == "nemesisRandomEvent" then return handle, payload, resolution.outcome end
         return nil
-    end
-
-    local function childFor(state, source, kind)
-        local current = roomCoordinator.current(state)
-        local sourceHandle = roomCoordinator.bound(state, current, source)
-            or incomingHandle(roomCoordinator, session, state, source)
-        local sourceRole = roomCoordinator.sourceRole(state, current, sourceHandle, source and source.Name)
-        local child = roomCoordinator.resolve(state, current,
-            { kind = "produced", source = sourceHandle, role = sourceRole })
-        local payload = child and roomCoordinator.begin(state, child) or nil
-        if payload and payload.detail and payload.detail.producer and payload.detail.producer.kind == kind then
-            return sourceHandle, child, payload
-        end
-        return sourceHandle, nil
     end
 
     local function attachNpcTraitChoice(functionName, giver)
@@ -209,7 +211,7 @@ function hooks.attach(module, session, getState, report, room)
         handle, payload = resolveTraitFallback(session, state, handle, payload, usee)
         if payload == nil then report(runtime); return base(usee, args, user) end
         usee.__runPlannerTimelineHandle = handle
-        local _, seaStarChild = childFor(state, usee, "seaStarDuplicate")
+        local _, seaStarChild = seaStarChildFor(state, usee)
         if seaStarChild then pendingSeaStar = { source = usee, child = seaStarChild } end
         local expected, traitOffer = adapter.expectedTrait(payload)
         if expected ~= nil then
@@ -220,19 +222,6 @@ function hooks.attach(module, session, getState, report, room)
         end
         local result = base(usee, args, user)
         pendingSeaStar = nil
-        report(runtime)
-        return result
-    end)
-
-    module.hooks.wrap("ConvertMetaRewardPresentation", "execution-v10-artificer-source", function(_, runtime, base,
-        target)
-        local state = getState(runtime)
-        local sourceHandle, child, payload = childFor(state, target, "artificerReplacement")
-        if child == nil then return base(target) end
-        pendingProduced[target.ObjectId] = child
-        pendingRewardSelection = payload
-        local result = base(target)
-        session.complete(state, sourceHandle, true)
         report(runtime)
         return result
     end)
@@ -248,26 +237,21 @@ function hooks.attach(module, session, getState, report, room)
         return base(chance, args)
     end)
 
-    local function bindProduced(state, sourceId, result)
-        local child = sourceId and pendingProduced[sourceId] or pendingSeaStar and pendingSeaStar.child
-        if child and result then
-            local current = roomCoordinator.current(state)
-            roomCoordinator.bind(state, current, child, result)
-        end
+    local function bindSeaStar(state, result)
+        if pendingSeaStar == nil or result == nil then return end
+        local current = roomCoordinator.current(state)
+        roomCoordinator.bind(state, current, pendingSeaStar.child, result)
     end
 
     module.hooks.wrap("CreateLoot", "execution-v10-created-loot", function(_, runtime, base, args)
         local result = base(args)
-        local state = getState(runtime)
-        local sourceId = type(args) == "table" and args.SpawnRewardOnId
-        bindProduced(state, sourceId, result)
-        if sourceId then pendingProduced[sourceId] = nil end
+        bindSeaStar(getState(runtime), result)
         return result
     end)
 
     module.hooks.wrap("CreateConsumableItem", "execution-v10-created-consumable", function(_, runtime, base, ...)
         local result = base(...)
-        bindProduced(getState(runtime), nil, result)
+        bindSeaStar(getState(runtime), result)
         return result
     end)
 
@@ -679,16 +663,6 @@ function hooks.attach(module, session, getState, report, room)
         return base(values)
     end)
 
-    -- Generated acquisitions may ask the native room-reward chooser for a
-    -- second reward. Navigation owns that native structural contact; this
-    -- narrow capability exposes only the already-resolved pending override.
-    return {
-        takeRewardSelection = function()
-            local pending = pendingRewardSelection
-            pendingRewardSelection = nil
-            return pending
-        end,
-    }
 end
 
 return hooks

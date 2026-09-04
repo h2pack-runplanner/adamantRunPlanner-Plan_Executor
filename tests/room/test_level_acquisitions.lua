@@ -47,7 +47,7 @@ end
 local function levelRow(name, count, target)
     local transaction = { owner = "level", kind = "acquisition", roles = {} }
     local detail = {
-        role = "self", lifecyclePoint = "roomRewardPickup", kind = "loot", gameName = name,
+        role = "self", disposition = "normal", lifecyclePoint = "roomRewardPickup", kind = "loot", gameName = name,
         levelResolution = { offeredTargets = {}, selectedTarget = target, levelCount = count },
     }
     transaction.roles[1] = detail
@@ -122,6 +122,14 @@ function TestLevelAcquisitions.testVisibleSelectionUsesNativeSortedIdentityAndNo
     lu.assertEquals(#completions, 1)
     lu.assertTrue(completions[1].verified)
     _G.CurrentRun = priorRun
+end
+
+function TestLevelAcquisitions.testUnboundVisiblePomClaimsAtAcceptedPickup()
+    local row = levelRow("StackUpgrade", 1, "Target")
+    local loot = { Name = "StackUpgrade", UpgradeOptions = {} }
+    local callbacks, _, _, _, begins = harness(row, loot, false)
+    callbacks.HandleLootPickup(nil, {}, function() return true end, {}, loot, {})
+    lu.assertEquals(begins(), 1)
 end
 
 local function directFixture(selected, count, isBound)

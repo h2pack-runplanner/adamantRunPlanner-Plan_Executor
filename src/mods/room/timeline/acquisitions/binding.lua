@@ -25,9 +25,16 @@ function binding.attach(module, _session, getState, _report, room)
     module.hooks.wrap("SpawnRoomReward", "execution-c2-scope-acquisition-producer", function(_, runtime, base,
         source, args)
         local state = getState(runtime)
-        local handle, current = producerFor(state, room)
         local prior = producerScope
-        if handle ~= nil then producerScope = { state = state, current = current, handle = handle } end
+        -- Artificer invokes SpawnRoomReward for a replacement physical object.
+        -- Its child is already published and must be claimed by its own
+        -- acquisition adapter; never let this spawn inherit the incoming
+        -- room-reward producer scope.
+        producerScope = nil
+        if not (type(args) == "table" and args.IgnoreRoomSpawnOnLootPoint == true) then
+            local handle, current = producerFor(state, room)
+            if handle ~= nil then producerScope = { state = state, current = current, handle = handle } end
+        end
         local ok, result = pcall(base, source, args)
         producerScope = prior
         if not ok then error(result, 0) end

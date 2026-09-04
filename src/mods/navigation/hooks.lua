@@ -35,7 +35,7 @@ function hooks.reportSelection(session, state, routeSession, door)
     return true
 end
 
-function hooks.attach(module, session, getState, report, routeSession, room, producedRewards)
+function hooks.attach(module, session, getState, report, routeSession, room, transformationScope)
     local doorScope
     local rewardChoiceScope
 
@@ -74,7 +74,8 @@ function hooks.attach(module, session, getState, report, routeSession, room, pro
         if state == nil or state.state ~= "synchronized" then
             return base(run, nativeRoom, rewardStore, chosen, args)
         end
-        local pending = producedRewards and producedRewards.takeRewardSelection()
+        local pending = transformationScope and transformationScope.consumeRewardSelection(
+            run, nativeRoom, rewardStore, chosen, args)
         local occurrence = occurrenceForRoom(state, nativeRoom)
         if occurrence == nil and pending == nil then return base(run, nativeRoom, rewardStore, chosen, args) end
         local expected = pending and pending.transaction and pending.transaction.reward

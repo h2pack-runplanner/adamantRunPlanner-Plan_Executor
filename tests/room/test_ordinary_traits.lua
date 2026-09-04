@@ -6,8 +6,8 @@ local binding = require("mods.room.timeline.acquisitions.binding")
 
 TestOrdinaryTraits = {}
 
-local function payload(offer)
-    return { detail = { traitOffer = offer }, transaction = {} }
+local function payload(offer, disposition)
+    return { detail = { traitOffer = offer, disposition = disposition or "normal" }, transaction = {} }
 end
 
 function TestOrdinaryTraits.testInstallsBaseRarityAndFinalEffectiveLevelOnNativeCarriers()
@@ -80,7 +80,7 @@ function TestOrdinaryTraits.testOlympianHermesAndHammerShareTheNativeRowContract
     end
 end
 
-local function attached(offer)
+local function attached(offer, disposition)
     local callbacks, bound, begins, completed = {}, setmetatable({}, { __mode = "k" }), 0, 0
     local activePayload
     local module = { hooks = { wrap = function(name, _, callback) callbacks[name] = callback end } }
@@ -99,13 +99,26 @@ local function attached(offer)
         end,
         bind = function(_, _, value, native) bound[native] = value; return value end,
         bound = function(_, _, native) return bound[native] end,
+        peek = function(_, value)
+            if value ~= materialized then return nil end
+            if activePayload == nil then
+                activePayload = payload(offer or { kind = "traits", selected = "option1", options = {
+                    { key = "ApolloAttack", rarity = "Rare" },
+                } }, disposition)
+            end
+            return activePayload
+        end,
         begin = function(_, value)
             if state.state ~= "synchronized" then return nil end
             if value ~= materialized then return nil end
             begins = begins + 1
-            if activePayload == nil then activePayload = payload(offer or { kind = "traits", selected = "option1", options = {
-                { key = "ApolloAttack", rarity = "Rare" },
-            } }) end
+            if activePayload == nil then
+                activePayload = payload(offer or {
+                    kind = "traits", selected = "option1", options = {
+                        { key = "ApolloAttack", rarity = "Rare" },
+                    },
+                }, disposition)
+            end
             return activePayload
         end,
     }
@@ -141,6 +154,88 @@ function TestOrdinaryTraits.testFailedUseLootHasNoC1BeginAndPickupBeginsTheBound
     lu.assertEquals(begins(), 1)
 end
 
+function TestOrdinaryTraits.testArtificerDispositionDoesNotEnterTheOrdinaryAdapter()
+    local callbacks, begins = attached({
+        kind = "traits", selected = "option1", options = { { key = "ApolloAttack", rarity = "Rare" } },
+    }, "artificer")
+    local loot = { GodLoot = true, Name = "ApolloUpgrade" }
+    callbacks.SpawnRoomReward(nil, {}, function()
+        return callbacks.CreateLoot(nil, {}, function() return loot end, {})
+    end, {}, {})
+    callbacks.HandleLootPickup(nil, {}, function() return true end, {}, loot, {})
+    lu.assertEquals(begins(), 0)
+end
+
+function TestOrdinaryTraits.testMissingDispositionDoesNotEnterTheOrdinaryAdapter()
+    local offer = { kind = "traits", selected = "option1", options = { { key = "ApolloAttack" } } }
+    lu.assertFalse(ordinary.isNormalPayload({ detail = { traitOffer = offer } }))
+    lu.assertNil(ordinary.offer({ detail = { traitOffer = offer } }))
+end
+
+function TestOrdinaryTraits.testUnboundHammerCarriersUsePublishedReadyOrderWithoutSourceProvenance()
+    local callbacks = {}
+    local module = { hooks = { wrap = function(name, _, callback) callbacks[name] = callback end } }
+    local state = { state = "synchronized" }
+    local active = { occurrence = { overview = {} } }
+    local offer = { kind = "traits", selected = "option1", options = { { key = "ApolloAttack" } } }
+    local rows, handles = {}, {}
+    for index, owner in ipairs({ "child-a", "child-b" }) do
+        local detail = {
+            role = "self", disposition = "normal", lifecyclePoint = "roomRewardPickup",
+            kind = "loot", gameName = "WeaponUpgrade", traitOffer = offer,
+        }
+        rows[index] = { transaction = { owner = owner, kind = "acquisition", roles = { detail } }, detail = detail }
+        handles[index] = {}
+    end
+    local nativeHandles, claimed, begins, completions = {}, {}, 0, {}
+    local room = {
+        current = function() return active end,
+        bound = function(_, _, native) return nativeHandles[native] end,
+        claimReady = function(_, _, contact, native, compatible)
+            for index, row in ipairs(rows) do
+                if not claimed[index] and compatible(row.transaction, contact) ~= nil then
+                    claimed[index] = true
+                    nativeHandles[native] = handles[index]
+                    return handles[index], row
+                end
+            end
+        end,
+        peek = function(_, handle)
+            for index, value in ipairs(handles) do if value == handle then return rows[index] end end
+        end,
+        begin = function(_, handle)
+            begins = begins + 1
+            for index, value in ipairs(handles) do if value == handle then return rows[index] end end
+        end,
+    }
+    local session = {
+        complete = function(_, handle, verified)
+            completions[#completions + 1] = { handle = handle, verified = verified }
+        end,
+    }
+    hooks.attach(module, session, function() return state end, function() end, room)
+
+    local priorRun = _G.CurrentRun
+    _G.CurrentRun = { Hero = { Traits = { { Name = "ApolloAttack" } } } }
+    local firstPhysical = { Name = "WeaponUpgrade", UpgradeOptions = {} }
+    local secondPhysical = { Name = "WeaponUpgrade", UpgradeOptions = {} }
+    for _, loot in ipairs({ secondPhysical, firstPhysical }) do
+        callbacks.HandleLootPickup(nil, {}, function() return true end, {}, loot, {})
+        callbacks.CreateBoonLootButtons(nil, {}, function() return true end, {}, loot, false, {})
+        callbacks.HandleUpgradeChoiceSelection(nil, {}, function() return true end, {}, {
+            LootData = loot, Data = { Name = "ApolloAttack" },
+        }, {})
+    end
+    _G.CurrentRun = priorRun
+
+    lu.assertEquals(nativeHandles[secondPhysical], handles[1])
+    lu.assertEquals(nativeHandles[firstPhysical], handles[2])
+    lu.assertEquals(completions, {
+        { handle = handles[1], verified = true }, { handle = handles[2], verified = true },
+    })
+    lu.assertEquals(begins, 6)
+end
+
 function TestOrdinaryTraits.testRerollDoesNotReinstallFrozenOffer()
     local callbacks = attached()
     local loot = { GodLoot = true, Name = "ApolloUpgrade", UpgradeOptions = { { ItemName = "Native" } } }
@@ -156,10 +251,14 @@ function TestOrdinaryTraits.testBoundRoleResolvesPreferredFallbackOrNeither()
     _G.TraitData = { Preferred = {}, Fallback = {} }
     local offer = {
         kind = "traits", selected = "option1", options = { { key = "Preferred", rarity = "Rare" } },
-        runtimeFallbacks = { { availabilityContact = "traitEligibility", preferredKey = "Preferred", fallbackKey = "Fallback" } },
+        runtimeFallbacks = {
+            { availabilityContact = "traitEligibility", preferredKey = "Preferred", fallbackKey = "Fallback" },
+        },
     }
     local function materialize(eligible)
-        _G.IsTraitEligible = function(data) return eligible[data == _G.TraitData.Preferred and "Preferred" or "Fallback"] end
+        _G.IsTraitEligible = function(data)
+            return eligible[data == _G.TraitData.Preferred and "Preferred" or "Fallback"]
+        end
         local callbacks = attached(offer)
         local loot = { GodLoot = true, Name = "ApolloUpgrade", UpgradeOptions = {} }
         callbacks.SpawnRoomReward(nil, {}, function()

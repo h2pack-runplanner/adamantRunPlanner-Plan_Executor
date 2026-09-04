@@ -22,6 +22,11 @@ local function resolution(payload)
     return detail and detail.levelResolution or nil
 end
 
+function levels.isNormalPayload(payload)
+    local detail = payload and payload.detail
+    return type(detail) == "table" and detail.disposition == "normal"
+end
+
 local function heroTraits()
     local hero = _G.CurrentRun and _G.CurrentRun.Hero
     return type(hero) == "table" and hero.Traits or nil
@@ -118,6 +123,18 @@ local function directLevelRole(transaction, contact)
     if type(transaction) ~= "table" or transaction.kind ~= "acquisition" then return nil end
     for _, role in ipairs(transaction.roles or {}) do
         if role.gameName == contact.gameName
+            and role.disposition == "normal"
+            and role.levelResolution ~= nil then
+            return role
+        end
+    end
+    return nil
+end
+
+function levels.visibleRole(transaction, contact)
+    if type(transaction) ~= "table" or transaction.kind ~= "acquisition" then return nil end
+    for _, role in ipairs(transaction.roles or {}) do
+        if role.gameName == contact.gameName and role.disposition == "normal"
             and role.levelResolution ~= nil then
             return role
         end
@@ -158,6 +175,9 @@ function levels.attach(module, session, getState, report, room)
         if not levels.isVisibleCarrier(usee) then return base(usee, args, user) end
         local state = getState(runtime)
         local _, payload = carrier(state, roomCoordinator, usee)
+        if payload ~= nil and not levels.isNormalPayload(payload) then
+            return base(usee, args, user)
+        end
         if resolution(payload) == nil then return base(usee, args, user) end
         local prior = usee.__runPlannerLevelCarrier
         usee.__runPlannerLevelCarrier = true
@@ -173,6 +193,15 @@ function levels.attach(module, session, getState, report, room)
         if not levels.isVisibleCarrier(loot) then return base(currentRun, loot, args) end
         local state = getState(runtime)
         local handle, payload = carrier(state, roomCoordinator, loot)
+        local current = roomCoordinator.current(state)
+        if handle ~= nil and not levels.isNormalPayload(payload) then
+            return base(currentRun, loot, args)
+        end
+        if handle == nil and current ~= nil and type(roomCoordinator.claimReady) == "function" then
+            handle, payload = roomCoordinator.claimReady(state, current, {
+                kind = "visibleLevel", gameName = loot.Name or loot.ItemName or loot.LootName,
+            }, loot, levels.visibleRole)
+        end
         if resolution(payload) == nil then return base(currentRun, loot, args) end
         local started = roomCoordinator.begin(state, handle)
         if started == nil then return base(currentRun, loot, args) end
@@ -191,6 +220,9 @@ function levels.attach(module, session, getState, report, room)
         if not levels.isVisibleCarrier(loot) then return base(screen, loot, reroll, args) end
         local state = getState(runtime)
         local handle, payload = carrier(state, roomCoordinator, loot)
+        if handle ~= nil and not levels.isNormalPayload(payload) then
+            return base(screen, loot, reroll, args)
+        end
         if resolution(payload) == nil or not begunVisible[handle] then
             return base(screen, loot, reroll, args)
         end
@@ -212,6 +244,9 @@ function levels.attach(module, session, getState, report, room)
         if type(args) == "table" and args.DoubleBoonChance then return base(screen, button, args) end
         local state = getState(runtime)
         local handle, payload = carrier(state, roomCoordinator, loot)
+        if handle ~= nil and not levels.isNormalPayload(payload) then
+            return base(screen, button, args)
+        end
         local effect = resolution(payload)
         if effect == nil then return base(screen, button, args) end
         if not begunVisible[handle] then return base(screen, button, args) end
@@ -233,6 +268,9 @@ function levels.attach(module, session, getState, report, room)
         if not levels.isDirectCarrier(item) then return base(item, args, user) end
         local state = getState(runtime)
         local handle, payload = carrier(state, roomCoordinator, item)
+        if handle ~= nil and not levels.isNormalPayload(payload) then
+            return base(item, args, user)
+        end
         if handle ~= nil and resolution(payload) == nil then return base(item, args, user) end
 
         local scope = {

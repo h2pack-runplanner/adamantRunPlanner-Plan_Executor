@@ -7,6 +7,7 @@ local encounterHooks = require("mods.room.encounter_hooks")
 local roomFeatureHooks = require("mods.room.features.hooks")
 local routeSession = require("mods.route.session")
 local timeline = require("mods/hooks_timeline")
+local transformations = require("mods.room.timeline.transformations.hooks")
 local acquisitions = require("mods.room.timeline.acquisitions.hooks")
 local directPickups = require("mods.room.timeline.acquisitions.pickups.hooks")
 local npcAcquisitions = require("mods.room.timeline.acquisitions.npc.hooks")
@@ -115,9 +116,9 @@ local navigationEntryStub = {
 }
 
 local function attachRewardHooks(module, session, getState, report)
-    local producedRewards = timeline.attach(module, session, getState, report, session)
+    timeline.attach(module, session, getState, report, session)
     navigation.attach(module, session, getState, report,
-        { reportDestination = function() return true end }, session, producedRewards)
+        { reportDestination = function() return true end }, session)
 end
 
 local function attachFeatureHooks(module, session, getState, report, room, route)
@@ -623,121 +624,6 @@ function TestHookCompositionV10.testEffectNeutralBossRewardUsesNativeForcedRewar
 
     lu.assertTrue(baseCalled)
     lu.assertEquals(result, "MixerFBossDrop")
-end
-
-function TestHookCompositionV10.testProducedRewardSelectionDoesNotReuseTheIncomingMinorStore()
-    local module, _, callbacks = capture()
-    local occurrence = {
-        id = "target",
-        overview = {
-            incomingReward = {
-                rewardType = "MetaCurrencyDrop",
-                resolvedStoreKey = "MetaProgress",
-            },
-        },
-    }
-    local produced = {
-        transaction = {
-            owner = "artificer-boon",
-            reward = { rewardType = "Boon", source = "ZeusUpgrade" },
-        },
-        detail = { producer = { kind = "artificerReplacement" } },
-    }
-    local target = { ObjectId = 19, Name = "MetaCurrencyDrop" }
-    local source = {
-        transaction = {
-            owner = "minor-source", sourceOwner = "incoming-reward",
-            roles = { { role = "self", lifecyclePoint = "roomRewardPickup", gameName = "MetaCurrencyDrop" } },
-        },
-        detail = { role = "self", gameName = "MetaCurrencyDrop" },
-    }
-    local state = { state = "synchronized", plan = { occurrencesById = { target = occurrence } } }
-    local active = opaque({ occurrence = occurrence }, function(contact)
-        if contact.kind == "producer" then return source end
-        if contact.kind == "materialized" then return source end
-        if contact.kind == "produced" and contact.role == "self" then return produced end
-    end, { [target] = source })
-    local session = stub()
-    session.current = function() return active end
-    session.complete = function() return true end
-    attachRewardHooks(module, session, function() return state end, function() end)
-
-    local run = {
-        RewardPriorities = {},
-        RewardStores = {
-            RunProgress = { { Name = "Boon" }, { Name = "WeaponUpgrade" } },
-            MetaProgress = { { Name = "MetaCurrencyDrop" } },
-        },
-    }
-    local room = { __runPlannerExecutionRoomId = "target", RewardStoreName = "MetaProgress" }
-    local result = callbacks.ConvertMetaRewardPresentation(nil, {}, function(value)
-        lu.assertEquals(value, target)
-        return callbacks.ChooseRoomReward(nil, {}, function(currentRun, nativeRoom, rewardStoreName)
-            lu.assertEquals(rewardStoreName, "RunProgress")
-            lu.assertEquals(nativeRoom.RewardStoreName, "RunProgress")
-            local selected
-            for index, reward in ipairs(currentRun.RewardStores[rewardStoreName]) do
-                if callbacks.IsRoomRewardEligible(nil, {}, function() return true end,
-                    currentRun, nativeRoom, reward, {}, {}) then
-                    selected = index
-                    break
-                end
-            end
-            local reward = currentRun.RewardStores[rewardStoreName][selected]
-            table.remove(currentRun.RewardStores[rewardStoreName], selected)
-            return reward.Name
-        end, run, room, "RunProgress", {}, {})
-    end, target)
-
-    lu.assertEquals(result, "Boon")
-    lu.assertEquals(room.ForceLootName, "ZeusUpgrade")
-    lu.assertEquals(run.RewardStores.RunProgress, { { Name = "WeaponUpgrade" } })
-    lu.assertEquals(run.RewardStores.MetaProgress, { { Name = "MetaCurrencyDrop" } })
-end
-
-function TestHookCompositionV10.testArtificerConversionQueuesItsPublishedProducedReward()
-    local module, _, callbacks = capture()
-    local target = { ObjectId = 19, Name = "MetaCurrencyDrop" }
-    local source = {
-        transaction = {
-            owner = "minor-source",
-            sourceOwner = "incoming-reward",
-            roles = {
-                { role = "self", lifecyclePoint = "roomRewardPickup", gameName = "MetaCurrencyDrop" },
-            },
-        },
-        detail = { role = "self", gameName = "MetaCurrencyDrop" },
-    }
-    local child = {
-        transaction = { owner = "artificer-boon", reward = { rewardType = "Boon", source = "ZeusUpgrade" } },
-        detail = { producer = { kind = "artificerReplacement" } },
-    }
-    local active = opaque({}, function(contact)
-        if contact.kind == "produced" and contact.role == "self" then return child end
-    end, { [target] = source })
-    local selected, completed
-    local session = stub()
-    session.current = function() return active end
-    session.complete = function(_, row, verified)
-        completed = { row = row, verified = verified }
-        return true
-    end
-    attachRewardHooks(module, session, function() return {} end, function() end)
-
-    local called = false
-    local run = { RewardStores = { RunProgress = { { Name = "Boon" } } } }
-    callbacks.ConvertMetaRewardPresentation(nil, {}, function(value)
-        called = value == target
-        selected = callbacks.ChooseRoomReward(nil, {}, function(currentRun, _, rewardStoreName)
-            return currentRun.RewardStores[rewardStoreName][1].Name
-        end, run, {}, "RunProgress", {}, {})
-        return "converted"
-    end, target)
-
-    lu.assertTrue(called)
-    lu.assertEquals(selected, "Boon")
-    lu.assertEquals(fakePayload(completed.row), source)
-    lu.assertTrue(completed.verified)
 end
 
 function TestHookCompositionV10.testRewardSourceUsesTheTargetOccurrenceNotTheCurrentRoom()
@@ -1403,7 +1289,7 @@ function TestHookCompositionV10.testDirectConsumableLevelResolutionForcesAndComp
             reward = { rewardType = "GiftDrop" }, roles = {},
         },
         detail = {
-            gameName = "GiftDrop",
+            gameName = "GiftDrop", disposition = "normal",
             levelResolution = {
                 offeredTargets = {}, selectedTarget = target.Name, levelCount = 1,
             },
@@ -1547,10 +1433,11 @@ function TestHookCompositionV10.testExplicitGateBHookGroupsStayInstalled()
     local session = stub()
     local getState, report = function() end, function() end
     local route = { expected = function() end, reportDestination = function() return true end }
-    local produced = timeline.attach(module, session, getState, report, session)
+    timeline.attach(module, session, getState, report, session)
     acquisitions.attach(module, session, getState, report, session)
+    local transformationScope = transformations.attach(module, session, getState, report, session)
     local featureScope = roomFeatureHooks.attach(module, session, getState, report, session)
-    local navigationEntry = navigation.attach(module, session, getState, report, route, session, produced)
+    local navigationEntry = navigation.attach(module, session, getState, report, route, session, transformationScope)
     roomHooks.attach(module, session, getState, report, route, session, featureScope, navigationEntry)
     encounterHooks.attach(module, session, getState, report, session)
     attachFeatureHooks(module, session, getState, report, session, route)
@@ -1566,6 +1453,7 @@ function TestHookCompositionV10.testExplicitGateBHookGroupsStayInstalled()
     }) do
         lu.assertNotNil(names[name], name)
     end
+    lu.assertNil(names.GoldifyPresentation)
 end
 
 function TestHookCompositionV10.testMismatchStopsEnforcementWithoutBlockingNativeRoomFlow()

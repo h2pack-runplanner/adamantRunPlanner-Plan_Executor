@@ -435,6 +435,7 @@ function timeline.decode(value, label, globalOwners)
     local obligations, obligationsError = p.arr(record.obligations, label .. ".obligations")
     if not obligations then return nil, obligationsError end
     local obligationKeys = {}
+    local obligationCounts = {}
     for index, obligationValue in ipairs(obligations) do
         local obligation, obligationError = p.exact(
             obligationValue,
@@ -456,6 +457,12 @@ function timeline.decode(value, label, globalOwners)
         local key = obligation.owner .. "\0" .. obligation.checkpoint
         if obligationKeys[key] then return p.fail(label .. " has duplicate obligation") end
         obligationKeys[key] = true
+        obligationCounts[obligation.owner] = (obligationCounts[obligation.owner] or 0) + 1
+    end
+    for owner in pairs(byOwner) do
+        if obligationCounts[owner] ~= 1 then
+            return p.fail(label .. " must have exactly one obligation per transaction")
+        end
     end
     return record, byOwner
 end

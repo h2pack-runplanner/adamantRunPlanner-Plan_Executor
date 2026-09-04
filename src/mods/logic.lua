@@ -1,4 +1,4 @@
--- Protocol-v14 root composition. Loadout owns run-start behavior; the
+-- Protocol-v15 root composition. Loadout owns run-start behavior; the
 -- route/room coordinator owns only occurrence-session state.
 local logic = {}
 
@@ -29,6 +29,7 @@ function logic.attach(module, data)
     local featureInventoryHooks = import("mods/room/features/inventory_hooks.lua")
     local featureInteractionHooks = import("mods/room/timeline/feature_interactions.lua")
     local acquisitionHooks = import("mods/room/timeline/acquisitions/hooks.lua")
+    local transformationHooks = import("mods/room/timeline/transformations/hooks.lua")
 
     local function getState(runtime) return data.session.get(runtime) end
     local function diagnosticValue(value, depth)
@@ -64,10 +65,11 @@ function logic.attach(module, data)
 
     loadoutHooks.attach(module, data, getState, report, room)
 
-    local producedRewards = timelineHooks.attach(module, data.session, getState, report, room)
+    timelineHooks.attach(module, data.session, getState, report, room)
     acquisitionHooks.attach(module, data.session, getState, report, room)
+    local transformationScope = transformationHooks.attach(module, data.session, getState, report, room)
     local featureScope = roomFeatureHooks.attach(module, data.session, getState, report, room)
-    local navigation = navigationHooks.attach(module, data.session, getState, report, route, room, producedRewards)
+    local navigation = navigationHooks.attach(module, data.session, getState, report, route, room, transformationScope)
     roomHooks.attach(module, data.session, getState, report, route, room, featureScope, navigation)
     encounterHooks.attach(module, data.session, getState, report, room)
     local inventoryBindings = featureInventoryHooks.attach(module, data.session, getState, report, room, route)

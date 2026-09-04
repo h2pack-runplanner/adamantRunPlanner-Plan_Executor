@@ -1,9 +1,9 @@
--- luacheck: globals TestProtocolV14
+-- luacheck: globals TestProtocolV15
 local lu = require("luaunit")
 local json = require("mods/json")
 local protocol = require("mods/protocol")
 
-TestProtocolV14 = {}
+TestProtocolV15 = {}
 local root = "test/fixtures/execution-plan/"
 
 local function decode(name)
@@ -112,9 +112,13 @@ local function tagged(value, field, forceArray)
 end
 
 local function minimalPlan(transactions)
+    local obligations = {}
+    for _, transaction in ipairs(transactions) do
+        obligations[#obligations + 1] = { owner = transaction.owner, checkpoint = "exitUsable" }
+    end
     local plan = tagged({
         format = "run-planner-execution",
-        protocolVersion = 14,
+        protocolVersion = 15,
         catalogVersion = "0.54.0-required-boss-rewards",
         projectId = "test-project",
         planFingerprint = "00000000",
@@ -131,7 +135,7 @@ local function minimalPlan(transactions)
                 gameName = "F_Opening01",
                 kind = "opening",
                 overview = { encounterPhases = {}, requiredObjects = {} },
-                timeline = { transactions = transactions, dependencies = {}, obligations = {} },
+                timeline = { transactions = transactions, dependencies = {}, obligations = obligations },
                 doors = { kind = "terminal", owner = "doors-owner" },
             },
         },
@@ -140,21 +144,85 @@ local function minimalPlan(transactions)
     return plan
 end
 
-function TestProtocolV14.testAllGateA2VectorsDecodeAndExpandDiagnostics()
+function TestProtocolV15.testArtificerRoleCarriesSourceOwnedReplacement()
+    local value = minimalPlan({ {
+        kind = "acquisition",
+        owner = "source",
+        sourceOwner = "source",
+        reward = reward(),
+        producerLifecycleKey = "pickup",
+        roles = { {
+            role = "self", disposition = "artificer", lifecyclePoint = "pickup",
+            kind = "trait", gameName = "MetaCurrencyDrop",
+            replacement = { reward = reward(), gameName = "RoomRewardConsolationPrize" },
+        } },
+        window = window(),
+    } })
+    local plan, errorMessage = protocol.decode(value)
+    lu.assertNotNil(plan, errorMessage)
+    lu.assertEquals(plan.occurrences[1].timeline.transactions[1].roles[1].replacement.gameName,
+        "RoomRewardConsolationPrize")
+
+    value.occurrences[1].timeline.transactions[1].roles[1].disposition = "normal"
+    refreshFingerprint(value)
+    lu.assertNil(protocol.decode(value))
+end
+
+function TestProtocolV15.testTimePieceDispositionIsNotPublished()
+    local value = minimalPlan({ {
+        kind = "acquisition",
+        owner = "source",
+        sourceOwner = "source",
+        reward = reward(),
+        producerLifecycleKey = "pickup",
+        roles = { {
+            role = "self", disposition = "timePiece", lifecyclePoint = "pickup",
+            kind = "trait", gameName = "MetaCurrencyDrop",
+        } },
+        window = window(),
+    } })
+    lu.assertNil(protocol.decode(value))
+end
+
+function TestProtocolV15.testEveryPublishedTransactionHasExactlyOneObligation()
+    local value = minimalPlan({ {
+        kind = "acquisition",
+        owner = "source",
+        sourceOwner = "source",
+        reward = reward(),
+        producerLifecycleKey = "pickup",
+        roles = { role() },
+        window = window(),
+    } })
+    lu.assertNotNil(protocol.decode(value))
+
+    value.occurrences[1].timeline.obligations = {}
+    refreshFingerprint(value)
+    lu.assertNil(protocol.decode(value))
+
+    value = minimalPlan(value.occurrences[1].timeline.transactions)
+    value.occurrences[1].timeline.obligations[2] = {
+        owner = "source", checkpoint = "exitUsable",
+    }
+    refreshFingerprint(value)
+    lu.assertNil(protocol.decode(value))
+end
+
+function TestProtocolV15.testAllGateA2VectorsDecodeAndExpandDiagnostics()
     for _, name in ipairs({ "f-opening", "fg", "fg-ixion-chaos", "fg-anomaly", "automatic-boss" }) do
         local plan, errorMessage = protocol.decode(decode(name))
         lu.assertNotNil(plan, errorMessage)
-        lu.assertEquals(plan.protocolVersion, 14)
+        lu.assertEquals(plan.protocolVersion, 15)
         lu.assertNotNil(plan.occurrences[1].diagnostics.roomEntered)
     end
 end
 
-function TestProtocolV14.testProtocolAcceptsTaggedNullsFromAnIndependentDecoderModule()
+function TestProtocolV15.testProtocolAcceptsTaggedNullsFromAnIndependentDecoderModule()
     local plan, errorMessage = protocol.decode(decodeWithIndependentJsonModule("f-opening"))
     lu.assertNotNil(plan, errorMessage)
 end
 
-function TestProtocolV14.testOpaqueOwnerReferencesAreLocalAndLaterContactsAreRejected()
+function TestProtocolV15.testOpaqueOwnerReferencesAreLocalAndLaterContactsAreRejected()
     local value = decode("f-opening")
     local room = value.occurrences[1]
     room.timeline.dependencies[1] = { owner = "missing", afterOwner = room.timeline.transactions[1].owner }
@@ -164,7 +232,7 @@ function TestProtocolV14.testOpaqueOwnerReferencesAreLocalAndLaterContactsAreRej
     lu.assertNil(protocol.decode(value))
 end
 
-function TestProtocolV14.testNestedSemanticOwnersUseTheOwnerSpecificBound()
+function TestProtocolV15.testNestedSemanticOwnersUseTheOwnerSpecificBound()
     local owner = string.rep("o", 420)
     local value = minimalPlan({ {
         kind = "acquisition",
@@ -184,7 +252,7 @@ function TestProtocolV14.testNestedSemanticOwnersUseTheOwnerSpecificBound()
     lu.assertNil(protocol.decode(value))
 end
 
-function TestProtocolV14.testForcedShortageTraitOfferSelectsAnExistingOption()
+function TestProtocolV15.testForcedShortageTraitOfferSelectsAnExistingOption()
     local offer = traitOffer()
     offer.options = { { key = "one" } }
     offer.selected = "option1"
@@ -208,7 +276,7 @@ function TestProtocolV14.testForcedShortageTraitOfferSelectsAnExistingOption()
     lu.assertNil(protocol.decode(value))
 end
 
-function TestProtocolV14.testRecomputedFingerprintCannotHideClosedUnionViolations()
+function TestProtocolV15.testRecomputedFingerprintCannotHideClosedUnionViolations()
     local value = decode("automatic-boss")
     local transaction = automatic(value)
     transaction.source = "not-valid-on-judgment"
@@ -236,7 +304,7 @@ function TestProtocolV14.testRecomputedFingerprintCannotHideClosedUnionViolation
     lu.assertNil(protocol.decode(value))
 end
 
-function TestProtocolV14.testEveryTimelineTransactionUnionDecodes()
+function TestProtocolV15.testEveryTimelineTransactionUnionDecodes()
     local transactions = {
         {
             kind = "acquisition",
@@ -405,7 +473,7 @@ function TestProtocolV14.testEveryTimelineTransactionUnionDecodes()
     lu.assertEquals(#plan.occurrences[1].timeline.transactions, #transactions)
 end
 
-function TestProtocolV14.testFountainUseRequiresItsPublishedInteractionContact()
+function TestProtocolV15.testFountainUseRequiresItsPublishedInteractionContact()
     local value = minimalPlan({ {
         kind = "fountainUse",
         owner = "fountain",
