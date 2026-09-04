@@ -25,12 +25,20 @@ function timeline.new(occurrence, index)
         obligations[obligation.checkpoint] = obligations[obligation.checkpoint] or {}
         obligations[obligation.checkpoint][obligation.owner] = true
     end
+    local transactionOrder = {}
+    for _, published in ipairs(occurrence.timeline and occurrence.timeline.transactions or {}) do
+        local row = index.owner[published.owner]
+        if row ~= nil then transactionOrder[#transactionOrder + 1] = row end
+    end
     local session = {
         occurrence = occurrence,
         bindings = index,
         prerequisites = prerequisites,
         obligations = obligations,
+        transactionOrder = transactionOrder,
         completedOwners = {},
+        claimedOwners = {},
+        claimedHandles = {},
         capabilities = lifecycle.new(),
         firstMismatch = nil,
         closed = false,
@@ -82,11 +90,28 @@ function timeline.bind(session, handle, native)
     if row == nil then return nil, errorValue end
     if native == nil then return handle end
     local priorHandle = session.nativeHandles[native]
-    local priorNative = session.handleNatives[handle]
-    if (priorHandle ~= nil and priorHandle ~= handle) or (priorNative ~= nil and priorNative ~= native) then
+    if priorHandle ~= nil and priorHandle ~= handle then
         return mismatch(session, "timeline-binding", "one native carrier per exact handle", "different binding")
     end
-    session.nativeHandles[native], session.handleNatives[handle] = handle, native
+    -- A multi-contact owner keeps one handle, while a uniquely named later
+    -- carrier advances that handle's active role for downstream adapters.
+    local gameName = type(native) == "table"
+        and (native.Name or native.ItemName or native.LootName) or nil
+    local matching
+    if gameName ~= nil then
+        for _, role in ipairs(row.transaction.roles or {}) do
+            if role.gameName == gameName then
+                if matching ~= nil then
+                    return mismatch(session, "timeline-binding", "unique transaction role", gameName)
+                end
+                matching = role
+            end
+        end
+    end
+    session.nativeHandles[native] = handle
+    session.handleNatives[handle] = session.handleNatives[handle] or {}
+    session.handleNatives[handle][native] = true
+    if matching ~= nil then row.detail = matching end
     return handle
 end
 
@@ -98,6 +123,43 @@ end
 function timeline.sourceRole(session, handle, gameName)
     local row = rowFor(session, handle)
     return row and bindings.sourceRole(row, gameName) or nil
+end
+
+-- Claim one ready action in published transaction order.  The caller owns
+-- structural contact semantics; returning a role table supplies the payload
+-- detail that the claimed native carrier will consume.
+function timeline.claimReady(session, contact, native, compatible)
+    if session.closed or session.firstMismatch ~= nil then return nil end
+    if type(compatible) ~= "function" then
+        return mismatch(session, "timeline-claim", "compatibility predicate", compatible)
+    end
+    for _, row in ipairs(session.transactionOrder or {}) do
+        local transaction = row.transaction
+        local owner = transaction.owner
+        if not session.completedOwners[owner] and not session.claimedOwners[owner] then
+            local open = lifecycle.accepts(session.capabilities, transaction.window)
+            if open then
+                local ready = true
+                for prerequisite in pairs(session.prerequisites[owner] or {}) do
+                    if not session.completedOwners[prerequisite] then ready = false; break end
+                end
+                if ready then
+                    local detail = compatible(transaction, contact)
+                    if detail ~= nil and detail ~= false then
+                        if detail == true then detail = nil end
+                        local claimedRow = { transaction = transaction, detail = detail, claimed = true }
+                        local handle = handleFor(session, claimedRow)
+                        local bound, errorValue = timeline.bind(session, handle, native)
+                        if bound == nil then return nil, errorValue end
+                        session.claimedOwners[owner] = true
+                        session.claimedHandles[owner] = handle
+                        return handle, bindings.payload(claimedRow)
+                    end
+                end
+            end
+        end
+    end
+    return nil
 end
 
 function timeline.realize(session, handle, key)
@@ -135,8 +197,13 @@ function timeline.begin(session, handle)
     if session.firstMismatch ~= nil then return nil, session.firstMismatch end
     local row, errorValue = rowFor(session, handle)
     if row == nil then return nil, errorValue end
-    if session.completedOwners[row.transaction.owner] then return nil, "completed" end
-    local ok, beginError = beginOwner(session, row.transaction.owner)
+    local owner = row.transaction.owner
+    local claimedHandle = session.claimedHandles[owner]
+    if claimedHandle ~= nil and claimedHandle ~= handle then
+        return mismatch(session, "timeline-claim", "canonical claimed handle", handle)
+    end
+    if session.completedOwners[owner] then return nil, "completed" end
+    local ok, beginError = beginOwner(session, owner)
     if not ok then return nil, beginError end
     return bindings.payload(row)
 end
@@ -160,7 +227,12 @@ end
 function timeline.complete(session, handle, _proof)
     local row, rowError = rowFor(session, handle)
     if row == nil then return nil, rowError end
-    if session.completedOwners[row.transaction.owner] then return true end
+    local owner = row.transaction.owner
+    local claimedHandle = session.claimedHandles[owner]
+    if claimedHandle ~= nil and claimedHandle ~= handle then
+        return mismatch(session, "timeline-claim", "canonical claimed handle", handle)
+    end
+    if session.completedOwners[owner] then return true end
     local payload, errorValue = timeline.begin(session, handle)
     if payload == nil then return nil, errorValue end
     session.completedOwners[payload.transaction.owner] = true
@@ -192,9 +264,12 @@ function timeline.close(session)
     if not ok then return nil, errorValue end
     session.closed = true
     session.completedOwners = {}
+    session.claimedOwners = {}
+    session.claimedHandles = {}
     session.capabilities = {}
     session.bindings = nil
     session.handles = {}
+    session.transactionOrder = {}
     session.nativeHandles, session.handleNatives = {}, {}
     return true
 end

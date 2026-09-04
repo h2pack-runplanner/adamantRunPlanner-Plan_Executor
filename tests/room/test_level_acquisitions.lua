@@ -11,17 +11,22 @@ local function capture()
     return module, callbacks
 end
 
-local function harness(row, native)
+local function harness(row, native, isBound)
     local module, callbacks = capture()
     local state = { state = "synchronized" }
     local begins, completions = 0, {}
     local handle = {}
     local active = { occurrence = { overview = {} } }
-    local bound = { [native] = handle }
+    local bound = isBound == false and {} or { [native] = handle }
     local room = {
         current = function() return active end,
         bound = function(_, _, value) return bound[value] end,
         peek = function(_, value) return value == handle and row or nil end,
+        claimReady = function(_, _, contact, value, compatible)
+            if bound[value] ~= nil or compatible(row.transaction, contact) == nil then return nil end
+            bound[value] = handle
+            return handle, row
+        end,
         begin = function(_, value)
             if value ~= handle then return nil end
             begins = begins + 1
@@ -119,10 +124,10 @@ function TestLevelAcquisitions.testVisibleSelectionUsesNativeSortedIdentityAndNo
     _G.CurrentRun = priorRun
 end
 
-local function directFixture(selected, count)
+local function directFixture(selected, count, isBound)
     local item = { Name = "GiftDrop", UseFunctionArgs = { Thread = false, NumTraits = 1, NumStacks = 9 } }
     local row = levelRow("GiftDrop", count or 1, selected)
-    local callbacks, room, state, handle, begins, completions = harness(row, item)
+    local callbacks, room, state, handle, begins, completions = harness(row, item, isBound)
     return item, row, callbacks, room, state, handle, begins, completions
 end
 
@@ -134,6 +139,7 @@ end
 
 local function useDirect(callbacks, item, terminal, nativeFatedBonus)
     callbacks.UseConsumableItem(nil, {}, function(nativeItem)
+        callbacks.ConsumableUsedPresentation(nil, {}, function() return true end, {}, nativeItem, {})
         callbacks.UseStoreRewardRandomStack(nil, {}, function(directArgs)
             if nativeFatedBonus then directArgs.NumStacks = directArgs.NumStacks + nativeFatedBonus end
             callbacks.AddStackToTraits(nil, {}, function(nativeSource, nativeArgs)
@@ -226,17 +232,20 @@ function TestLevelAcquisitions.testIneligibleNectarRestoresNativeArgumentsBefore
     _G.CurrentRun = priorRun
 end
 
-function TestLevelAcquisitions.testUnboundDirectNativeCallPassesThrough()
-    local item = { Name = "GiftDrop" }
-    local row = levelRow("GiftDrop", 1, "Target")
-    local callbacks = harness(row, item)
-    local called = false
-    callbacks.AddStackToTraits(nil, {}, function(source, args)
-        called = true
-        local actual = args or source
-        lu.assertNil(actual.__runPlannerTimelineHandle)
-    end, { NumStacks = 1 })
-    lu.assertTrue(called)
+function TestLevelAcquisitions.testUnboundDirectNativeCallClaimsAtAcceptedPresentation()
+    local item, _, callbacks, _, _, _, begins, completions = directFixture("Target", 1, false)
+    local target = { Name = "Target", StackNum = 2 }
+    local priorRun = _G.CurrentRun
+    _G.CurrentRun = { Hero = { Traits = { target } } }
+    useDirect(callbacks, item, function(_, args)
+        lu.assertEquals(args.TraitName, "Target")
+        target.StackNum = target.StackNum + args.NumStacks
+    end)
+    lu.assertTrue(begins() > 0)
+    lu.assertEquals(target.StackNum, 3)
+    lu.assertEquals(#completions, 1)
+    lu.assertTrue(completions[1].verified)
+    _G.CurrentRun = priorRun
 end
 
 function TestLevelAcquisitions.testRoomRewardNectarBindsTheExactConsumableObject()

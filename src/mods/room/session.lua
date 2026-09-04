@@ -54,6 +54,16 @@ function room.begin(session, handle)
     if payload == nil then return mismatch(session, errorValue.checkpoint, errorValue.expected, errorValue.observed) end
     return payload
 end
+function room.claimReady(session, contact, native, compatible)
+    if session.closed then return mismatch(session, "room-session", "open session", "closed") end
+    if session.firstMismatch ~= nil then return nil, session.firstMismatch end
+    local handle, payload, errorValue = timeline.claimReady(
+        innerFor(session), contact, native, compatible)
+    if handle == nil and errorValue ~= nil then
+        return mismatch(session, errorValue.checkpoint, errorValue.expected, errorValue.observed)
+    end
+    return handle, payload
+end
 function room.complete(session, handle, proof)
     if session.closed then return mismatch(session, "room-session", "open session", "closed") end
     return delegate(session, "complete", handle, proof)

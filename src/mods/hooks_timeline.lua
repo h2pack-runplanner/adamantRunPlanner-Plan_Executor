@@ -117,7 +117,10 @@ end
 function hooks.attach(module, session, getState, report, room)
     local roomCoordinator = room
     local chaosContext
-    local pendingTrait
+    -- Legacy trait screens (Chaos and NPCs outside the C3 slice) retain their
+    -- existing screen-local handoff. Arachne/Narcissus are owned by the
+    -- focused acquisition adapter.
+    local pendingLegacyTrait
     local embryoTarget
     local embryoContext
     local bossScope
@@ -128,8 +131,6 @@ function hooks.attach(module, session, getState, report, room)
     local nemesisSpawnDepth = 0
     local pendingNemesis
     local npcRewardSource
-    local unwrappedTraitRow
-    local unwrappedSourceKey
 
     local function interactionRow(state, source)
         local current = roomCoordinator.current(state)
@@ -179,7 +180,7 @@ function hooks.attach(module, session, getState, report, room)
             if resolution and resolution.kind == "traitOffer" and resolution.offer.giver == giver then
                 handle, payload = resolveTraitFallback(session, state, handle, payload, source)
                 if payload ~= nil and adapter.applyNpcTraitOffer(payload, args) then
-                    pendingTrait = { handle = handle, payload = payload, source = source }
+                    pendingLegacyTrait = { handle = handle, payload = payload, source = source }
                 elseif payload ~= nil then
                     session.mismatch(state, "npc-trait-offer", "published " .. giver .. " trait offer", nil)
                 end
@@ -213,9 +214,9 @@ function hooks.attach(module, session, getState, report, room)
         local expected, traitOffer = adapter.expectedTrait(payload)
         if expected ~= nil then
             adapter.applyTraitOffer(payload, usee)
-            pendingTrait = { handle = handle, payload = payload, source = usee }
+            pendingLegacyTrait = { handle = handle, payload = payload, source = usee }
         elseif traitOffer and traitOffer.kind == "chaos" then
-            pendingTrait = { handle = handle, payload = payload, source = usee }
+            pendingLegacyTrait = { handle = handle, payload = payload, source = usee }
         end
         local result = base(usee, args, user)
         pendingSeaStar = nil
@@ -255,50 +256,12 @@ function hooks.attach(module, session, getState, report, room)
         end
     end
 
-    module.hooks.wrap("GiveLoot", "execution-v10-mystery-boon-loot-source", function(_, _, base, args)
-        if unwrappedSourceKey == nil then return base(args) end
-        local forcedArgs = {}
-        for key, value in pairs(args or {}) do forcedArgs[key] = value end
-        forcedArgs.ForceLootName = unwrappedSourceKey
-        return base(forcedArgs)
-    end)
-
     module.hooks.wrap("CreateLoot", "execution-v10-created-loot", function(_, runtime, base, args)
         local result = base(args)
         local state = getState(runtime)
-        if unwrappedTraitRow ~= nil and result ~= nil then
-            local current = roomCoordinator.current(state)
-            local handle = roomCoordinator.resolve(state, current,
-                { kind = "materialized", source = unwrappedTraitRow, gameName = result.Name })
-            if roomCoordinator.bind(state, current, handle, result) == nil then
-                session.mismatch(state, "timeline-binding", "published mystery-boon source", result.Name)
-            end
-        end
         local sourceId = type(args) == "table" and args.SpawnRewardOnId
         bindProduced(state, sourceId, result)
         if sourceId then pendingProduced[sourceId] = nil end
-        return result
-    end)
-
-    module.hooks.wrap("UnwrapRandomLoot", "execution-v10-mystery-boon-source", function(_, runtime, base, source)
-        local state = getState(runtime)
-        local current = roomCoordinator.current(state)
-        local prior = unwrappedTraitRow
-        local priorSource = unwrappedSourceKey
-        unwrappedTraitRow = roomCoordinator.bound(state, current, source)
-        unwrappedSourceKey = nil
-        local payload = unwrappedTraitRow and roomCoordinator.begin(state, unwrappedTraitRow) or nil
-        for _, role in ipairs(payload and payload.transaction.roles or {}) do
-            if role.lifecyclePoint == "afterUnwrap" then
-                unwrappedSourceKey = role.gameName
-                break
-            end
-        end
-        local ok, result = pcall(base, source)
-        unwrappedTraitRow = prior
-        unwrappedSourceKey = priorSource
-        if not ok then error(result, 0) end
-        report(runtime)
         return result
     end)
 
@@ -316,7 +279,8 @@ function hooks.attach(module, session, getState, report, room)
         local state = getState(runtime)
         local current = roomCoordinator.current(state)
         local handle = roomCoordinator.bound(state, current, lootData)
-            or (pendingTrait and pendingTrait.handle) or incomingHandle(roomCoordinator, session, state, lootData)
+            or (pendingLegacyTrait and pendingLegacyTrait.handle)
+            or incomingHandle(roomCoordinator, session, state, lootData)
         local payload = handle and roomCoordinator.begin(state, handle) or nil
         if payload ~= nil then
             lootData.__runPlannerTimelineHandle = handle
@@ -326,8 +290,6 @@ function hooks.attach(module, session, getState, report, room)
         return base(screen, lootData, reroll, args)
     end)
 
-    attachNpcTraitChoice("ArachneCostumeChoice", "Arachne")
-    attachNpcTraitChoice("NarcissusBenefitChoice", "Narcissus")
     attachNpcTraitChoice("MedeaCurseChoice", "Medea")
     attachNpcTraitChoice("CirceBlessingChoice", "Circe")
     attachNpcTraitChoice("IcarusBenefitChoice", "Icarus")
@@ -492,9 +454,10 @@ function hooks.attach(module, session, getState, report, room)
         if isOrdinaryTraitCarrier(lootData) then
             return base(screen, lootData, itemIndex, itemData, args)
         end
-        local handle = lootData and lootData.__runPlannerTimelineHandle or pendingTrait and pendingTrait.handle
+        local handle = lootData and lootData.__runPlannerTimelineHandle
+            or pendingLegacyTrait and pendingLegacyTrait.handle
         local payload = handle and roomCoordinator.begin(getState(runtime), handle)
-            or pendingTrait and pendingTrait.payload
+            or pendingLegacyTrait and pendingLegacyTrait.payload
         local _, offer = adapter.expectedTrait(payload)
         if offer and offer.kind == "chaos" then
             local option = offer.curseOptions[itemIndex]
@@ -551,9 +514,10 @@ function hooks.attach(module, session, getState, report, room)
         function(_, runtime, base, lootData,
         choices)
         local result = base(lootData, choices)
-        local handle = lootData and lootData.__runPlannerTimelineHandle or pendingTrait and pendingTrait.handle
+        local handle = lootData and lootData.__runPlannerTimelineHandle
+            or pendingLegacyTrait and pendingLegacyTrait.handle
         local payload = handle and roomCoordinator.begin(getState(runtime), handle)
-            or pendingTrait and pendingTrait.payload
+            or pendingLegacyTrait and pendingLegacyTrait.payload
         local _, offer = adapter.expectedTrait(payload)
         if offer == nil or offer.kind ~= "chaos" or type(lootData.UpgradeOptions) ~= "table" then return result end
         local selectedIndex = tonumber(offer.selected:match("(%d+)$"))
@@ -578,13 +542,13 @@ function hooks.attach(module, session, getState, report, room)
         end
         local state = getState(runtime)
         local selected = button and button.Data and button.Data.Name
-        if pendingTrait ~= nil then
-            pendingTrait.selected = selected
+        if pendingLegacyTrait ~= nil then
+            pendingLegacyTrait.selected = selected
         end
         local result = base(screen, button, args)
-        if pendingTrait ~= nil then
-            local pending = pendingTrait
-            pendingTrait = nil
+        if pendingLegacyTrait ~= nil then
+            local pending = pendingLegacyTrait
+            pendingLegacyTrait = nil
             session.complete(state, pending.handle,
                 adapter.verifyTrait(pending.payload, pending.selected, heroTraits()),
                 adapter.expectedTrait(pending.payload), pending.selected)

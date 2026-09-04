@@ -25,10 +25,16 @@ local function harness(row, item, isBound)
     local active = { occurrence = { overview = {} } }
     local handle = {}
     local begins, completions, reports = 0, {}, 0
+    local bound = isBound ~= false and item or nil
     local room = {
         current = function() return active end,
-        bound = function(_, _, native) return isBound ~= false and native == item and handle or nil end,
+        bound = function(_, _, native) return native == bound and handle or nil end,
         peek = function(_, value) return value == handle and row or nil end,
+        claimReady = function(_, _, contact, native, compatible)
+            if bound ~= nil or compatible(row.transaction, contact) == nil then return nil end
+            bound = native
+            return handle, row
+        end,
         begin = function(_, value)
             if value ~= handle then return nil end
             begins = begins + 1
@@ -111,12 +117,14 @@ function TestDirectPickupAcquisitions.testNativeErrorAfterAcceptanceDoesNotCompl
     lu.assertEquals(#completions, 0)
 end
 
-function TestDirectPickupAcquisitions.testUnboundSameNameConsumablePassesThrough()
+function TestDirectPickupAcquisitions.testUnboundSameNameConsumableClaimsAtAcceptedPresentation()
     local item = { Name = "MaxHealthDrop" }
-    local callbacks, _, begins, completions = harness(acquisitionRow(item.Name), item, false)
+    local callbacks, handle, begins, completions = harness(acquisitionRow(item.Name), item, false)
     lu.assertEquals(acceptedUse(callbacks, item), "native-result")
-    lu.assertEquals(begins(), 0)
-    lu.assertEquals(#completions, 0)
+    lu.assertEquals(begins(), 1)
+    lu.assertEquals(#completions, 1)
+    lu.assertEquals(completions[1].handle, handle)
+    lu.assertTrue(completions[1].verified)
 end
 
 function TestDirectPickupAcquisitions.testTalentDropRemainsOwnedByInteractiveHexAdapter()

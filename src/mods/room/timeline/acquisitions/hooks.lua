@@ -9,11 +9,17 @@ local levels = type(import) == "function" and import("mods/room/timeline/acquisi
     or require("mods.room.timeline.acquisitions.levels.hooks")
 local pickups = type(import) == "function" and import("mods/room/timeline/acquisitions/pickups/hooks.lua")
     or require("mods.room.timeline.acquisitions.pickups.hooks")
+local npc = type(import) == "function" and import("mods/room/timeline/acquisitions/npc/hooks.lua")
+    or require("mods.room.timeline.acquisitions.npc.hooks")
+local mystery = type(import) == "function" and import("mods/room/timeline/acquisitions/mystery/hooks.lua")
+    or require("mods.room.timeline.acquisitions.mystery.hooks")
 
 local acquisitions = {}
 
 function acquisitions.attach(module, session, getState, report, room)
     binding.attach(module, session, getState, report, room)
+    npc.attach(module, session, getState, report, room)
+    mystery.attach(module, session, getState, report, room)
     traits.attach(module, session, getState, report, room)
     pickups.attach(module, session, getState, report, room)
     levels.attach(module, session, getState, report, room)

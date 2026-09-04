@@ -114,10 +114,31 @@ local function carrier(state, room, native)
     return handle, payload
 end
 
+local function directLevelRole(transaction, contact)
+    if type(transaction) ~= "table" or transaction.kind ~= "acquisition" then return nil end
+    for _, role in ipairs(transaction.roles or {}) do
+        if role.gameName == contact.gameName
+            and role.levelResolution ~= nil then
+            return role
+        end
+    end
+    return nil
+end
+
 function levels.attach(module, session, getState, report, room)
     local roomCoordinator = room
     local suppressFatedPomBonus = 0
     local begunVisible = setmetatable({}, { __mode = "k" })
+    local activeDirectUses = setmetatable({}, { __mode = "k" })
+
+    local function forwardDirect(scope)
+        if scope.forwarded or scope.handle == nil then return end
+        local forwarded = {}
+        for key, value in pairs(scope.originalArgs or {}) do forwarded[key] = value end
+        forwarded.__runPlannerTimelineHandle = scope.handle
+        scope.item.UseFunctionArgs = forwarded
+        scope.forwarded = true
+    end
 
     local function withoutFatedPomBonus(callback)
         suppressFatedPomBonus = suppressFatedPomBonus + 1
@@ -212,19 +233,39 @@ function levels.attach(module, session, getState, report, room)
         if not levels.isDirectCarrier(item) then return base(item, args, user) end
         local state = getState(runtime)
         local handle, payload = carrier(state, roomCoordinator, item)
-        if resolution(payload) == nil then return base(item, args, user) end
+        if handle ~= nil and resolution(payload) == nil then return base(item, args, user) end
 
-        local originalArgs = item.UseFunctionArgs
-        local forwarded = {}
-        for key, value in pairs(originalArgs or {}) do forwarded[key] = value end
-        forwarded.__runPlannerTimelineHandle = handle
+        local scope = {
+            state = state, current = room.current(state), handle = handle, payload = payload,
+            item = item, originalArgs = item.UseFunctionArgs, accepted = false,
+        }
+        activeDirectUses[item] = scope
         local prior = item.__runPlannerLevelCarrier
         item.__runPlannerLevelCarrier = true
-        item.UseFunctionArgs = forwarded
+        if resolution(payload) ~= nil then forwardDirect(scope) end
         local ok, result = pcall(base, item, args, user)
-        item.UseFunctionArgs = originalArgs
+        if scope.forwarded then item.UseFunctionArgs = scope.originalArgs end
         item.__runPlannerLevelCarrier = prior
+        if activeDirectUses[item] == scope then activeDirectUses[item] = nil end
         if not ok then error(result, 0) end
+        if scope.accepted then report(runtime) end
+        return result
+    end)
+
+    module.hooks.wrap("ConsumableUsedPresentation", "execution-c2-level-direct-accepted", function(_, runtime, base,
+        currentRun, item, args)
+        local result = base(currentRun, item, args)
+        local scope = activeDirectUses[item]
+        if scope ~= nil and not scope.accepted and result ~= false then
+            if scope.handle == nil and type(roomCoordinator.claimReady) == "function" then
+                scope.handle, scope.payload = roomCoordinator.claimReady(scope.state, scope.current, {
+                    kind = "directLevel", gameName = "GiftDrop",
+                }, item, directLevelRole)
+            end
+            if scope.handle == nil or resolution(scope.payload) == nil then return result end
+            scope.accepted = true
+            forwardDirect(scope)
+        end
         report(runtime)
         return result
     end)

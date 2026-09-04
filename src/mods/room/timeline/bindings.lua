@@ -14,8 +14,9 @@ end
 
 function bindings.index(occurrence)
     local index = {
-        owner = {}, role = {}, producer = {}, offer = {}, generation = {}, phase = {}, source = {},
-        slot = {}, keepsake = {}, automatic = {}, interaction = {}, produced = {}, materialized = {},
+        owner = {}, producer = {}, offer = {}, generation = {}, phase = {}, source = {},
+        slot = {}, keepsake = {}, automatic = {}, interaction = {}, produced = {},
+        materialized = {},
     }
     for owner, transaction in pairs(occurrence.transactionsByOwner or {}) do
         index.owner[owner] = { transaction = transaction }
@@ -45,8 +46,6 @@ function bindings.index(occurrence)
             if not ok then return nil, errorValue end
         end
         for _, role in ipairs(transaction.roles or {}) do
-            ok, errorValue = add(index, "role", role.lifecyclePoint .. "\0" .. role.gameName, transaction, role)
-            if not ok then return nil, errorValue end
             if role.producer then
                 ok, errorValue = add(index, "produced", role.producer.sourceOwner .. "\0" .. role.producer.sourceRole,
                     transaction, role)

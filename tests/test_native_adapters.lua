@@ -2,6 +2,7 @@
 local lu = require("luaunit")
 local adapters = require("mods/native_timeline_adapters")
 local bindings = require("mods.room.timeline.bindings")
+local timelineSession = require("mods.room.timeline.session")
 local readers = require("mods.room.conformance.readers")
 
 TestNativeAdapters = {}
@@ -184,6 +185,49 @@ function TestNativeAdapters.testProducedAcquisitionUsesItsPublishedSourceOwnerNo
     local child = bindings.resolve(index, { kind = "produced", role = "self" }, source)
     lu.assertEquals(child.transaction.owner, "child-action")
     lu.assertEquals(child.detail.gameName, "RoomRewardConsolationPrize")
+end
+
+function TestNativeAdapters.testTimelineClaimUsesPublishedOrderForIndependentCompatibleActions()
+    local first = {
+        owner = "first", kind = "acquisition",
+        window = { kind = "standard", phase = "beforeCombat" },
+        roles = {
+            { role = "first", lifecyclePoint = "roomExit", kind = "resource",
+                gameName = "ElementalBoost", disposition = "normal" },
+        },
+    }
+    local second = {
+        owner = "second", kind = "acquisition",
+        window = { kind = "standard", phase = "beforeCombat" },
+        roles = {
+            { role = "second", lifecyclePoint = "roomRewardPickup", kind = "resource",
+                gameName = "ElementalBoost", disposition = "normal" },
+        },
+    }
+    local claimOccurrence = {
+        transactionsByOwner = { second = second, first = first },
+        timeline = { transactions = { first, second }, dependencies = {}, obligations = {} },
+    }
+    local index = assert(bindings.index(claimOccurrence))
+    local session = timelineSession.new(claimOccurrence, index)
+    local function compatible(transaction, contact)
+        for _, role in ipairs(transaction.roles or {}) do
+            if role.gameName == contact.gameName then return role end
+        end
+    end
+    local firstNative, secondNative = { Name = "ElementalBoost" }, { Name = "ElementalBoost" }
+    local firstHandle, firstPayload = timelineSession.claimReady(session,
+        { kind = "directPickup", gameName = "ElementalBoost" }, firstNative, compatible)
+    lu.assertNotNil(firstHandle)
+    lu.assertEquals(firstPayload.transaction.owner, "first")
+    local secondHandle, secondPayload = timelineSession.claimReady(session,
+        { kind = "directPickup", gameName = "ElementalBoost" }, secondNative, compatible)
+    lu.assertNotNil(secondHandle)
+    lu.assertEquals(secondPayload.transaction.owner, "second")
+    lu.assertEquals(timelineSession.bound(session, firstNative), firstHandle)
+    lu.assertEquals(timelineSession.bound(session, secondNative), secondHandle)
+    lu.assertNil(timelineSession.claimReady(session,
+        { kind = "directPickup", gameName = "UnknownDrop" }, { Name = "UnknownDrop" }, compatible))
 end
 
 function TestNativeAdapters.testReachableReadersProjectNativeState()

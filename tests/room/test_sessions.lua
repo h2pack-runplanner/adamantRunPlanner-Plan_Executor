@@ -1,6 +1,7 @@
 -- luacheck: globals TestRouteRoomSessions
 local lu = require("luaunit")
 local room = require("mods.room.session")
+local coordinator = require("mods.room.coordinator")
 local route = require("mods.route.session")
 local bindings = require("mods.room.timeline.bindings")
 local timeline = require("mods.room.timeline.session")
@@ -303,13 +304,87 @@ function TestRouteRoomSessions.testExactHandleBindingHasOneNativeCarrier()
     local entry = occurrence()
     local transaction = entry.transactionsByOwner.required
     transaction.offerKey = "required"
+    entry.transactionsByOwner.other = {
+        owner = "other", offerKey = "other", window = { kind = "standard", phase = "beforeCombat" },
+    }
     local port = timeline.new(entry, assert(bindings.index(entry)))
     local handle = assert(timeline.resolve(port, bindings.resolve, { kind = "offer", offerKey = "required" }))
     local first, second = {}, {}
     lu.assertTrue(rawequal(assert(timeline.bind(port, handle, first)), handle))
     lu.assertTrue(rawequal(assert(timeline.bind(port, handle, first)), handle))
-    lu.assertNil(timeline.bind(port, handle, second))
+    -- A Mystery action retains one handle across its box and provider native
+    -- carriers; the native object reverse index must still reject crossing
+    -- either carrier to another action.
+    lu.assertTrue(rawequal(assert(timeline.bind(port, handle, second)), handle))
+    local other = assert(timeline.resolve(port, bindings.resolve, { kind = "offer", offerKey = "other" }))
+    lu.assertNil(timeline.bind(port, other, second))
     lu.assertEquals(port.firstMismatch.checkpoint, "timeline-binding")
+end
+
+function TestRouteRoomSessions.testAcceptedUnboundPickupClaimCompletesAndClosesObligation()
+    local transaction = {
+        owner = "pickup", kind = "acquisition",
+        window = { kind = "standard", phase = "beforeCombat" },
+        roles = {
+            { role = "self", kind = "resource", gameName = "MaxHealthDrop", disposition = "normal" },
+        },
+    }
+    local pickupOccurrence = {
+        id = "pickup-room", gameName = "F_Test",
+        overview = { encounterPhases = {}, requiredObjects = {}, additional = {} },
+        transactionsByOwner = { pickup = transaction },
+        timeline = {
+            transactions = { transaction }, dependencies = {},
+            obligations = { { owner = "pickup", checkpoint = "roomExit" } },
+        },
+        roomExitConformance = { facts = {} }, conformanceExpected = {},
+    }
+    local mismatches = {}
+    local plan = { occurrencesById = { [pickupOccurrence.id] = pickupOccurrence } }
+    local roomCoordinator = coordinator.new(plan, function(errorValue)
+        mismatches[#mismatches + 1] = errorValue
+    end)
+    local state = { state = "synchronized", plan = plan, room = roomCoordinator }
+    local active = assert(coordinator.enter(state, pickupOccurrence))
+    local item = { Name = "MaxHealthDrop" }
+    local handle, payload = coordinator.claimReady(state, active,
+        { kind = "directPickup", gameName = item.Name }, item, function(node, contact)
+            for _, role in ipairs(node.roles or {}) do
+                if role.gameName == contact.gameName then return role end
+            end
+        end)
+    lu.assertNotNil(handle)
+    lu.assertEquals(payload.transaction.owner, "pickup")
+    lu.assertNotNil(coordinator.begin(state, handle))
+    lu.assertTrue(coordinator.complete(state, handle, true))
+    lu.assertTrue(coordinator.close(state, {}, {}))
+    lu.assertEquals(mismatches, {})
+end
+
+function TestRouteRoomSessions.testClaimedOwnerRejectsPreclaimHandleForBeginAndComplete()
+    local entry = occurrence()
+    local transaction = entry.transactionsByOwner.required
+    transaction.offerKey = "required"
+    transaction.roles = {
+        { role = "self", gameName = "MaxHealthDrop", disposition = "normal" },
+    }
+    entry.timeline.transactions = { transaction }
+    local port = timeline.new(entry, assert(bindings.index(entry)))
+    local oldHandle = assert(timeline.resolve(port, bindings.resolve,
+        { kind = "offer", offerKey = "required" }))
+    local native = { Name = "MaxHealthDrop" }
+    local claimedHandle = assert(timeline.claimReady(port,
+        { kind = "directPickup", gameName = native.Name }, native, function(node, contact)
+            for _, role in ipairs(node.roles or {}) do
+                if role.gameName == contact.gameName then return role end
+            end
+        end))
+    lu.assertFalse(rawequal(claimedHandle, oldHandle))
+    lu.assertNotNil(timeline.begin(port, claimedHandle))
+    lu.assertTrue(timeline.complete(port, claimedHandle, true))
+    lu.assertNil(timeline.begin(port, oldHandle))
+    lu.assertNil(timeline.complete(port, oldHandle, true))
+    lu.assertEquals(port.firstMismatch.checkpoint, "timeline-claim")
 end
 
 function TestRouteRoomSessions.testOneNativeCarrierCannotBindTwoDistinctHandles()
@@ -375,6 +450,49 @@ function TestRouteRoomSessions.testMultiRoleMysteryBoonBindsEachWorldCarrierToIt
     lu.assertFalse(rawequal(source, box))
     lu.assertTrue(timeline.bind(port, source, loot) ~= nil)
     lu.assertTrue(rawequal(timeline.bound(port, loot), source))
+end
+
+function TestRouteRoomSessions.testBoundMysteryProviderAdvancesTheSameHandleToItsHiddenRole()
+    local entry = occurrence()
+    local transaction = entry.transactionsByOwner.required
+    transaction.offerKey = "Boon"
+    transaction.kind = "shopPurchase"
+    transaction.roles = {
+        { role = "box", lifecyclePoint = "purchase", kind = "consumable", gameName = "BlindBoxLoot" },
+        {
+            role = "hiddenSource", lifecyclePoint = "afterUnwrap", kind = "loot", gameName = "HeraUpgrade",
+            traitOffer = { kind = "traits", giver = "Hera", options = {} },
+        },
+    }
+    entry.timeline.transactions = { transaction }
+    local port = timeline.new(entry, assert(bindings.index(entry)))
+    local root = assert(timeline.resolve(port, bindings.resolve, { kind = "offer", offerKey = "Boon" }))
+    local box = assert(timeline.resolve(port, bindings.resolve,
+        { kind = "materialized", gameName = "BlindBoxLoot" }, root))
+    local boxNative, providerNative = { Name = "BlindBoxLoot" }, { Name = "HeraUpgrade" }
+    lu.assertTrue(timeline.bind(port, box, boxNative) ~= nil)
+    lu.assertEquals(timeline.peek(port, box).detail, transaction.roles[1])
+    lu.assertTrue(timeline.bind(port, box, providerNative) ~= nil)
+    lu.assertTrue(rawequal(timeline.bound(port, providerNative), box))
+    local providerPayload = assert(timeline.peek(port, box))
+    lu.assertEquals(providerPayload.detail, transaction.roles[2])
+    lu.assertEquals(providerPayload.detail.traitOffer.kind, "traits")
+end
+
+function TestRouteRoomSessions.testAmbiguousNativeRoleDoesNotAdvanceOrBind()
+    local entry = occurrence()
+    local transaction = entry.transactionsByOwner.required
+    transaction.offerKey = "ambiguous"
+    transaction.roles = {
+        { role = "first", gameName = "Duplicate" },
+        { role = "second", gameName = "Duplicate" },
+    }
+    local port = timeline.new(entry, assert(bindings.index(entry)))
+    local handle = assert(timeline.resolve(port, bindings.resolve, { kind = "offer", offerKey = "ambiguous" }))
+    local native = { Name = "Duplicate" }
+    lu.assertNil(timeline.bind(port, handle, native))
+    lu.assertEquals(port.firstMismatch.checkpoint, "timeline-binding")
+    lu.assertNil(timeline.bound(port, native))
 end
 
 function TestRouteRoomSessions.testTimelinePortRejectsForeignAndFabricatedHandles()

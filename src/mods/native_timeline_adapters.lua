@@ -45,6 +45,9 @@ local function declaredFallback(row, fallback)
     if row.transaction.resolution and row.transaction.resolution.outcome then
         choices[#choices + 1] = row.transaction.resolution.outcome.runtimeFallbacks
     end
+    if row.transaction.resolution and row.transaction.resolution.offer then
+        choices[#choices + 1] = row.transaction.resolution.offer.runtimeFallbacks
+    end
     if row.detail and row.detail.traitOffer then choices[#choices + 1] = row.detail.traitOffer.runtimeFallbacks end
     for _, list in ipairs(choices) do
         for _, candidate in ipairs(list or {}) do

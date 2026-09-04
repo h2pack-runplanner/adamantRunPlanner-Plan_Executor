@@ -193,6 +193,15 @@ function coordinator.sourceRole(state, context, handle, gameName)
     return owner and timelineSession.sourceRole(portFor(owner), handle, gameName) or nil
 end
 
+function coordinator.claimReady(state, context, contact, native, compatible)
+    local owner = bindingContext(state, context)
+    if owner == nil then return fail(state, "timeline-claim", "active or prepared occurrence", "unbound") end
+    local handle, payload, errorValue = timelineSession.claimReady(
+        portFor(owner), contact, native, compatible)
+    if handle == nil and errorValue ~= nil then return fail(state, errorValue) end
+    return handle, payload
+end
+
 function coordinator.begin(state, handle)
     local active = coordinator.current(state)
     if active == nil then return fail(state, "timeline-handle", "active occurrence", "none") end

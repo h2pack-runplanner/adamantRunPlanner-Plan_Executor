@@ -9,6 +9,8 @@ local routeSession = require("mods.route.session")
 local timeline = require("mods/hooks_timeline")
 local acquisitions = require("mods.room.timeline.acquisitions.hooks")
 local directPickups = require("mods.room.timeline.acquisitions.pickups.hooks")
+local npcAcquisitions = require("mods.room.timeline.acquisitions.npc.hooks")
+local mysteryAcquisitions = require("mods.room.timeline.acquisitions.mystery.hooks")
 local featureInventoryHooks = require("mods.room.features.inventory_hooks")
 local featureInteractionHooks = require("mods.room.timeline.feature_interactions")
 local logic = require("mods/logic")
@@ -832,66 +834,95 @@ end
 
 function TestHookCompositionV10.testMysteryBoonPurchaseWaitsForItsTraitResolution()
     local module, _, callbacks = capture()
-    local completed = 0
+    local priorRun = _G.CurrentRun
+    _G.CurrentRun = { Hero = { Traits = {} } }
+    local completions = {}
     local node = {
         owner = "mystery", kind = "shopPurchase", offerKey = "Boon",
+        window = { kind = "standard", phase = "beforeCombat" },
         roles = {
             { role = "box", lifecyclePoint = "purchase", gameName = "BlindBoxLoot" },
             {
                 role = "hiddenSource", lifecyclePoint = "afterUnwrap", gameName = "HeraUpgrade",
-                traitOffer = { kind = "traits", giver = "Hera", options = {}, selected = "option1" },
+                traitOffer = {
+                    kind = "traits", giver = "Hera", selected = "option1",
+                    options = {
+                        { key = "HeraCastBoon", rarity = "Common", effectiveLevel = 4 },
+                        { key = "HeraSprintBoon", rarity = "Common", effectiveLevel = 4 },
+                        { key = "HeraManaBoon", rarity = "Common", effectiveLevel = 4 },
+                    },
+                },
             },
         },
     }
-    local root = { transaction = node }
-    local box = { transaction = node, detail = node.roles[1] }
-    local source = { transaction = node, detail = node.roles[2] }
-    local active = opaque({
-        occurrence = { id = "shop", overview = { shop = { offers = {
-            { offerKey = "Boon", optionKey = "BlindBoxLoot" },
-        } } } },
-    }, function(contact)
-        if contact.kind == "offer" and contact.offerKey == "Boon" then return root end
-        if contact.kind == "materialized" and contact.source and contact.source.transaction == node then
-            return contact.gameName == "BlindBoxLoot" and box or contact.gameName == "HeraUpgrade" and source or nil
-        end
-    end)
-    local session = stub()
-    session.current = function() return active end
-    session.complete = function() completed = completed + 1 end
-    attachFeatureHooks(module, session, function() return {} end, function() end, session)
-    timeline.attach(module, session, function() return {} end, function() end, session)
-    directPickups.attach(module, session, function() return {} end, function() end, session)
-
-    local priorRun = _G.CurrentRun
-    _G.CurrentRun = {
-        CurrentRoom = {
-            __runPlannerExecutionRoomId = "shop", StoreItemsPurchased = 0,
-            Store = { StoreOptions = {} },
-        },
+    local occurrence = {
+        id = "shop",
+        overview = { shop = { offers = { { offerKey = "Boon", optionKey = "BlindBoxLoot" } } } },
+        transactionsByOwner = { mystery = node },
+        timeline = { transactions = { node }, dependencies = {}, obligations = {} },
     }
-    local item = { Name = "BlindBoxLoot", __runPlannerOfferKey = "Boon" }
-    local world = { ObjectId = 8 }
-    local hiddenSource = { Name = "HeraUpgrade" }
-    callbacks.SpawnStoreItemInWorld(nil, {}, function() return world end, item, nil)
-    callbacks.RemoveStoreItem(nil, {}, function()
-        _G.CurrentRun.CurrentRoom.StoreItemsPurchased = 1
-    end, { Id = 8 })
+    local plan = { occurrencesById = { shop = occurrence } }
+    local mismatches = {}
+    local room = roomCoordinatorModule.new(plan, function(errorValue, expected, observed)
+        mismatches[#mismatches + 1] = { error = errorValue, expected = expected, observed = observed }
+    end)
+    local state = { state = "synchronized", plan = plan, room = room }
+    local active = assert(roomCoordinatorModule.enter(state, occurrence))
+    local root = assert(roomCoordinatorModule.resolve(state, active, { kind = "offer", offerKey = "Boon" }))
+    local box = { Name = "BlindBoxLoot" }
+    local loot = { Name = "HeraUpgrade" }
+    local boxHandle = assert(roomCoordinatorModule.resolve(state, active,
+        { kind = "materialized", gameName = box.Name, source = root }))
+    lu.assertTrue(roomCoordinatorModule.bind(state, active, boxHandle, box) ~= nil)
+    lu.assertNotNil(roomCoordinatorModule.peek(state, boxHandle))
+    local session = {
+        current = roomCoordinatorModule.current,
+        peek = roomCoordinatorModule.peek,
+        bind = roomCoordinatorModule.bind,
+        bound = roomCoordinatorModule.bound,
+        begin = roomCoordinatorModule.begin,
+        resolve = roomCoordinatorModule.resolve,
+        claimReady = roomCoordinatorModule.claimReady,
+        mismatch = function() end,
+    }
+    session.complete = function(runtimeState, handle, verified, ...)
+        completions[#completions + 1] = { handle = handle, verified = verified }
+        return roomCoordinatorModule.complete(runtimeState, handle, verified, ...)
+    end
+    mysteryAcquisitions.attach(module, session, function() return state end, function() end, roomCoordinatorModule)
+    local mysteryCallbacks = {
+        CreateLoot = callbacks.CreateLoot,
+        UseConsumableItem = callbacks.UseConsumableItem,
+        ConsumableUsedPresentation = callbacks.ConsumableUsedPresentation,
+        UnwrapRandomLoot = callbacks.UnwrapRandomLoot,
+        GiveLoot = callbacks.GiveLoot,
+    }
+    timeline.attach(module, session, function() return state end, function() end, roomCoordinatorModule)
+    for name, callback in pairs(mysteryCallbacks) do callbacks[name] = callback end
+
     callbacks.UseConsumableItem(nil, {}, function(nativeItem)
-        callbacks.ConsumableUsedPresentation(nil, {}, function() return true end, _G.CurrentRun, nativeItem, {})
+        lu.assertTrue(callbacks.ConsumableUsedPresentation(nil, {}, function() return true end,
+            _G.CurrentRun, nativeItem, {}))
+        lu.assertNotNil(roomCoordinatorModule.peek(state, boxHandle))
         callbacks.UnwrapRandomLoot(nil, {}, function()
             callbacks.GiveLoot(nil, {}, function(args)
                 lu.assertEquals(args.ForceLootName, "HeraUpgrade")
-                return callbacks.CreateLoot(nil, {}, function() return hiddenSource end,
-                    { Name = args.ForceLootName })
+                return callbacks.CreateLoot(nil, {}, function() return loot end, { Name = args.ForceLootName })
             end, {})
         end, nativeItem)
-    end, world, {}, {})
+    end, box, {}, {})
+    lu.assertEquals(#completions, 0)
+    lu.assertTrue(rawequal(roomCoordinatorModule.bound(state, active, loot), boxHandle))
+    lu.assertEquals(roomCoordinatorModule.peek(state, boxHandle).detail, node.roles[2])
+    callbacks.UseLoot(nil, {}, function() end, loot, {}, {})
+    lu.assertEquals(#completions, 0)
+    _G.CurrentRun.Hero.Traits = { { Name = "HeraCastBoon", Rarity = "Common", StackNum = 4 } }
+    callbacks.HandleUpgradeChoiceSelection(nil, {}, function() return true end,
+        {}, { LootData = loot, Data = { Name = "HeraCastBoon" } }, {})
+    lu.assertEquals(#completions, 1)
+    lu.assertTrue(completions[1].verified)
+    lu.assertEquals(mismatches, {})
     _G.CurrentRun = priorRun
-
-    lu.assertEquals(completed, 0)
-    lu.assertEquals(fakePayload(active.bindingFor(world)), fakePayload(fakeHandle(box)))
-    lu.assertEquals(fakePayload(active.bindingFor(hiddenSource)), fakePayload(fakeHandle(source)))
 end
 
 function TestHookCompositionV10.testDestinationShopInventoryUsesTheNextOccurrenceBeforeRoomEntry()
@@ -1067,15 +1098,20 @@ end
 
 function TestHookCompositionV10.testMysteryBoonBindsItsUnwrappedSourceTraitOffer()
     local module, _, callbacks = capture()
-    local box = { Name = "BlindBoxLoot" }
-    local loot = { Name = "HeraUpgrade" }
+    local priorRun = _G.CurrentRun
+    _G.CurrentRun = { Hero = { Traits = {} } }
     local node = {
         owner = "mystery-boon",
-        kind = "shopPurchase",
+        kind = "acquisition",
+        window = { kind = "standard", phase = "beforeCombat" },
         roles = {
-            { role = "box", lifecyclePoint = "purchase", gameName = "BlindBoxLoot" },
             {
-                role = "hiddenSource", lifecyclePoint = "afterUnwrap", gameName = "HeraUpgrade",
+                role = "box", lifecyclePoint = "roomRewardPickup", kind = "consumable",
+                disposition = "normal", gameName = "BlindBoxLoot",
+            },
+            {
+                role = "hiddenSource", lifecyclePoint = "afterUnwrap", kind = "trait",
+                disposition = "normal", gameName = "HeraUpgrade",
                 traitOffer = {
                     kind = "traits", giver = "Hera", selected = "option1",
                     options = {
@@ -1087,25 +1123,60 @@ function TestHookCompositionV10.testMysteryBoonBindsItsUnwrappedSourceTraitOffer
             },
         },
     }
-    local root = { transaction = node }
-    local boxHandle = { transaction = node, detail = node.roles[1] }
-    local sourceHandle = { transaction = node, detail = node.roles[2] }
-    local active = opaque({}, function(contact)
-        if contact.kind == "materialized" and contact.source and contact.source.transaction == node then
-            return contact.gameName == "BlindBoxLoot" and boxHandle
-                or contact.gameName == "HeraUpgrade" and sourceHandle or nil
-        end
-    end, { [box] = root })
-    local session = stub()
-    session.current = function() return active end
-    timeline.attach(module, session, function() return {} end, function() end, session)
+    local occurrence = {
+        id = "mystery-room", overview = {}, transactionsByOwner = { [node.owner] = node },
+        timeline = { transactions = { node }, dependencies = {}, obligations = {} },
+    }
+    local plan = { occurrencesById = { [occurrence.id] = occurrence } }
+    local mismatches = {}
+    local room = roomCoordinatorModule.new(plan, function(errorValue, expected, observed)
+        mismatches[#mismatches + 1] = { error = errorValue, expected = expected, observed = observed }
+    end)
+    local state = { state = "synchronized", plan = plan, room = room }
+    local active = assert(roomCoordinatorModule.enter(state, occurrence))
+    local box = { Name = "BlindBoxLoot" }
+    local loot = { Name = "HeraUpgrade" }
+    local completions = {}
+    local session = {
+        current = roomCoordinatorModule.current,
+        peek = roomCoordinatorModule.peek,
+        bind = roomCoordinatorModule.bind,
+        bound = roomCoordinatorModule.bound,
+        begin = roomCoordinatorModule.begin,
+        resolve = roomCoordinatorModule.resolve,
+        claimReady = roomCoordinatorModule.claimReady,
+        mismatch = function() end,
+    }
+    session.complete = function(runtimeState, handle, verified, ...)
+        completions[#completions + 1] = { handle = handle, verified = verified }
+        return roomCoordinatorModule.complete(runtimeState, handle, verified, ...)
+    end
+    mysteryAcquisitions.attach(module, session, function() return state end, function() end, roomCoordinatorModule)
+    local mysteryCallbacks = {
+        CreateLoot = callbacks.CreateLoot,
+        UseConsumableItem = callbacks.UseConsumableItem,
+        ConsumableUsedPresentation = callbacks.ConsumableUsedPresentation,
+        UnwrapRandomLoot = callbacks.UnwrapRandomLoot,
+        GiveLoot = callbacks.GiveLoot,
+    }
+    timeline.attach(module, session, function() return state end, function() end, roomCoordinatorModule)
+    for name, callback in pairs(mysteryCallbacks) do callbacks[name] = callback end
 
-    callbacks.UnwrapRandomLoot(nil, {}, function()
-        callbacks.GiveLoot(nil, {}, function(args)
-            lu.assertEquals(args.ForceLootName, "HeraUpgrade")
-            return callbacks.CreateLoot(nil, {}, function() return loot end, { Name = args.ForceLootName })
-        end, {})
-    end, box)
+    callbacks.UseConsumableItem(nil, {}, function(nativeItem)
+        lu.assertTrue(callbacks.ConsumableUsedPresentation(nil, {}, function() return true end,
+            _G.CurrentRun, nativeItem, {}))
+        callbacks.UnwrapRandomLoot(nil, {}, function()
+            callbacks.GiveLoot(nil, {}, function(args)
+                lu.assertEquals(args.ForceLootName, "HeraUpgrade")
+                return callbacks.CreateLoot(nil, {}, function() return loot end, { Name = args.ForceLootName })
+            end, {})
+        end, nativeItem)
+    end, box, {}, {})
+    lu.assertEquals(#completions, 0)
+    local boxHandle = roomCoordinatorModule.bound(state, active, box)
+    lu.assertNotNil(boxHandle)
+    lu.assertEquals(roomCoordinatorModule.peek(state, boxHandle).detail, node.roles[2])
+    lu.assertTrue(rawequal(roomCoordinatorModule.bound(state, active, loot), boxHandle))
     callbacks.UseLoot(nil, {}, function()
         lu.assertEquals(loot.UpgradeOptions, {
             { ItemName = "HeraCastBoon", Rarity = "Common", StackNum = 4 },
@@ -1113,6 +1184,14 @@ function TestHookCompositionV10.testMysteryBoonBindsItsUnwrappedSourceTraitOffer
             { ItemName = "HeraManaBoon", Rarity = "Common", StackNum = 4 },
         })
     end, loot, {}, {})
+    lu.assertEquals(#completions, 0)
+    _G.CurrentRun.Hero.Traits = { { Name = "HeraCastBoon", Rarity = "Common", StackNum = 4 } }
+    callbacks.HandleUpgradeChoiceSelection(nil, {}, function() return true end,
+        {}, { LootData = loot, Data = { Name = "HeraCastBoon" } }, {})
+    lu.assertEquals(#completions, 1)
+    lu.assertTrue(completions[1].verified)
+    lu.assertEquals(mismatches, {})
+    _G.CurrentRun = priorRun
 end
 
 function TestHookCompositionV10.testEachNativeNpcChoiceFunctionBindsItsPublishedTraitOffer()
@@ -1124,10 +1203,13 @@ function TestHookCompositionV10.testEachNativeNpcChoiceFunctionBindsItsPublished
         IcarusBenefitChoice = "Icarus",
         EchoChoice = "Echo",
     }
+    local priorEligibility = _G.IsGameStateEligible
+    _G.IsGameStateEligible = function() return true end
     for functionName, giver in pairs(contacts) do
         local module, _, callbacks = capture()
         local state = {}
         local selected = giver .. "Selected"
+        local source = { Name = giver }
         local node = {
             owner = giver .. "-offer", kind = "encounterInteraction",
             resolution = {
@@ -1156,6 +1238,9 @@ function TestHookCompositionV10.testEachNativeNpcChoiceFunctionBindsItsPublished
             return true
         end
         timeline.attach(module, session, function() return state end, function() end, session)
+        if giver == "Arachne" or giver == "Narcissus" then
+            npcAcquisitions.attach(module, session, function() return state end, function() end, session)
+        end
         local priorRun = _G.CurrentRun
         _G.CurrentRun = {
             CurrentRoom = { Encounter = { Name = giver .. "Encounter" } },
@@ -1166,22 +1251,35 @@ function TestHookCompositionV10.testEachNativeNpcChoiceFunctionBindsItsPublished
             { ItemName = giver .. "First", Marker = 1, GameStateRequirements = { "ignored" } },
             { ItemName = selected, Marker = 2, PriorityRequirements = { "ignored" } },
         } }
-        callbacks[functionName](nil, {}, function(_, prepared)
+        callbacks[functionName](nil, {}, function(nativeSource, prepared)
+            local function select()
+                _G.CurrentRun.Hero.Traits = { { Name = selected } }
+                callbacks.HandleUpgradeChoiceSelection(nil, {}, function() return true end,
+                    { Source = source }, { Data = { Name = selected } }, {})
+                return true
+            end
+            if giver == "Arachne" or giver == "Narcissus" then
+                return callbacks.OpenUpgradeChoiceMenu(nil, {}, function(nativeNpc)
+                    lu.assertEquals(nativeNpc.UpgradeOptions, {
+                        { ItemName = giver .. "First", Marker = 1 },
+                        { ItemName = selected, Marker = 2 },
+                        { ItemName = giver .. "Third", Marker = 3 },
+                    })
+                    return select()
+                end, nativeSource, prepared)
+            end
             lu.assertEquals(prepared.UpgradeOptions, {
                 { ItemName = giver .. "First", Marker = 1 },
                 { ItemName = selected, Marker = 2 },
                 { ItemName = giver .. "Third", Marker = 3 },
             })
-            _G.CurrentRun.Hero.Traits = { { Name = selected } }
-            callbacks.HandleUpgradeChoiceSelection(nil, {}, function() return true end, {}, {
-                Data = { Name = selected },
-            }, {})
-            return true
-        end, {}, args, {})
+            return select()
+        end, source, args, { Source = source })
         _G.CurrentRun = priorRun
         lu.assertEquals(fakePayload(completed.row), row, functionName)
         lu.assertTrue(completed.verified, functionName)
     end
+    _G.IsGameStateEligible = priorEligibility
 end
 
 function TestHookCompositionV10.testNativeTraitOrderRetainsAuthoredMetadataAndRejectedIdentity()
