@@ -3,7 +3,7 @@ local lu = require("luaunit")
 local navigation = require("mods.navigation.hooks")
 local roomHooks = require("mods.room.hooks")
 local roomCoordinatorModule = require("mods.room.coordinator")
-local encounterHooks = require("mods.room.encounter_hooks")
+local encounterHooks = require("mods.room.timeline.encounters.hooks")
 local roomFeatureHooks = require("mods.room.features.hooks")
 local routeSession = require("mods.route.session")
 local timeline = require("mods/hooks_timeline")
@@ -471,7 +471,18 @@ function TestHookCompositionV10.testEncounterForcingKeepsNativeSetupAndGeneratio
     local state = { state = "synchronized", plan = { occurrencesById = { opening = occurrence } } }
     local active = { occurrence = occurrence }
     local session = stub()
-    local roomSession = { current = function() return active end }
+    local boundEncounter
+    local roomSession = {
+        current = function() return active end,
+        encounterAt = function(_, index) return active.occurrence.overview.encounterPhases[index] end,
+        bindEncounter = function(_, native, slotKey)
+            boundEncounter = { native = native, slotKey = slotKey }
+            return active.occurrence.overview.encounterPhases[1]
+        end,
+        startEncounter = function() return true end,
+        encounterPhase = function() return active.occurrence.overview.encounterPhases[1] end,
+        encounterIsFinal = function() return true end,
+    }
     local priorGame, priorGlobalForce = _G.game, _G.ForceNextEncounter
     _G.game = { EncounterData = { OpeningGeneratedF = declaration } }
     _G.ForceNextEncounter = "DebugEncounter"
@@ -490,6 +501,8 @@ function TestHookCompositionV10.testEncounterForcingKeepsNativeSetupAndGeneratio
     lu.assertEquals(result.Args.Source, "test")
     lu.assertEquals(run.ForceNextEncounterData.Name, "PriorEncounter")
     lu.assertEquals(_G.ForceNextEncounter, "DebugEncounter")
+    lu.assertEquals(boundEncounter.native, result)
+    lu.assertEquals(boundEncounter.slotKey, "Encounter")
     _G.game, _G.ForceNextEncounter = priorGame, priorGlobalForce
 end
 
@@ -1114,11 +1127,14 @@ function TestHookCompositionV10.testEachNativeNpcChoiceFunctionBindsItsPublished
                 { slotKey = "Encounter", encounterKey = giver .. "Encounter" },
             } } },
         }, function(contact)
-            if contact.kind == "phase" and contact.phaseKey == "Encounter" then return row end
+            if contact.kind == "encounterInteraction" and contact.phaseKey == "Encounter" then return row end
         end)
         local completed
         local session = stub()
         session.current = function() return active end
+        session.encounterHandle = function()
+            return active.resolve({ kind = "encounterInteraction", phaseKey = "Encounter" })
+        end
         session.complete = function(_, actualRow, verified)
             completed = { row = actualRow, verified = verified }
             return true
@@ -1270,10 +1286,14 @@ function TestHookCompositionV10.testBossWindowUsesTheRoomCoordinator()
     local roomCoordinator = {
         current = function() return active end,
         window = function(_, value) opened = value; return true end,
+        encounterPhase = function() return active.occurrence.overview.encounterPhases[1] end,
     }
 
-    timeline.attach(module, {}, function() return state end, function() end, roomCoordinator)
+    encounterHooks.attach(module, {}, function() return state end, function() end, roomCoordinator)
+    local priorRun = _G.CurrentRun
+    _G.CurrentRun = { CurrentRoom = { Encounter = {} } }
     local result = callbacks.Kill(nil, {}, function() return "native-result" end, { IsBoss = true }, {})
+    _G.CurrentRun = priorRun
 
     lu.assertEquals(result, "native-result")
     lu.assertEquals(opened, "bossDefeated:Encounter")
@@ -1443,6 +1463,7 @@ function TestHookCompositionV10.testExplicitGateBHookGroupsStayInstalled()
     attachFeatureHooks(module, session, getState, report, session, route)
     for _, name in ipairs({
         "ChooseStartingRoom", "StartRoom", "DoUnlockRoomExits", "LeaveRoom",
+        "StartEncounter", "EndEncounterEffects",
         "UseLoot", "UseConsumableItem", "AddStackToTraits", "HandleLootPickup",
         "ConvertMetaRewardPresentation", "CreateLoot", "UnwrapRandomLoot",
         "ArachneCostumeChoice", "NarcissusBenefitChoice", "MedeaCurseChoice", "CirceBlessingChoice",

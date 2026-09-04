@@ -35,19 +35,7 @@ local function optionsByName(options)
 end
 
 local function encounterHandle(room, state, source)
-    local current = room.current(state)
-    if current == nil then return nil end
-    local nativeRoom = _G.CurrentRun and _G.CurrentRun.CurrentRoom
-    local encounter = nativeRoom and nativeRoom.Encounter
-    local name = type(encounter) == "table" and (encounter.Name or encounter.EncounterName) or nil
-    name = name or type(source) == "table" and (source.EncounterName or source.Name) or nil
-    for _, phase in ipairs(current.occurrence.overview.encounterPhases or {}) do
-        if phase.encounterKey == name then
-            local handle = room.resolve(state, current, { kind = "phase", phaseKey = phase.slotKey })
-            return room.bind(state, current, handle, source)
-        end
-    end
-    return nil
+    return type(room.encounterHandle) == "function" and room.encounterHandle(state, source) or nil
 end
 
 local function traitOffer(payload)

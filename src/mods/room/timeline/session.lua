@@ -177,6 +177,13 @@ function timeline.open(session, window)
     return true
 end
 
+function timeline.startEncounter(session)
+    if session.closed then return mismatch(session, "room-session", "open session", "closed") end
+    if session.firstMismatch ~= nil then return nil, session.firstMismatch end
+    lifecycle.startEncounter(session.capabilities)
+    return true
+end
+
 local function beginOwner(session, owner)
     if session.closed then return mismatch(session, "room-session", "open session", "closed") end
     if session.firstMismatch ~= nil then return nil, session.firstMismatch end

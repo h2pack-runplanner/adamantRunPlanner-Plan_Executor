@@ -58,8 +58,9 @@ local function harness(giver, _, options)
     }
     local room = {
         current = function() return active end,
+        encounterHandle = function() return handle end,
         resolve = function(_, _, contact)
-            if contact.kind == "phase" and contact.phaseKey == "phase" then return handle end
+            if contact.kind == "encounterInteraction" and contact.phaseKey == "phase" then return handle end
         end,
         bind = function(_, _, currentHandle, native)
             bound[native] = currentHandle

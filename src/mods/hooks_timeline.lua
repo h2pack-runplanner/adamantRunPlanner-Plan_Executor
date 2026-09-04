@@ -1,4 +1,4 @@
--- Consequential acquisition, trait, and automatic transaction contacts.
+-- Consequential acquisition and trait transaction contacts.
 local adapter = type(import) == "function" and import("mods/native_timeline_adapters.lua")
     or require("mods/native_timeline_adapters")
 local chaos = type(import) == "function" and import("mods/chaos.lua") or require("mods/chaos")
@@ -7,13 +7,6 @@ local hooks = {}
 local function heroTraits()
     local hero = _G.CurrentRun and _G.CurrentRun.Hero
     return type(hero) == "table" and hero.Traits or nil
-end
-
-local function findTrait(key)
-    for _, trait in pairs(heroTraits() or {}) do
-        if type(trait) == "table" and (trait.Name == key or trait.TraitName == key) then return trait end
-    end
-    return nil
 end
 
 local function authoredOptionIndex(optionKey)
@@ -122,14 +115,7 @@ function hooks.attach(module, session, getState, report, room)
     -- existing screen-local handoff. Arachne/Narcissus are owned by the
     -- focused acquisition adapter.
     local pendingLegacyTrait
-    local embryoTarget
-    local embryoContext
-    local bossScope
-    local arcanaQueue
     local pendingSeaStar
-    local nemesisSpawnDepth = 0
-    local pendingNemesis
-    local npcRewardSource
 
     -- Sea Star remains outside C4. Its existing duplicate-carrier path still
     -- binds the native duplicate while the source interaction is in flight.
@@ -148,35 +134,12 @@ function hooks.attach(module, session, getState, report, room)
         return sourceHandle, nil
     end
 
-    local function interactionRow(state, source)
-        local current = roomCoordinator.current(state)
-        if current == nil then return nil end
-        local nativeRoom = _G.CurrentRun and _G.CurrentRun.CurrentRoom
-        local encounter = nativeRoom and nativeRoom.Encounter
-        local name = type(encounter) == "table" and (encounter.Name or encounter.EncounterName) or nil
-        name = name or type(source) == "table" and (source.EncounterName or source.Name) or nil
-        for _, phase in ipairs(current.occurrence.overview.encounterPhases or {}) do
-            if phase.encounterKey == name then
-                return room.bind(state, current,
-                    room.resolve(state, current, { kind = "phase", phaseKey = phase.slotKey }), source)
-            end
-        end
-        return nil
-    end
-
-    local function nemesisRow(state, source)
-        local handle = interactionRow(state, source)
-        local payload = handle and roomCoordinator.begin(state, handle) or nil
-        local resolution = payload and payload.transaction.resolution
-        if resolution and resolution.kind == "nemesisRandomEvent" then return handle, payload, resolution.outcome end
-        return nil
-    end
-
     local function attachNpcTraitChoice(functionName, giver)
         module.hooks.wrap(functionName, "execution-v10-npc-trait-offer", function(_, runtime, base, source,
             args, screen)
             local state = getState(runtime)
-            local handle = interactionRow(state, source)
+            local handle = type(roomCoordinator.encounterHandle) == "function"
+                and roomCoordinator.encounterHandle(state, source) or nil
             local payload = handle and roomCoordinator.begin(state, handle) or nil
             local resolution = payload and payload.transaction.resolution
             if resolution and resolution.kind == "traitOffer" and resolution.offer.giver == giver then
@@ -279,160 +242,6 @@ function hooks.attach(module, session, getState, report, room)
     attachNpcTraitChoice("IcarusBenefitChoice", "Icarus")
     attachNpcTraitChoice("EchoChoice", "Echo")
 
-    module.hooks.wrap("SpawnNemesisForRandomEvents", "execution-v10-nemesis-spawn", function(_, _, base, source, args)
-        nemesisSpawnDepth = nemesisSpawnDepth + 1
-        local ok, result = pcall(base, source, args)
-        nemesisSpawnDepth = nemesisSpawnDepth - 1
-        if not ok then error(result, 0) end
-        return result
-    end)
-
-    module.hooks.wrap("CheckAvailableTextLines", "execution-v10-nemesis-family", function(_, runtime, base, source,
-        args)
-        if nemesisSpawnDepth == 0 then return base(source, args) end
-        local state = getState(runtime)
-        local handle, _, outcome = nemesisRow(state, source)
-        local prefixes = {
-            freeItem = "NemesisGetFreeItem", goldTrade = "NemesisBuyItem",
-            damageTrade = "NemesisTakeDamageForItem", traitTrade = "NemesisGiveTraitForItem",
-            damageContest = "NemesisDamageContest",
-        }
-        local original, prefix = source and source.InteractTextLineSets, outcome and prefixes[outcome.kind]
-        if handle == nil or type(original) ~= "table" or prefix == nil then return base(source, args) end
-        local filtered = {}
-        for key, value in pairs(original) do
-            if type(key) == "string" and key:sub(1, #prefix) == prefix then filtered[key] = value end
-        end
-        if next(filtered) == nil then
-            session.mismatch(state, "nemesis-event-family", outcome.kind, nil)
-            report(runtime)
-            return base(source, args)
-        end
-        source.InteractTextLineSets = filtered
-        local ok, result = pcall(base, source, args)
-        source.InteractTextLineSets = original
-        if not ok then error(result, 0) end
-        report(runtime)
-        return result
-    end)
-
-    module.hooks.wrap("NemesisTradeChoice", "execution-v10-nemesis-trade", function(_, runtime, base, source, args,
-        screen)
-        local state = getState(runtime)
-        local handle, payload, outcome = nemesisRow(state, source)
-        if handle and outcome and outcome.kind == "traitTrade" and type(args) == "table" then
-            local retained = {}
-            for _, option in ipairs(args.GiveOptions or {}) do
-                if option.Name == outcome.traitKey or option.TraitName == outcome.traitKey then
-                    retained[#retained + 1] = option
-                end
-            end
-            if #retained ~= 1 then session.mismatch(state, "nemesis-trait-trade", outcome.traitKey, nil)
-            else args.GiveOptions = retained end
-        end
-        local result = base(source, args, screen)
-        if handle and outcome then
-            local accepted = source and source.Accepted == true
-            if (outcome.response == "accept") ~= accepted then
-                session.mismatch(state, "nemesis-trade-response", outcome.response, accepted)
-            elseif outcome.kind == "traitTrade" and accepted then
-                pendingNemesis = { handle = handle, payload = payload, traitKey = outcome.traitKey }
-            else
-                session.complete(state, handle, true)
-            end
-        end
-        report(runtime)
-        return result
-    end)
-
-    module.hooks.wrap("RemoveTrait", "execution-v10-nemesis-trait-removal", function(_, runtime, base, unit,
-        traitName, args)
-        local result = base(unit, traitName, args)
-        if pendingNemesis then
-            local state, pending = getState(runtime), pendingNemesis
-            pendingNemesis = nil
-            session.complete(state, pending.handle, traitName == pending.traitKey,
-                pending.payload.transaction, traitName)
-            report(runtime)
-        end
-        return result
-    end)
-
-    module.hooks.wrap("NemesisDamageContestTimer", "execution-v10-nemesis-contest", function(_, runtime, base, source,
-        args)
-        local priorSource = npcRewardSource
-        npcRewardSource = source
-        local ok, result = pcall(base, source, args)
-        npcRewardSource = priorSource
-        if not ok then error(result, 0) end
-        local state = getState(runtime)
-        local handle, payload, outcome = nemesisRow(state, source)
-        if handle and outcome and outcome.kind == "damageContest" then
-            local details = source.DamageContestArgs or {}
-            local success = type(source.DamageContestAmount) == "number"
-                and type(details.DamageGoal) == "number"
-                and source.DamageContestAmount >= details.DamageGoal
-            session.complete(state, handle, (outcome.result == "success") == success, payload.transaction, success)
-        end
-        report(runtime)
-        return result
-    end)
-
-    module.hooks.wrap("NPCRewardDropPreProcess", "execution-v10-nemesis-reward-source", function(_, _runtime,
-        base, source, args, line)
-        local priorSource = npcRewardSource
-        npcRewardSource = source
-        local ok, result = pcall(base, source, args, line)
-        npcRewardSource = priorSource
-        if not ok then error(result, 0) end
-        return result
-    end)
-
-    module.hooks.wrap("NPCRewardDropPreProcessArgs", "execution-v10-nemesis-reward-options", function(_, runtime,
-        base, args, choice, line)
-        local state = getState(runtime)
-        local source = npcRewardSource or type(args) == "table" and args.Source or nil
-        local handle, payload, outcome = nemesisRow(state, source)
-        if handle and outcome and outcome.runtimeFallbacks then
-            for _, fallback in ipairs(outcome.runtimeFallbacks) do
-                if fallback.availabilityContact == "npcConsumableSelection" then
-                    local key, rebound, resolved = session.resolveFallback(state, handle, payload,
-                        "npcConsumableSelection", fallback,
-                        function(candidate)
-                            for _, item in ipairs(args.Consumables or {}) do
-                                if item.Name == candidate or item.ItemName == candidate then return true end
-                            end
-                            return false
-                        end)
-                    if key == nil then report(runtime); return base(args, choice, line) end
-                    handle, payload = rebound, resolved
-                    local chosen = {}
-                    for _, item in ipairs(args.Consumables or {}) do
-                        if item.Name == key or item.ItemName == key then chosen[#chosen + 1] = item end
-                    end
-                    args.Consumables = chosen
-                end
-            end
-            pendingNemesis = { handle = handle, payload = payload, reward = true }
-        end
-        local result = base(args, choice, line)
-        report(runtime)
-        return result
-    end)
-
-    module.hooks.wrap("NPCRewardDrop", "execution-v10-nemesis-reward", function(_, runtime, base, source, args)
-        local result = base(source, args)
-        local pending = pendingNemesis
-        if pending and pending.reward then
-            pendingNemesis = nil
-            local produced = type(args) == "table" and type(args.Consumables) == "table"
-                and #args.Consumables > 0
-            session.complete(getState(runtime), pending.handle, produced, pending.payload.transaction, args)
-        end
-        report(runtime)
-        return result
-    end)
-
     module.hooks.wrap("CreateUpgradeChoiceButton", "execution-v10-trait-option", function(_, runtime, base, screen,
         lootData, itemIndex, itemData, args)
         if isOrdinaryTraitCarrier(lootData) then
@@ -477,10 +286,6 @@ function hooks.attach(module, session, getState, report, room)
         local result = base(args)
         local context = chaosContext
         if type(args) ~= "table" or type(result) ~= "table" then return result end
-        if context == nil and embryoContext ~= nil and args.TraitName == embryoContext.target then
-            result.Rarity = embryoContext.rarity
-            return chaos.applyBlessing(result, embryoContext.target, embryoContext.blessingValues)
-        end
         if context == nil then return result end
         if args.TraitName == context.curseKey then
             result.RemainingUses = context.requirementCount
@@ -539,128 +344,6 @@ function hooks.attach(module, session, getState, report, room)
         end
         report(runtime)
         return result
-    end)
-
-    module.hooks.wrap("AddRarityToTraits", "execution-v10-steady-growth", function(_, runtime, base, source, args)
-        local state = getState(runtime)
-        local current = roomCoordinator.current(state)
-        local phase = roomCoordinator.activePhase(state, "encounterEnd")
-        local handle = phase and roomCoordinator.resolve(state, current,
-            { kind = "automatic", effect = "steadyGrowth", phaseKey = phase }) or nil
-        local payload = handle and roomCoordinator.begin(state, handle) or nil
-        if payload and type(args) == "table" then
-            local trait = findTrait(payload.transaction.target)
-            if trait then args.ForceUpgrade = { trait } end
-        end
-        local result = base(source, args)
-        if payload then
-            session.complete(state, handle, adapter.verifyAutomatic(payload, {
-                target = type(result) == "table" and result.Name or nil,
-                rarity = type(result) == "table" and result.Rarity or nil,
-            }), payload.transaction, result)
-        end
-        report(runtime)
-        return result
-    end)
-
-    module.hooks.wrap("AddRandomChaosBlessing", "execution-v14-embryo", function(_, runtime, base, rarity)
-        local state = getState(runtime)
-        local current = roomCoordinator.current(state)
-        local phase = roomCoordinator.activePhase(state, "encounterEnd")
-        local handle = nil
-        if phase then
-            handle = roomCoordinator.resolve(state, current,
-                { kind = "automatic", effect = "transcendentEmbryo", phaseKey = phase })
-        end
-        local payload = handle and roomCoordinator.begin(state, handle) or nil
-        embryoTarget = payload and payload.transaction.target or nil
-        embryoContext = payload and payload.transaction or nil
-        local ok, result = pcall(base, payload and payload.transaction.rarity or rarity)
-        embryoTarget = nil
-        embryoContext = nil
-        if not ok then error(result, 0) end
-        if payload then
-            session.complete(state, handle, adapter.verifyAutomatic(payload, {
-                target = type(result) == "table" and (result.Name or result.TraitName) or result,
-                rarity = type(result) == "table" and result.Rarity or nil,
-                blessingValues = type(result) == "table"
-                    and chaos.blessingValues(result,
-                        type(result) == "table" and (result.Name or result.TraitName) or result)
-                    or nil,
-            }), payload.transaction, result)
-        end
-        report(runtime)
-        return result
-    end)
-
-    module.hooks.wrap("GetRandomArrayValue", "execution-v10-automatic-selection", function(_, _, base, values, rng)
-        if embryoTarget and type(values) == "table" then
-            for _, value in ipairs(values) do if value == embryoTarget then return value end end
-        end
-        return base(values, rng)
-    end)
-
-    module.hooks.wrap("Kill", "execution-v10-boss-defeated", function(_, runtime, base, victim, args)
-        local state = getState(runtime)
-        local current = roomCoordinator.current(state)
-        local prior = bossScope
-        if victim and victim.IsBoss and current then
-            local phase = current.occurrence.overview.encounterPhases[1]
-            bossScope = phase and { state = state, current = current, phaseKey = phase.slotKey } or nil
-            if bossScope then roomCoordinator.window(state, "bossDefeated:" .. bossScope.phaseKey) end
-        end
-        local ok, result = pcall(base, victim, args)
-        bossScope = prior
-        if not ok then error(result, 0) end
-        report(runtime)
-        return result
-    end)
-
-    module.hooks.wrap("AddRandomMetaUpgrades", "execution-v10-boss-arcana", function(_, runtime, base, count, args)
-        if bossScope == nil then return base(count, args) end
-        local effect = type(args) == "table" and args.RarityLevel ~= nil
-            and "crystalFigurine" or "judgment"
-        local handle = roomCoordinator.resolve(bossScope.state, bossScope.current,
-            { kind = "automatic", effect = effect, phaseKey = bossScope.phaseKey })
-        local payload = handle and roomCoordinator.begin(bossScope.state, handle) or nil
-        if payload == nil then return base(count, args) end
-        local prior = arcanaQueue
-        arcanaQueue = { keys = payload.transaction.arcanaKeys, index = 1 }
-        local ok, result = pcall(base, count, args)
-        arcanaQueue = prior
-        if not ok then error(result, 0) end
-        local observed = { arcanaKeys = {}, rarity = payload.transaction.rarity }
-        local rarityOrder = _G.TraitRarityData and _G.TraitRarityData.RarityUpgradeOrder or {}
-        for _, key in ipairs(payload.transaction.arcanaKeys) do
-            local stateEntry = _G.GameState and _G.GameState.MetaUpgradeState
-                and _G.GameState.MetaUpgradeState[key]
-            local rarity = stateEntry and rarityOrder[stateEntry.RarityLevel or stateEntry.Level or 1]
-            if not stateEntry or not stateEntry.Equipped or rarity ~= payload.transaction.rarity
-                or not (_G.CurrentRun and _G.CurrentRun.TemporaryMetaUpgrades
-                    and _G.CurrentRun.TemporaryMetaUpgrades[key]) then
-                observed = { arcanaKeys = {}, rarity = rarity }
-                break
-            end
-            observed.arcanaKeys[#observed.arcanaKeys + 1] = key
-        end
-        session.complete(bossScope.state, handle, adapter.verifyAutomatic(payload, observed),
-            payload.transaction, observed)
-        report(runtime)
-        return result
-    end)
-
-    module.hooks.wrap("RemoveRandomValue", "execution-v10-boss-arcana-selection", function(_, _, base, values)
-        if arcanaQueue and arcanaQueue.keys[arcanaQueue.index] then
-            local key = arcanaQueue.keys[arcanaQueue.index]
-            for index, value in ipairs(values or {}) do
-                if value == key then
-                    table.remove(values, index)
-                    arcanaQueue.index = arcanaQueue.index + 1
-                    return value
-                end
-            end
-        end
-        return base(values)
     end)
 
 end

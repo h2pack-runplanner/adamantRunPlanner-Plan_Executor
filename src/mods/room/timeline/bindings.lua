@@ -14,8 +14,8 @@ end
 
 function bindings.index(occurrence)
     local index = {
-        owner = {}, producer = {}, offer = {}, generation = {}, phase = {}, source = {},
-        slot = {}, keepsake = {}, automatic = {}, interaction = {}, produced = {},
+        owner = {}, producer = {}, offer = {}, generation = {}, source = {},
+        slot = {}, keepsake = {}, automatic = {}, encounterInteraction = {}, interaction = {}, produced = {},
         materialized = {},
     }
     for owner, transaction in pairs(occurrence.transactionsByOwner or {}) do
@@ -25,8 +25,10 @@ function bindings.index(occurrence)
         if not ok then return nil, errorValue end
         ok, errorValue = add(index, "generation", transaction.generationKey, transaction)
         if not ok then return nil, errorValue end
-        ok, errorValue = add(index, "phase", transaction.phaseKey, transaction)
-        if not ok then return nil, errorValue end
+        if transaction.kind == "encounterInteraction" then
+            ok, errorValue = add(index, "encounterInteraction", transaction.phaseKey, transaction)
+            if not ok then return nil, errorValue end
+        end
         ok, errorValue = add(index, "source", transaction.sourceOwner, transaction)
         if not ok then return nil, errorValue end
         if transaction.producerLifecycleKey and transaction.reward then
@@ -66,7 +68,8 @@ function bindings.resolve(index, contact, source)
     end
     if contact.kind == "offer" then return indexed(index, "offer", contact.offerKey)
     elseif contact.kind == "generation" then return indexed(index, "generation", contact.generationKey)
-    elseif contact.kind == "phase" then return indexed(index, "phase", contact.phaseKey)
+    elseif contact.kind == "encounterInteraction" then
+        return indexed(index, "encounterInteraction", contact.phaseKey)
     elseif contact.kind == "slot" then return indexed(index, "slot", contact.slotKey)
     elseif contact.kind == "keepsake" then return indexed(index, "keepsake", contact.keepsakeKey)
     elseif contact.kind == "interaction" then return indexed(index, "interaction", contact.interactionKey)

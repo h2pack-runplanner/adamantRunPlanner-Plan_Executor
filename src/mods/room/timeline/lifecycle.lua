@@ -51,6 +51,13 @@ function lifecycle.open(capabilities, window)
     return nil, { checkpoint = "lifecycle-window", expected = "published lifecycle window", observed = window }
 end
 
+function lifecycle.startEncounter(capabilities)
+    for key in pairs(capabilities) do
+        if key:match("^encounterEnd:") or key:match("^bossDefeated:") then capabilities[key] = nil end
+    end
+    return true
+end
+
 function lifecycle.accepts(capabilities, window)
     local capability = capabilityFor(window)
     return capability ~= nil and capabilities[capability] == true, capability

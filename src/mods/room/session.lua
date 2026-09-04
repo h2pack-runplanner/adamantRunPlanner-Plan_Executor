@@ -46,6 +46,7 @@ local function delegate(session, method, ...)
 end
 
 function room.openWindow(session, window) return delegate(session, "open", window) end
+function room.startEncounter(session) return delegate(session, "startEncounter") end
 function room.begin(session, handle)
     if session.closed then return mismatch(session, "room-session", "open session", "closed") end
     if session.firstMismatch ~= nil then return nil, session.firstMismatch end

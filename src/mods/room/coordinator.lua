@@ -9,8 +9,8 @@ local timelineBindings = type(import) == "function" and import("mods/room/timeli
     or require("mods.room.timeline.bindings")
 local overview = type(import) == "function" and import("mods/room/overview.lua")
     or require("mods.room.overview")
-local encounters = type(import) == "function" and import("mods/room/encounters.lua")
-    or require("mods.room.encounters")
+local encounterPhases = type(import) == "function" and import("mods/room/timeline/encounters/phases.lua")
+    or require("mods.room.timeline.encounters.phases")
 local features = type(import) == "function" and import("mods/room/features/structure.lua")
     or require("mods.room.features.structure")
 local conformance = type(import) == "function" and import("mods/room/conformance/proof.lua")
@@ -106,7 +106,7 @@ function coordinator.proveEntry(state, nativeRoom, nativeContext)
     if active == nil then return nil end
     for _, proof in ipairs({
         function() return overview.prove(active.occurrence, nativeRoom) end,
-        function() return encounters.prove(active.occurrence, nativeRoom) end,
+        function() return encounterPhases.prove(active.occurrence, nativeRoom) end,
         function() return features.prove(active.occurrence, nativeRoom, nativeContext) end,
     }) do
         local ok, errorValue = proof()
@@ -121,7 +121,59 @@ end
 
 function coordinator.chooseEncounter(state, slotKey)
     local active = coordinator.current(state)
-    return active and encounters.choose(active.occurrence, slotKey) or nil
+    return active and encounterPhases.choose(active.occurrence, slotKey) or nil
+end
+
+function coordinator.encounterAt(state, index)
+    local active = coordinator.current(state)
+    return active and encounterPhases.at(active.occurrence, index) or nil
+end
+
+function coordinator.bindEncounter(state, nativeEncounter, slotKey)
+    local active = coordinator.current(state)
+    if active == nil then return nil end
+    local phase, errorValue = encounterPhases.bind(active.occurrence, nativeEncounter, slotKey)
+    if phase == nil then return fail(state, errorValue) end
+    return phase
+end
+
+function coordinator.encounterPhase(state, nativeEncounter)
+    local active = coordinator.current(state)
+    if active == nil then return nil end
+    local binding = encounterPhases.forNative(nativeEncounter)
+    if binding == nil or binding.occurrenceId ~= active.occurrence.id then return nil end
+    return binding.phase
+end
+
+function coordinator.startEncounter(state, nativeEncounter)
+    local active = coordinator.current(state)
+    if active == nil then return nil end
+    local binding = encounterPhases.forNative(nativeEncounter)
+    if binding == nil or binding.occurrenceId ~= active.occurrence.id then return nil end
+    local ok, errorValue = session.startEncounter(active)
+    if not ok then return fail(state, errorValue) end
+    return binding.phase
+end
+
+function coordinator.encounterIsFinal(state, nativeEncounter)
+    local active = coordinator.current(state)
+    if active == nil then return false end
+    local binding = encounterPhases.forNative(nativeEncounter)
+    if binding == nil or binding.occurrenceId ~= active.occurrence.id then return false end
+    return encounterPhases.isFinal(active.occurrence, binding.phase)
+end
+
+function coordinator.encounterHandle(state, source)
+    local active = coordinator.current(state)
+    if active == nil then return nil end
+    local nativeRoom = _G.CurrentRun and _G.CurrentRun.CurrentRoom
+    local nativeEncounter = nativeRoom and nativeRoom.Encounter
+    local phase = coordinator.encounterPhase(state, nativeEncounter)
+    if phase == nil then return nil end
+    local handle = coordinator.resolve(state, active, {
+        kind = "encounterInteraction", phaseKey = phase.slotKey,
+    })
+    return coordinator.bind(state, active, handle, source)
 end
 
 function coordinator.additional(state, kind)
