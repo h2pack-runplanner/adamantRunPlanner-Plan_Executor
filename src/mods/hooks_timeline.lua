@@ -110,9 +110,8 @@ end
 
 function hooks.attach(module, session, getState, report, room)
     local roomCoordinator = room
-    local chaosContext
-    -- Legacy trait screens (Chaos and NPCs outside the C3 slice) retain their
-    -- existing screen-local handoff. Arachne/Narcissus are owned by the
+    -- Legacy trait screens outside the focused acquisition adapters retain
+    -- their existing screen-local handoff. Arachne/Narcissus are owned by the
     -- focused acquisition adapter.
     local pendingLegacyTrait
     local pendingSeaStar
@@ -162,7 +161,8 @@ function hooks.attach(module, session, getState, report, room)
         -- C2 owns the visible Pom carrier. Its adapter marks the exact loot
         -- while this call is in flight so this legacy family hook cannot begin
         -- an acquisition before native pickup acceptance.
-        if isOrdinaryTraitCarrier(usee) or usee and usee.__runPlannerLevelCarrier then
+        if isOrdinaryTraitCarrier(usee) or usee and usee.__runPlannerLevelCarrier
+            or chaos.isNativeCarrier(usee) then
             return base(usee, args, user)
         end
         local state = getState(runtime)
@@ -176,11 +176,9 @@ function hooks.attach(module, session, getState, report, room)
         usee.__runPlannerTimelineHandle = handle
         local _, seaStarChild = seaStarChildFor(state, usee)
         if seaStarChild then pendingSeaStar = { source = usee, child = seaStarChild } end
-        local expected, traitOffer = adapter.expectedTrait(payload)
+        local expected = adapter.expectedTrait(payload)
         if expected ~= nil then
             adapter.applyTraitOffer(payload, usee)
-            pendingLegacyTrait = { handle = handle, payload = payload, source = usee }
-        elseif traitOffer and traitOffer.kind == "chaos" then
             pendingLegacyTrait = { handle = handle, payload = payload, source = usee }
         end
         local result = base(usee, args, user)
@@ -220,7 +218,8 @@ function hooks.attach(module, session, getState, report, room)
 
     module.hooks.wrap("CreateBoonLootButtons", "run-planner-trait-screen", function(_, runtime, base, screen,
         lootData, reroll, args)
-        if isOrdinaryTraitCarrier(lootData) or lootData and lootData.__runPlannerLevelCarrier then
+        if isOrdinaryTraitCarrier(lootData) or lootData and lootData.__runPlannerLevelCarrier
+            or chaos.isNativeCarrier(lootData) then
             return base(screen, lootData, reroll, args)
         end
         local state = getState(runtime)
@@ -232,7 +231,7 @@ function hooks.attach(module, session, getState, report, room)
         if payload ~= nil then
             lootData.__runPlannerTimelineHandle = handle
             local _, offer = adapter.expectedTrait(payload)
-            if offer and offer.kind ~= "chaos" then adapter.applyTraitOffer(payload, lootData) end
+            if offer then adapter.applyTraitOffer(payload, lootData) end
         end
         return base(screen, lootData, reroll, args)
     end)
@@ -252,20 +251,8 @@ function hooks.attach(module, session, getState, report, room)
         local payload = handle and roomCoordinator.begin(getState(runtime), handle)
             or pendingLegacyTrait and pendingLegacyTrait.payload
         local _, offer = adapter.expectedTrait(payload)
-        if offer and offer.kind == "chaos" then
-            local option = offer.curseOptions[itemIndex]
-            if option then
-                itemData.SecondaryItemName = option.curseKey
-                chaosContext = { curseKey = option.curseKey, requirementCount = option.requirementCount }
-                local selected = tonumber(offer.selected:match("(%d+)$"))
-                if selected == itemIndex then
-                    itemData.ItemName, itemData.Rarity = offer.blessingKey, offer.rarity
-                    chaosContext.blessingKey = offer.blessingKey
-                    chaosContext.rarity = offer.rarity
-                    chaosContext.curseValues = offer.selectedCurseValues
-                    chaosContext.blessingValues = offer.blessingValues
-                end
-            end
+        if chaos.isNativeCarrier(lootData) then
+            return base(screen, lootData, itemIndex, itemData, args)
         elseif offer and type(offer.options) == "table" then
             if itemIndex == 1 then alignBlockedTraitOption(screen, lootData, payload, offer) end
             local option = authoredTraitOption(payload, offer, itemData)
@@ -276,57 +263,14 @@ function hooks.attach(module, session, getState, report, room)
                 itemData.OldRarity = option.replacement.oldRarity
             end
         end
-        local ok, result = pcall(base, screen, lootData, itemIndex, itemData, args)
-        chaosContext = nil
-        if not ok then error(result, 0) end
-        return result
-    end)
-
-    module.hooks.wrap("GetProcessedTraitData", "run-planner-chaos-values", function(_, _, base, args)
-        local result = base(args)
-        local context = chaosContext
-        if type(args) ~= "table" or type(result) ~= "table" then return result end
-        if context == nil then return result end
-        if args.TraitName == context.curseKey then
-            result.RemainingUses = context.requirementCount
-            if context.curseValues then
-                return chaos.applyCurse(result, context.curseKey, context.requirementCount, context.curseValues)
-            end
-        elseif args.TraitName == context.blessingKey then
-            result.Rarity = context.rarity
-            return chaos.applyBlessing(result, context.blessingKey, context.blessingValues)
-        end
-        return result
-    end)
-
-    module.hooks.wrap("SetTransformingTraitsOnLoot", "run-planner-chaos-reservation",
-        function(_, runtime, base, lootData,
-        choices)
-        local result = base(lootData, choices)
-        local handle = lootData and lootData.__runPlannerTimelineHandle
-            or pendingLegacyTrait and pendingLegacyTrait.handle
-        local payload = handle and roomCoordinator.begin(getState(runtime), handle)
-            or pendingLegacyTrait and pendingLegacyTrait.payload
-        local _, offer = adapter.expectedTrait(payload)
-        if offer == nil or offer.kind ~= "chaos" or type(lootData.UpgradeOptions) ~= "table" then return result end
-        local selectedIndex = tonumber(offer.selected:match("(%d+)$"))
-        local selected = selectedIndex and lootData.UpgradeOptions[selectedIndex]
-        if selected ~= nil then
-            for index, option in ipairs(lootData.UpgradeOptions) do
-                if option.ItemName == offer.blessingKey and index ~= selectedIndex then
-                    selected.ItemName, option.ItemName = option.ItemName, selected.ItemName
-                    selected.Rarity, option.Rarity = offer.rarity, selected.Rarity
-                end
-            end
-            selected.ItemName, selected.Rarity = offer.blessingKey, offer.rarity
-        end
-        return result
+        return base(screen, lootData, itemIndex, itemData, args)
     end)
 
     module.hooks.wrap("HandleUpgradeChoiceSelection", "run-planner-trait-selection", function(_, runtime, base,
         screen, button, args)
         local lootData = button and button.LootData
-        if isOrdinaryTraitCarrier(lootData) or lootData and lootData.__runPlannerLevelCarrier then
+        if isOrdinaryTraitCarrier(lootData) or lootData and lootData.__runPlannerLevelCarrier
+            or chaos.isNativeCarrier(lootData) then
             return base(screen, button, args)
         end
         local state = getState(runtime)

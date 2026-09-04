@@ -10,6 +10,7 @@ local timeline = require("mods/hooks_timeline")
 local transformations = require("mods.room.timeline.transformations.hooks")
 local acquisitions = require("mods.room.timeline.acquisitions.hooks")
 local directPickups = require("mods.room.timeline.acquisitions.pickups.hooks")
+local chaosAcquisitions = require("mods.room.timeline.acquisitions.traits.chaos")
 local npcAcquisitions = require("mods.room.timeline.acquisitions.npc.hooks")
 local mysteryAcquisitions = require("mods.room.timeline.acquisitions.mystery.hooks")
 local featureInventoryHooks = require("mods.room.features.inventory_hooks")
@@ -965,7 +966,11 @@ function TestHookCompositionV10.testChaosChoiceCompletesItsBoundOwner()
                 offer = {
                     kind = "chaos", blessingKey = "ChaosSpeedBlessing", rarity = "Rare",
                     blessingValues = {}, selectedCurseValues = {}, selected = "option1",
-                    curseOptions = { { curseKey = "ChaosNoMoneyCurse", requirementCount = 1 } },
+                    curseOptions = {
+                        { curseKey = "ChaosNoMoneyCurse", requirementCount = 1 },
+                        { curseKey = "ChaosHealthCurse", requirementCount = 2 },
+                        { curseKey = "ChaosDamageCurse", requirementCount = 3 },
+                    },
                 },
             },
         },
@@ -978,18 +983,40 @@ function TestHookCompositionV10.testChaosChoiceCompletesItsBoundOwner()
         return true
     end
     timeline.attach(module, session, function() return {} end, function() end, session)
-    local chaosLoot = { Name = "ChaosBoon" }
+    local chaosLoot = {
+        Name = "TrialUpgrade",
+        UpgradeOptions = {
+            { ItemName = "ChaosPeerA", Rarity = "Common" },
+            { ItemName = "ChaosPeerB", Rarity = "Common" },
+            { ItemName = "ChaosSpeedBlessing", Rarity = "Common" },
+        },
+    }
     active.bind(chaos, chaosLoot)
     local priorRun = _G.CurrentRun
     _G.CurrentRun = { Hero = { Traits = {} } }
-    callbacks.UseLoot(nil, {}, function()
-        callbacks.HandleUpgradeChoiceSelection(nil, {}, function()
-            _G.CurrentRun.Hero.Traits = { {
-                Name = "ChaosNoMoneyCurse", RemainingUses = 1,
-                OnExpire = { TraitData = { Name = "ChaosSpeedBlessing", Rarity = "Rare" } },
-            } }
-        end, {}, { Data = { Name = "ChaosNoMoneyCurse" } }, {})
-    end, chaosLoot, {}, {})
+    chaosAcquisitions.attach(module, session, function() return {} end, function() end, session)
+    callbacks.HandleLootPickup(nil, {}, function()
+        local selectedButton
+        callbacks.CreateBoonLootButtons(nil, {}, function()
+            for index, itemData in ipairs(chaosLoot.UpgradeOptions) do
+                local button = callbacks.CreateUpgradeChoiceButton(nil, {}, function(_, _, _, item)
+                    return {
+                        Data = {
+                            Name = item.SecondaryItemName, RemainingUses = ({ 1, 2, 3 })[index],
+                            OnExpire = { TraitData = { Name = item.ItemName, Rarity = item.Rarity } },
+                        }, LootData = chaosLoot,
+                    }
+                end, nil, chaosLoot, index, itemData, {})
+                selectedButton = index == 1 and button or selectedButton
+            end
+        end, nil, chaosLoot, false, {})
+        _G.CurrentRun.Hero.Traits = { {
+            Name = "ChaosNoMoneyCurse", RemainingUses = 1,
+            OnExpire = { TraitData = { Name = "ChaosSpeedBlessing", Rarity = "Rare" } },
+        } }
+        callbacks.HandleUpgradeChoiceSelection(nil, {}, function() return true end,
+            nil, selectedButton, {})
+    end, {}, chaosLoot, {})
     _G.CurrentRun = priorRun
     lu.assertEquals(fakePayload(completed[1].row).transaction.owner, "chaos")
     lu.assertTrue(completed[1].verified)
@@ -1475,6 +1502,7 @@ function TestHookCompositionV10.testExplicitGateBHookGroupsStayInstalled()
         lu.assertNotNil(names[name], name)
     end
     lu.assertNil(names.GoldifyPresentation)
+    lu.assertNil(names.SetTransformingTraitsOnLoot)
 end
 
 function TestHookCompositionV10.testMismatchStopsEnforcementWithoutBlockingNativeRoomFlow()

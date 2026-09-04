@@ -3,6 +3,10 @@
 -- fail before the choice is presented.
 local chaos = {}
 
+function chaos.isNativeCarrier(value)
+    return type(value) == "table" and value.Name == "TrialUpgrade"
+end
+
 local operandFreeCurses = {
     ChaosNoMoneyCurse = true,
     ChaosDeathWeaponCurse = true,

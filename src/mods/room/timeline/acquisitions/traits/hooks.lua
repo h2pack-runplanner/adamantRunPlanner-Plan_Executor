@@ -2,6 +2,8 @@
 -- is its sole correlation carrier; no global pending action or screen handle.
 local ordinary = type(import) == "function" and import("mods/room/timeline/acquisitions/traits/ordinary.lua")
     or require("mods.room.timeline.acquisitions.traits.ordinary")
+local chaos = type(import) == "function" and import("mods/room/timeline/acquisitions/traits/chaos.lua")
+    or require("mods.room.timeline.acquisitions.traits.chaos")
 
 local hooks = {}
 
@@ -40,6 +42,8 @@ local function resolveFallback(session, _room, state, handle, payload, native)
 end
 
 function hooks.attach(module, session, getState, report, room)
+    chaos.attach(module, session, getState, report, room)
+
     module.hooks.wrap("HandleLootPickup", "run-planner-begin-ordinary-loot", function(_, runtime, base,
         currentRun, loot, args)
         if not ordinary.isNativeCarrier(loot) then return base(currentRun, loot, args) end

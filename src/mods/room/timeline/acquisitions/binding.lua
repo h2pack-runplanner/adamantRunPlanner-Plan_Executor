@@ -4,6 +4,7 @@ local ordinary = type(import) == "function" and import("mods/room/timeline/acqui
     or require("mods.room.timeline.acquisitions.traits.ordinary")
 local levels = type(import) == "function" and import("mods/room/timeline/acquisitions/levels/hooks.lua")
     or require("mods.room.timeline.acquisitions.levels.hooks")
+local chaos = type(import) == "function" and import("mods/chaos.lua") or require("mods.chaos")
 
 local binding = {}
 
@@ -43,7 +44,8 @@ function binding.attach(module, _session, getState, _report, room)
 
     module.hooks.wrap("CreateLoot", "run-planner-bind-loot-carrier", function(_, _runtime, base, args)
         local result = base(args)
-        if producerScope ~= nil and (ordinary.isNativeCarrier(result) or levels.isVisibleCarrier(result)) then
+        if producerScope ~= nil and (ordinary.isNativeCarrier(result) or levels.isVisibleCarrier(result)
+            or chaos.isNativeCarrier(result)) then
             local scope = producerScope
             local handle = room.resolve(scope.state, scope.current, {
                 kind = "materialized", source = scope.handle,
