@@ -51,13 +51,8 @@ local function harness(loot, authoredOffer)
         mismatch = function(_, checkpoint, expected, observed)
             mismatches[#mismatches + 1] = { checkpoint = checkpoint, expected = expected, observed = observed }
         end,
-        complete = function(_, value, verified, expected, observed)
-            completed[#completed + 1] = {
-                handle = value,
-                verified = verified,
-                expected = expected,
-                observed = observed,
-            }
+        complete = function(_, value)
+            completed[#completed + 1] = { handle = value }
         end,
     }
     local module, callbacks = capture()
@@ -65,7 +60,7 @@ local function harness(loot, authoredOffer)
     return callbacks, state, room, payload, mismatches, completed, function() return begins end, session
 end
 
-function TestChaosTraits.testInitialRowsAreSteeredAfterNativeSortAndSelectedPairIsProven()
+function TestChaosTraits.testInitialRowsAreSteeredAfterNativeSortAndSelectedPairCompletes()
     local loot = {
         Name = "TrialUpgrade",
         UpgradeOptions = {
@@ -111,7 +106,6 @@ function TestChaosTraits.testInitialRowsAreSteeredAfterNativeSortAndSelectedPair
     })
     lu.assertEquals(mismatches, {})
     lu.assertEquals(#completed, 1)
-    lu.assertTrue(completed[1].verified)
     lu.assertEquals(begins(), 1)
     lu.assertEquals(state.state, "synchronized")
 end
@@ -190,7 +184,6 @@ function TestChaosTraits.testSelectedCurseAndRevelationValuesAreScopedToTheirRow
     lu.assertNil(seen[1].weaponSpeed)
     lu.assertNil(seen[3].curse)
     lu.assertEquals(mismatches, {})
-    lu.assertTrue(completed[1].verified)
 end
 
 function TestChaosTraits.testSelectedBlessingIsPlacedAtEveryAuthoredPhysicalPosition()
@@ -357,7 +350,7 @@ function TestChaosTraits.testNativeDenialSeesOnlyAuthoredCurseNames()
     lu.assertNil(bannedTraits.ChaosHealthBlessing)
 end
 
-function TestChaosTraits.testWrongChaosSelectionFailsExactPairTerminalProof()
+function TestChaosTraits.testWrongChaosSelectionFailsExactPairTerminal()
     local loot = {
         Name = "TrialUpgrade",
         UpgradeOptions = {
@@ -388,8 +381,7 @@ function TestChaosTraits.testWrongChaosSelectionFailsExactPairTerminalProof()
             screen, buttons[2], {})
     end, {}, loot, {})
     _G.CurrentRun = priorRun
-    lu.assertEquals(#completed, 1)
-    lu.assertFalse(completed[1].verified)
+    lu.assertEquals(completed, {})
 end
 
 function TestChaosTraits.testMaterializedTrialUpgradeBindsItsExactPublishedRole()

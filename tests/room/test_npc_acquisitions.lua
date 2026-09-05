@@ -10,14 +10,13 @@ local function capture()
     return module, callbacks
 end
 
-local function offer(giver, selected, fallback)
+local function offer(giver, selected)
     local value = {
         kind = "traits", giver = giver, selected = "option2",
         options = {
             { key = giver .. "One" }, { key = selected }, { key = giver .. "Three" },
         },
     }
-    if fallback then value.runtimeFallbacks = { fallback } end
     return value
 end
 
@@ -41,18 +40,11 @@ local function harness(giver, _, options)
     local payloads = { [handle] = row }
     local mismatches, completions = {}, {}
     local session = {
-        resolveFallback = function(_, currentHandle, payload, _, fallback, available)
-            local key = available(fallback.preferredKey) and fallback.preferredKey
-                or available(fallback.fallbackKey) and fallback.fallbackKey
-            if key == nil then return nil end
-            payload.realizedKey = key
-            return key, currentHandle, payload
-        end,
         mismatch = function(_, checkpoint, expected, observed)
             mismatches[#mismatches + 1] = { checkpoint = checkpoint, expected = expected, observed = observed }
         end,
-        complete = function(_, currentHandle, verified)
-            completions[#completions + 1] = { handle = currentHandle, verified = verified }
+        complete = function(_, currentHandle)
+            completions[#completions + 1] = { handle = currentHandle }
             return true
         end,
     }
@@ -95,7 +87,7 @@ local function runMenu(callbacks, source, args, selected, body, afterSelection)
     end, source, args, { Source = source })
 end
 
-function TestNpcAcquisitions.testNpcMenuInstallsPublishedRowsAndProvesNativeTrait()
+function TestNpcAcquisitions.testNpcMenuInstallsPublishedRowsAndCompletesExactSelection()
     local selected = "NarcissusTwo"
     local callbacks, source, _, _, _, _, _, _, _, completions, finish = harness(
         "Narcissus", selected, { offer = offer("Narcissus", selected) })
@@ -113,31 +105,6 @@ function TestNpcAcquisitions.testNpcMenuInstallsPublishedRowsAndProvesNativeTrai
     end)
     finish()
     lu.assertEquals(#completions, 1)
-    lu.assertTrue(completions[1].verified)
-end
-
-function TestNpcAcquisitions.testNativeNpcRequirementUsesDeclaredFallback()
-    local selected = "NarcissusH"
-    local fallback = {
-        preferredKey = selected, fallbackKey = "NarcissusB", availabilityContact = "traitEligibility",
-    }
-    local callbacks, source, _, _, _, _, _, _, _, completions, finish = harness(
-        "Narcissus", selected, { offer = offer("Narcissus", selected, fallback) })
-    local args = { UpgradeOptions = {
-        { ItemName = selected, GameStateRequirements = { "missing-last-stand" } },
-        { ItemName = "NarcissusB" },
-        { ItemName = "NarcissusOne" },
-        { ItemName = "NarcissusThree" },
-    } }
-    local priorEligibility = _G.IsGameStateEligible
-    _G.IsGameStateEligible = function(_, requirements) return requirements[1] ~= "missing-last-stand" end
-    runMenu(callbacks, source, args, "NarcissusB", function(nativeSource)
-        lu.assertEquals(nativeSource.UpgradeOptions[2].ItemName, "NarcissusB")
-    end)
-    _G.IsGameStateEligible = priorEligibility
-    finish()
-    lu.assertEquals(#completions, 1)
-    lu.assertTrue(completions[1].verified)
 end
 
 function TestNpcAcquisitions.testUnavailablePublishedNpcRowLeavesNativeMenuIntact()

@@ -64,36 +64,6 @@ function levels.prepareVisible(row, loot)
     return true
 end
 
-function levels.verify(row, selected, before, traits)
-    local effect = resolution(row)
-    if effect == nil or effect.selectedTarget ~= selected then return false end
-    if selected == nil then return true end
-    for _, trait in pairs(traits or {}) do
-        if type(trait) == "table" and (trait.Name == selected or trait.TraitName == selected) then
-            return type(before) == "number" and trait.StackNum == before + effect.levelCount
-        end
-    end
-    return false
-end
-
-local function snapshot(traits)
-    local result = {}
-    for _, trait in pairs(traits or {}) do
-        if type(trait) == "table" and (trait.Name or trait.TraitName) ~= nil then
-            local key = trait.Name or trait.TraitName
-            result[key] = trait.StackNum or 1
-        end
-    end
-    return result
-end
-
-local function unchanged(before, traits)
-    local after = snapshot(traits)
-    for key, value in pairs(before) do if after[key] ~= value then return false end end
-    for key in pairs(after) do if before[key] == nil then return false end end
-    return true
-end
-
 local function upgradeableTargets(stackNum)
     if type(_G.GetAllUpgradeableGodTraits) ~= "function" then return nil, false end
     return _G.GetAllUpgradeableGodTraits(stackNum or 1) or {}, true
@@ -251,14 +221,16 @@ function levels.attach(module, session, getState, report, room)
         if effect == nil then return base(screen, button, args) end
         if not begunVisible[handle] then return base(screen, button, args) end
         local selected = button and button.Data and button.Data.Name
-        local trait = findTrait(selected)
-        local before = trait and (trait.StackNum or 1) or nil
         local prior = loot.__runPlannerLevelCarrier
         loot.__runPlannerLevelCarrier = true
         local ok, result = pcall(base, screen, button, args)
         loot.__runPlannerLevelCarrier = prior
         if not ok then error(result, 0) end
-        session.complete(state, handle, levels.verify(payload, selected, before, heroTraits()), effect, selected)
+        if effect.selectedTarget ~= selected then
+            session.mismatch(state, "level-selection", effect.selectedTarget, selected)
+        else
+            session.complete(state, handle)
+        end
         report(runtime)
         return result
     end)
@@ -353,7 +325,7 @@ function levels.attach(module, session, getState, report, room)
         if target ~= nil then
             local trait = findTrait(target)
             if trait == nil or (canReadEligibility and not eligible[target]) then
-                session.complete(state, handle, false, effect, target)
+                session.mismatch(state, "level-target", target, trait and "not-upgradeable" or "missing")
                 directArgs.NumStacks = original.NumStacks
                 directArgs.TraitName = original.TraitName
                 directArgs.NumTraits = original.NumTraits
@@ -366,7 +338,7 @@ function levels.attach(module, session, getState, report, room)
             directArgs.NumTraits = 1
         else
             if not canReadEligibility or next(eligible) ~= nil then
-                session.complete(state, handle, false, effect, eligible)
+                session.mismatch(state, "level-target", "no eligible trait", eligible)
                 directArgs.NumStacks = original.NumStacks
                 directArgs.TraitName = original.TraitName
                 directArgs.NumTraits = original.NumTraits
@@ -380,14 +352,9 @@ function levels.attach(module, session, getState, report, room)
         end
 
         local threadedDispatch = directArgs.Thread == true
-        local before = target and (findTrait(target).StackNum or 1) or nil
-        local unchangedBefore = target == nil and snapshot(heroTraits()) or nil
         local result = base(source, args)
         if not threadedDispatch then
-            local proof = target ~= nil
-                and levels.verify(payload, target, before, heroTraits())
-                or unchanged(unchangedBefore or {}, heroTraits())
-            session.complete(state, handle, proof, effect, target)
+            session.complete(state, handle)
             report(runtime)
         end
         return result

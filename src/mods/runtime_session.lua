@@ -1,12 +1,10 @@
--- Thin coordinator for protocol-v16 route and room sessions. Semantic
+-- Thin coordinator for protocol-v17 route and room sessions. Semantic
 -- comparison stays in the native fact adapters; this module only propagates
--- their exact owner proofs and the first mismatch that disables enforcement.
+-- their exact owner contacts and the first mismatch that disables enforcement.
 local route = type(import) == "function" and import("mods/route/session.lua")
     or require("mods.route.session")
 local room = type(import) == "function" and import("mods/room/coordinator.lua")
     or require("mods.room.coordinator")
-local timeline = type(import) == "function" and import("mods/native_timeline_adapters.lua")
-    or require("mods.native_timeline_adapters")
 local conformance = type(import) == "function" and import("mods/room/conformance/readers.lua")
     or require("mods.room.conformance.readers")
 
@@ -57,7 +55,7 @@ function runtime.start(state, inbox, phase)
     if not loaded or type(plan) ~= "table" or plan.kind ~= "ready" then
         local inboxStatus = inbox.status and inbox.status() or nil
         local observed = inboxStatus and inboxStatus.error or plan
-        return fail(state, "run-start", "ready protocol-v16 plan", observed)
+        return fail(state, "run-start", "ready protocol-v17 plan", observed)
     end
     for _, occurrence in ipairs(plan.occurrences) do
         for _, fact in ipairs((occurrence.roomExitConformance or {}).facts or {}) do
@@ -79,29 +77,18 @@ function runtime.start(state, inbox, phase)
     return true
 end
 
-function runtime.complete(state, handle, verified, expected, observed)
-    return room.complete(state, handle, verified, expected, observed)
+function runtime.complete(state, handle)
+    return room.complete(state, handle)
 end
 
-function runtime.resolveFallback(state, handle, payload, contact, fallback, available, native, context)
-    local current = context or room.current(state)
-    if current == nil then return nil end
-    local key, errorValue = timeline.resolveFallback(payload, contact, fallback, available)
-    if key == nil then return fail(state, errorValue) end
-    if not room.recordRealized(state, handle, key) then return nil end
-    local bound = room.bind(state, current, handle, native)
-    if bound == nil then return nil end
-    return key, bound, room.begin(state, bound)
-end
-
-function runtime.automatic(state, effect, phaseKey, observed)
+function runtime.automatic(state, effect, phaseKey)
     local current = room.current(state)
     if current == nil then return nil end
     local handle = room.resolve(state, current, { kind = "automatic", effect = effect, phaseKey = phaseKey })
     if handle == nil then return room.incidental(state) end
     local payload = room.begin(state, handle)
     if payload == nil then return nil end
-    return runtime.complete(state, handle, timeline.verifyAutomatic(payload, observed), payload.transaction, observed)
+    return runtime.complete(state, handle)
 end
 
 function runtime.diagnostic(state, checkpoint, observed)

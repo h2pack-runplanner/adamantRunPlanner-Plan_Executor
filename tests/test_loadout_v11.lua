@@ -179,11 +179,11 @@ function TestLoadoutV11.testNativeStartErrorClearsTheBoundedStartupScope()
     lu.assertTrue(delegated)
 end
 
-function TestLoadoutV11.testAttachedKeepsakeContactsRecordHammerAndEmbryoResults()
+function TestLoadoutV11.testAttachedKeepsakeContactsSteerExactHammerAndEmbryoResults()
     local priorGame, priorRun, priorWeapon = _G.GameState, _G.CurrentRun, _G.GetEquippedWeapon
     for _, case in ipairs({
-        { key = "TempHammerKeepsake", result = { experimentalHammer = { kind = "selected", traitKey = "HammerTrait" } }, contact = "GiveDurationHammer", nested = "AddRandomHammer", value = { Name = "HammerTrait" } },
-        { key = "TempHammerKeepsake", result = { experimentalHammer = { kind = "exhausted" } }, contact = "GiveDurationHammer", nested = "AddRandomHammer", value = nil },
+        { key = "TempHammerKeepsake", result = { experimentalHammer = { kind = "selected", traitKey = "HammerTrait" } }, contact = "GiveDurationHammer", value = { Name = "HammerTrait" } },
+        { key = "TempHammerKeepsake", result = { experimentalHammer = { kind = "exhausted" } }, contact = "GiveDurationHammer", value = nil },
         { key = "RandomBlessingKeepsake", result = { transcendentEmbryo = { blessingKey = "ChaosWeaponBlessing", blessingValues = { damageBonus = 0.35 } } }, contact = "ChaosBlessingBonus", nested = "AddRandomChaosBlessing", value = { Name = "ChaosWeaponBlessing", AddOutgoingDamageModifiers = { ValidWeaponMultiplier = 1.35 } }, processed = true },
         { key = "RandomBlessingKeepsake", result = { transcendentEmbryo = { blessingKey = "ChaosExSpeedBlessing", blessingValues = { propertySpeed = 0.72, weaponSpeed = 0.83 } } }, contact = "ChaosBlessingBonus", nested = "AddRandomChaosBlessing", value = { Name = "ChaosExSpeedBlessing", PropertyChanges = { {} }, WeaponSpeedMultiplier = {} }, processed = true, processedData = { Name = "ChaosExSpeedBlessing", PropertyChanges = { { ChangeValue = 0.91 } }, WeaponSpeedMultiplier = { Value = 0.97 } }, processedExpect = { propertySpeed = 0.72, weaponSpeed = 0.83 } },
     }) do
@@ -196,8 +196,12 @@ function TestLoadoutV11.testAttachedKeepsakeContactsRecordHammerAndEmbryoResults
             callbacks.CreateNewHero(nil, {}, function() return {} end, nil, {})
             callbacks.EquipKeepsake(nil, {}, function()
                 callbacks[case.contact](nil, {}, function()
-                    return callbacks[case.nested](nil, {}, function()
+                    if case.contact == "GiveDurationHammer" then
                         if case.value == nil then return nil end
+                        return callbacks.GetRandomArrayValue(nil, {}, function(values) return values[1] end,
+                            { { Name = "Wrong" }, case.value })
+                    end
+                    return callbacks.AddRandomChaosBlessing(nil, {}, function()
                         local selected = callbacks.GetRandomArrayValue(nil, {}, function(values) return values[1] end,
                             { { Name = "Wrong" }, case.value })
                         if not case.processed then return selected end
@@ -209,7 +213,7 @@ function TestLoadoutV11.testAttachedKeepsakeContactsRecordHammerAndEmbryoResults
                             }
                         end, { TraitName = selected.Name })
                         return processedResult
-                    end)
+                    end, case.rarity)
                 end)
             end, {}, case.key, {})
             return { started = true }
@@ -222,44 +226,6 @@ function TestLoadoutV11.testAttachedKeepsakeContactsRecordHammerAndEmbryoResults
         end
     end
     _G.GameState, _G.CurrentRun, _G.GetEquippedWeapon = priorGame, priorRun, priorWeapon
-end
-
-function TestLoadoutV11.testAttachedJeweledPomSelectsFallbackAndDelegatesWhenNeitherIsEligible()
-    local priorGame, priorRun, priorWeapon, priorTraits, priorEligible = _G.GameState, _G.CurrentRun, _G.GetEquippedWeapon, _G.TraitData, _G.IsTraitEligible
-    local function run(preferredEligible, fallbackEligible)
-        _G.GameState = { LastWeaponUpgradeName = { WeaponStaffSwing = "BaseStaffAspect" }, LastAwardTrait = "HadesAndPersephoneKeepsake", ShrineUpgrades = {}, MetaUpgradeState = {} }
-        _G.CurrentRun = { Hero = { TraitDictionary = { BaseStaffAspect = true }, Traits = { { Name = "Preferred", Rarity = "Rare" }, { Name = "Fallback", Rarity = "Rare" } } } }
-        _G.GetEquippedWeapon = function() return "WeaponStaffSwing" end
-        _G.TraitData = { Preferred = { Name = "Preferred" }, Fallback = { Name = "Fallback" } }
-        _G.IsTraitEligible = function(data) return data.Name == "Preferred" and preferredEligible or data.Name == "Fallback" and fallbackEligible end
-        local row = { traitKey = "Preferred", rarity = "Rare", runtimeFallbacks = { { preferredKey = "Preferred", fallbackKey = "Fallback" } } }
-        local state, callbacks = startState("HadesAndPersephoneKeepsake", { jeweledPom = row }), nil
-        callbacks = captureLoadoutHooks(state)
-        local selected, nativeRandom = nil, false
-        callbacks.StartNewRun(nil, {}, function()
-            callbacks.CreateNewHero(nil, {}, function() return {} end, nil, {})
-            callbacks.EquipKeepsake(nil, {}, function()
-                callbacks.GiveRandomHadesBoonAndBoostBoons(nil, {}, function()
-                    selected = callbacks.GetRandomArrayValue(nil, {}, function() nativeRandom = true; return { Name = "Native" } end, { _G.TraitData.Preferred, _G.TraitData.Fallback })
-                end)
-            end, {}, "HadesAndPersephoneKeepsake", {})
-            return true
-        end, nil, {})
-        return state, selected, nativeRandom
-    end
-    local state, selected, nativeRandom = run(true, true)
-    lu.assertEquals(selected.Name, "Preferred")
-    lu.assertFalse(nativeRandom)
-    lu.assertEquals(state.state, "synchronized")
-    state, selected, nativeRandom = run(false, true)
-    lu.assertEquals(selected.Name, "Fallback")
-    lu.assertFalse(nativeRandom)
-    lu.assertEquals(state.state, "synchronized")
-    state, selected, nativeRandom = run(false, false)
-    lu.assertEquals(selected.Name, "Native")
-    lu.assertTrue(nativeRandom)
-    lu.assertEquals(state.state, "mismatch")
-    _G.GameState, _G.CurrentRun, _G.GetEquippedWeapon, _G.TraitData, _G.IsTraitEligible = priorGame, priorRun, priorWeapon, priorTraits, priorEligible
 end
 
 function TestLoadoutV11.testAttachedSeleneTreeForcesOnlySpecialPools()
@@ -372,17 +338,10 @@ function TestLoadoutV11.testVerifiesExactLoadoutAndModeledSeleneTree()
     local state, mismatch = { plan = expected({ spellTraitKey = "SpellMoonBeamTrait", layoutKey = "Lung", rareTalentKeys = { "RareA" }, epicTalentKeys = { "EpicA" } }) }, nil
     local fail = function(_, checkpoint) mismatch = checkpoint; return nil end
     state.initialized, state.state = true, "starting"
-    session.beginKeepsake(state, "ManaOverTimeRefundKeepsake")
     local post = session.verifyCompleted(state, fail)
     _G.GameState, _G.CurrentRun, _G.GetEquippedWeapon, _G.GetNumShrineUpgrades, _G.MetaUpgradeCardData, _G.SpellData, _G.TraitData, _G.TraitRarityData = priorGame, priorRun, priorWeapon, priorShrine, priorCards, priorSpell, priorTrait, priorRarity
     lu.assertTrue(post, tostring(mismatch))
     lu.assertNil(mismatch)
-end
-
-function TestLoadoutV11.testMissingStartingEquipContactIsAMismatch()
-    local state, mismatch = { startingLoadout = {} }, nil
-    session.finishKeepsake(state, function(_, checkpoint) mismatch = checkpoint; return nil end)
-    lu.assertEquals(mismatch, "starting-keepsake")
 end
 
 function TestLoadoutV11.testStartingRoomIsOptimisticallyRealizedDuringLoadout()

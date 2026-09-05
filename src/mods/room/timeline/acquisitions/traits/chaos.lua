@@ -1,9 +1,7 @@
 -- Focused execution boundary for directly collected TrialUpgrade loot.
 -- Native code owns transforming-row generation, sorting, rerolls, Denial, and
 -- trait equipment. This adapter only steers the authored initial rows and
--- proves the selected curse with its embedded blessing.
-local adapter = type(import) == "function" and import("mods/native_timeline_adapters.lua")
-    or require("mods.native_timeline_adapters")
+-- binds the exact selected curse at the native terminal.
 local nativeChaos = type(import) == "function" and import("mods/chaos.lua")
     or require("mods.chaos")
 
@@ -207,9 +205,13 @@ function chaos.attach(module, session, getState, report, room)
             screens[loot] = nil
             error(result, 0)
         end
-        local verified = adapter.verifyTrait(scope.payload, selected,
-            _G.CurrentRun and _G.CurrentRun.Hero and _G.CurrentRun.Hero.Traits)
-        session.complete(scope.state, scope.handle, verified, scope.offer, selected)
+        local selectedIndex = optionIndex(scope.offer.selected)
+        local expected = selectedIndex and scope.offer.curseOptions[selectedIndex]
+        if expected == nil or selected ~= expected.curseKey then
+            session.mismatch(scope.state, "chaos-trait-selection", expected and expected.curseKey, selected)
+        else
+            session.complete(scope.state, scope.handle)
+        end
         screens[loot] = nil
         report(runtime)
         return result

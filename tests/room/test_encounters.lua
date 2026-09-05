@@ -309,7 +309,6 @@ function TestEncounters.testGorgonAthenaHandsItsPublishedOfferToOrdinaryUseLoot(
         sourceRole = function() return nil end,
     }
     local session = {
-        resolveFallback = function() return nil end,
     }
     encounterHooks.attach(module, session, function() return state end, function() end, room)
     timelineHooks.attach(module, session, function() return state end, function() end, room)

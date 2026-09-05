@@ -37,25 +37,9 @@ function TestOrdinaryTraits.testRejectedIdentitySurvivesNativeReorder()
     lu.assertEquals(screen.BlockedIndexes, { 1 })
 end
 
-function TestOrdinaryTraits.testReplacementProofRequiresOldTraitAbsence()
-    local row = payload({
-        kind = "traits", selected = "option1", options = {
-            { key = "ApolloAttack", rarity = "Rare", replacement = {
-                replacedTraitKey = "OldAttack",
-            } },
-        },
-    })
-    lu.assertTrue(ordinary.verify(row, "ApolloAttack", { { Name = "ApolloAttack", Rarity = "Rare" } }))
-    lu.assertFalse(ordinary.verify(row, "ApolloAttack", {
-        { Name = "ApolloAttack", Rarity = "Rare" }, { Name = "OldAttack" },
-    }))
-end
-
-function TestOrdinaryTraits.testFallbackGoldHasItsOwnHiddenTraitTerminal()
+function TestOrdinaryTraits.testFallbackGoldHasItsOwnExactTerminal()
     local row = payload({ kind = "fallbackGold", giver = "Hermes" })
-    lu.assertTrue(ordinary.verify(row, "FallbackGold", { { Name = "FallbackGold" } }))
-    lu.assertFalse(ordinary.verify(row, "FallbackGold", {}))
-    lu.assertFalse(ordinary.verify(row, "Other", {}))
+    lu.assertEquals(ordinary.selectedKey(row), "FallbackGold")
 end
 
 function TestOrdinaryTraits.testHammerAndHermesAreOrdinaryNativeCarriers()
@@ -81,7 +65,7 @@ function TestOrdinaryTraits.testOlympianHermesAndHammerShareTheNativeRowContract
 end
 
 local function attached(offer, disposition)
-    local callbacks, bound, begins, completed = {}, setmetatable({}, { __mode = "k" }), 0, 0
+    local callbacks, bound, begins, completed, mismatches = {}, setmetatable({}, { __mode = "k" }), 0, 0, {}
     local activePayload
     local module = { hooks = { wrap = function(name, _, callback) callbacks[name] = callback end } }
     local producer, materialized = {}, {}
@@ -124,19 +108,14 @@ local function attached(offer, disposition)
     }
     local session = {
         complete = function() completed = completed + 1 end,
-        resolveFallback = function(_, value, row, _, fallback, available)
-            if available(fallback.preferredKey) then return fallback.preferredKey, value, row end
-            if fallback.fallbackKey and available(fallback.fallbackKey) then
-                row.realizedKey = fallback.fallbackKey
-                return fallback.fallbackKey, value, row
-            end
-            state.state = "desynchronized"
-            return nil
+        mismatch = function(_, checkpoint, expected, observed)
+            mismatches[#mismatches + 1] = { checkpoint = checkpoint, expected = expected, observed = observed }
         end,
     }
     binding.attach(module, session, function() return state end, function() end, room)
     hooks.attach(module, session, function() return state end, function() end, room)
-    return callbacks, function() return begins end, function() return completed end
+    return callbacks, function() return begins end, function() return completed end,
+        function() return mismatches end
 end
 
 function TestOrdinaryTraits.testFailedUseLootHasNoC1BeginAndPickupBeginsTheBoundOwner()
@@ -209,8 +188,8 @@ function TestOrdinaryTraits.testUnboundHammerCarriersUsePublishedReadyOrderWitho
         end,
     }
     local session = {
-        complete = function(_, handle, verified)
-            completions[#completions + 1] = { handle = handle, verified = verified }
+        complete = function(_, handle)
+            completions[#completions + 1] = { handle = handle }
         end,
     }
     hooks.attach(module, session, function() return state end, function() end, room)
@@ -231,7 +210,7 @@ function TestOrdinaryTraits.testUnboundHammerCarriersUsePublishedReadyOrderWitho
     lu.assertEquals(nativeHandles[secondPhysical], handles[1])
     lu.assertEquals(nativeHandles[firstPhysical], handles[2])
     lu.assertEquals(completions, {
-        { handle = handles[1], verified = true }, { handle = handles[2], verified = true },
+        { handle = handles[1] }, { handle = handles[2] },
     })
     lu.assertEquals(begins, 6)
 end
@@ -246,32 +225,22 @@ function TestOrdinaryTraits.testRerollDoesNotReinstallFrozenOffer()
     lu.assertEquals(loot.UpgradeOptions[1].ItemName, "Native")
 end
 
-function TestOrdinaryTraits.testBoundRoleResolvesPreferredFallbackOrNeither()
+function TestOrdinaryTraits.testUnavailableExactRowLeavesNativeMenuIntact()
     local originalTraitData, originalEligible = _G.TraitData, _G.IsTraitEligible
-    _G.TraitData = { Preferred = {}, Fallback = {} }
-    local offer = {
-        kind = "traits", selected = "option1", options = { { key = "Preferred", rarity = "Rare" } },
-        runtimeFallbacks = {
-            { availabilityContact = "traitEligibility", preferredKey = "Preferred", fallbackKey = "Fallback" },
-        },
-    }
-    local function materialize(eligible)
-        _G.IsTraitEligible = function(data)
-            return eligible[data == _G.TraitData.Preferred and "Preferred" or "Fallback"]
-        end
-        local callbacks = attached(offer)
-        local loot = { GodLoot = true, Name = "ApolloUpgrade", UpgradeOptions = {} }
-        callbacks.SpawnRoomReward(nil, {}, function()
-            local created = callbacks.CreateLoot(nil, {}, function() return loot end, {})
-            callbacks.HandleLootPickup(nil, {}, function() return true end, {}, created, {})
-            return created
-        end, {}, {})
-        callbacks.CreateBoonLootButtons(nil, {}, function() return true end, {}, loot, false, {})
-        return loot.UpgradeOptions[1] and loot.UpgradeOptions[1].ItemName or nil
-    end
-    lu.assertEquals(materialize({ Preferred = true, Fallback = true }), "Preferred")
-    lu.assertEquals(materialize({ Preferred = false, Fallback = true }), "Fallback")
-    lu.assertNil(materialize({ Preferred = false, Fallback = false }))
+    _G.TraitData = { ApolloAttack = {} }
+    _G.IsTraitEligible = function() return false end
+    local callbacks, _, _, mismatches = attached({
+        kind = "traits", selected = "option1", options = { { key = "ApolloAttack", rarity = "Rare" } },
+    })
+    local loot = { GodLoot = true, Name = "ApolloUpgrade", UpgradeOptions = {} }
+    callbacks.SpawnRoomReward(nil, {}, function()
+        local created = callbacks.CreateLoot(nil, {}, function() return loot end, {})
+        callbacks.HandleLootPickup(nil, {}, function() return true end, {}, created, {})
+        return created
+    end, {}, {})
+    callbacks.CreateBoonLootButtons(nil, {}, function() return true end, {}, loot, false, {})
+    lu.assertEquals(loot.UpgradeOptions, {})
+    lu.assertEquals(mismatches()[1].checkpoint, "trait-availability")
     _G.TraitData, _G.IsTraitEligible = originalTraitData, originalEligible
 end
 

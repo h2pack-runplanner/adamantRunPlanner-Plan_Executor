@@ -42,10 +42,8 @@ local function harness(row, item, isBound)
         end,
     }
     local session = {
-        complete = function(_, value, verified, expected, observed)
-            completions[#completions + 1] = {
-                handle = value, verified = verified, expected = expected, observed = observed,
-            }
+        complete = function(_, value)
+            completions[#completions + 1] = { handle = value }
         end,
     }
     pickups.attach(module, session, function() return state end, function() reports = reports + 1 end, room)
@@ -79,8 +77,6 @@ function TestDirectPickupAcquisitions.testAcceptedPickupBeginsAfterGuardsAndComp
     lu.assertTrue(nativeSettled)
     lu.assertEquals(#completions, 1)
     lu.assertEquals(completions[1].handle, handle)
-    lu.assertTrue(completions[1].verified)
-    lu.assertEquals(completions[1].observed, "MaxHealthDrop")
     lu.assertEquals(reports(), 1)
 end
 
@@ -100,7 +96,6 @@ function TestDirectPickupAcquisitions.testDeterministicPluralEffectSettlesBefore
     acceptedUse(callbacks, item, function() elementApplied = true end)
     lu.assertTrue(elementApplied)
     lu.assertEquals(#completions, 1)
-    lu.assertTrue(completions[1].verified)
 end
 
 function TestDirectPickupAcquisitions.testNativeErrorAfterAcceptanceDoesNotComplete()
@@ -124,7 +119,6 @@ function TestDirectPickupAcquisitions.testUnboundSameNameConsumableClaimsAtAccep
     lu.assertEquals(begins(), 1)
     lu.assertEquals(#completions, 1)
     lu.assertEquals(completions[1].handle, handle)
-    lu.assertTrue(completions[1].verified)
 end
 
 function TestDirectPickupAcquisitions.testTalentDropRemainsOwnedByInteractiveHexAdapter()

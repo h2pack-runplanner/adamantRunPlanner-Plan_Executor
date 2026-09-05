@@ -4,7 +4,7 @@ Plan Executor is the thin Hades II consumer of the standalone Run Planner's
 execution-only JSON. It does not plan, simulate, or reinterpret a project.
 
 The module reads the fixed `active.runplanner.json` slot under the
-ReturnOfModding configuration, strictly decodes the bounded v16 Underworld F
+ReturnOfModding configuration, strictly decodes the bounded v17 Underworld F
 or F/G execution contract, and freezes it only when a new run starts. It
 follows the selected Room Occurrence cursor and reconciles Overview,
 consequential owners, lifecycle obligations, sparse room-exit state, and

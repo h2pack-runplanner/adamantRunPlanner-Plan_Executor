@@ -26,24 +26,13 @@ local function fingerprintBody(plan)
     }
 end
 
-local contacts = {
-    "traitEligibility", "storeInventoryGeneration", "storePurchase", "npcConsumableSelection",
-}
-
-local function occurrence(contact)
+local function occurrence()
     return {
         id = "one", gameName = "F_Test", overview = { encounterPhases = {}, requiredObjects = {} },
         transactionsByOwner = {
             owner = {
                 owner = "owner", kind = "acquisition", offerKey = "offer",
                 window = { kind = "standard", phase = "beforeCombat" },
-                runtimeFallbacks = {
-                    {
-                        availabilityContact = contact,
-                        preferredKey = "preferred",
-                        fallbackKey = "fallback",
-                    },
-                },
             },
         },
         timeline = { dependencies = {}, obligations = {} }, doors = { kind = "terminal" },
@@ -51,8 +40,8 @@ local function occurrence(contact)
     }
 end
 
-local function state(contact)
-    local row = occurrence(contact)
+local function state()
+    local row = occurrence()
     local plan = { occurrences = { row }, occurrencesById = { one = row }, selectedOccurrenceIds = { "one" } }
     local value = { state = "synchronized", route = route.new(plan), room = room.new(plan, nil, {
         timelineIndex = timeline.index,
@@ -62,41 +51,9 @@ local function state(contact)
     return value
 end
 
-function TestRuntimeSession.testEveryFallbackContactAcceptsPreferredAndFallbackButNotNeither()
-    for _, contact in ipairs(contacts) do
-        local relation = {
-            availabilityContact = contact, preferredKey = "preferred", fallbackKey = "fallback",
-        }
-        local preferred = state(contact)
-        local owner = room.resolve(preferred, preferred.room.current, { kind = "offer", offerKey = "offer" })
-        local payload = room.begin(preferred, owner)
-        local key, handle = runtime.resolveFallback(preferred, owner, payload, contact, relation,
-            function(candidate) return candidate == "preferred" end, {})
-        lu.assertEquals(key, "preferred")
-        lu.assertTrue(runtime.complete(preferred, handle, true))
-
-        local fallback = state(contact)
-        owner = room.resolve(fallback, fallback.room.current, { kind = "offer", offerKey = "offer" })
-        payload = room.begin(fallback, owner)
-        key, handle = runtime.resolveFallback(fallback, owner, payload, contact, relation,
-            function(candidate) return candidate == "fallback" end, {})
-        lu.assertEquals(key, "fallback")
-        lu.assertTrue(runtime.complete(fallback, handle, true))
-
-        local neither = state(contact)
-        owner = room.resolve(neither, neither.room.current, { kind = "offer", offerKey = "offer" })
-        payload = room.begin(neither, owner)
-        lu.assertNil(runtime.resolveFallback(neither, owner, payload, contact, relation,
-            function() return false end, {}))
-        lu.assertEquals(neither.state, "desynchronized")
-        lu.assertNotNil(neither.firstMismatch)
-        lu.assertNil(room.current(neither))
-    end
-end
-
 function TestRuntimeSession.testLaterRouteConformanceContactsAreRejectedAtStart()
     for _, kind in ipairs({ "echoShopDuplicate", "hermesShrineDeliveries" }) do
-        local row = occurrence("storePurchase")
+        local row = occurrence()
         row.roomExitConformance = { facts = { { kind = kind } } }
         local plan = {
             kind = "ready", occurrences = { row }, occurrencesById = { one = row },
@@ -124,7 +81,7 @@ function TestRuntimeSession.testRunStartMismatchPreservesTheInboxDecoderReason()
 end
 
 function TestRuntimeSession.testStartingPhaseExposesOnlyTheBoundedStartingOccurrence()
-    local row = occurrence("storePurchase")
+    local row = occurrence()
     local plan = {
         kind = "ready", occurrences = { row }, occurrencesById = { one = row },
         selectedOccurrenceIds = { "one" },
@@ -137,7 +94,7 @@ function TestRuntimeSession.testStartingPhaseExposesOnlyTheBoundedStartingOccurr
 end
 
 function TestRuntimeSession.testPreparedDestinationBindingsAreReusedWhenTheRoomStarts()
-    local row = occurrence("storePurchase")
+    local row = occurrence()
     local plan = { occurrences = { row }, occurrencesById = { one = row }, selectedOccurrenceIds = { "one" } }
     local value = { state = "synchronized", route = route.new(plan), room = room.new(plan, nil, {
         timelineIndex = timeline.index,
@@ -156,8 +113,8 @@ function TestRuntimeSession.testPreparedDestinationBindingsAreReusedWhenTheRoomS
 end
 
 function TestRuntimeSession.testPreparedBindingsCannotLeakToAnotherOccurrence()
-    local first = occurrence("storePurchase")
-    local second = occurrence("storePurchase")
+    local first = occurrence()
+    local second = occurrence()
     second.id, second.gameName = "two", "F_Next"
     local plan = {
         occurrences = { first, second },
@@ -176,7 +133,7 @@ function TestRuntimeSession.testPreparedBindingsCannotLeakToAnotherOccurrence()
 end
 
 function TestRuntimeSession.testEntryProofFiresThePublishedRoomEnteredDeadline()
-    local row = occurrence("storePurchase")
+    local row = occurrence()
     row.timeline.obligations = { { owner = "owner", checkpoint = "roomEntered" } }
     local plan = { occurrences = { row }, occurrencesById = { one = row }, selectedOccurrenceIds = { "one" } }
     local value = { state = "synchronized", route = route.new(plan), room = room.new(plan, nil, {

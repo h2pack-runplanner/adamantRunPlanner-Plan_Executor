@@ -1,7 +1,5 @@
 -- Encounter-owned automatic outcomes. The planner supplies the exact target;
 -- native callbacks remain responsible for applying and reporting the result.
-local adapter = type(import) == "function" and import("mods/native_timeline_adapters.lua")
-    or require("mods.native_timeline_adapters")
 local chaos = type(import) == "function" and import("mods/chaos.lua") or require("mods.chaos")
 
 local automatic = {}
@@ -35,10 +33,12 @@ function automatic.attach(module, session, getState, report, room)
         end
         local result = base(source, args)
         if payload then
-            session.complete(state, handle, adapter.verifyAutomatic(payload, {
-                target = type(result) == "table" and result.Name or nil,
-                rarity = type(result) == "table" and result.Rarity or nil,
-            }), payload.transaction, result)
+            local observed = type(result) == "table" and (result.Name or result.TraitName) or nil
+            if observed ~= payload.transaction.target then
+                session.mismatch(state, "steady-growth-target", payload.transaction.target, observed)
+            else
+                session.complete(state, handle)
+            end
         end
         report(runtime)
         return result
@@ -58,14 +58,12 @@ function automatic.attach(module, session, getState, report, room)
         embryoContext = nil
         if not ok then error(result, 0) end
         if payload then
-            session.complete(state, handle, adapter.verifyAutomatic(payload, {
-                target = type(result) == "table" and (result.Name or result.TraitName) or result,
-                rarity = type(result) == "table" and result.Rarity or nil,
-                blessingValues = type(result) == "table"
-                    and chaos.blessingValues(result,
-                        type(result) == "table" and (result.Name or result.TraitName) or result)
-                    or nil,
-            }), payload.transaction, result)
+            local observed = type(result) == "table" and (result.Name or result.TraitName) or result
+            if observed ~= payload.transaction.target then
+                session.mismatch(state, "transcendent-embryo-target", payload.transaction.target, observed)
+            else
+                session.complete(state, handle)
+            end
         end
         report(runtime)
         return result

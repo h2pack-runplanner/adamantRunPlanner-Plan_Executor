@@ -1,4 +1,4 @@
--- Native-carrier preparation and terminal proof for ordinary boon screens.
+-- Native-carrier preparation for ordinary boon screens.
 -- This module owns only the frozen offer result; native code owns generation,
 -- menu behavior, trait application, replacement, and rarification clicks.
 local ordinary = {}
@@ -56,13 +56,39 @@ function ordinary.isNativeCarrier(loot)
         or loot.Name == "WeaponUpgrade")
 end
 
-function ordinary.realizedKey(payload, index)
+-- Native declarations must admit every exact authored row before the adapter
+-- overwrites positional menu entries. Missing game globals are tolerated so
+-- the native game remains authoritative; once declarations are exposed, an
+-- unavailable exact row is a contact mismatch rather than a substitution.
+function ordinary.nativeRowsAvailable(offer)
+    if type(offer) ~= "table" or offer.kind == "fallbackGold" then return true end
+    local declarations = _G.TraitData
+    if type(declarations) ~= "table" then return true end
+    for _, option in ipairs(offer.options or {}) do
+        local key = option and option.key
+        local declaration = key and declarations[key]
+        if declaration == nil then return false end
+        if type(_G.IsTraitEligible) == "function" then
+            local ok, eligible = pcall(_G.IsTraitEligible, declaration)
+            if not ok or eligible ~= true then return false end
+        end
+    end
+    return true
+end
+
+function ordinary.optionKey(payload, index)
     local offer = ordinary.offer(payload)
     if offer == nil or offer.kind == "fallbackGold" then return nil end
     local option = offer.options and offer.options[index]
     if option == nil then return nil end
-    if payload.realizedKey and index == optionIndex(offer.selected) then return payload.realizedKey end
     return option.key
+end
+
+function ordinary.selectedKey(payload)
+    local offer = ordinary.offer(payload)
+    if offer and offer.kind == "fallbackGold" then return "FallbackGold" end
+    local index = offer and optionIndex(offer.selected)
+    return index and ordinary.optionKey(payload, index) or nil
 end
 
 function ordinary.install(payload, loot)
@@ -79,7 +105,7 @@ function ordinary.install(payload, loot)
         -- supplies declaration fields later, so never require a matching roll.
         local row = copy(rows[index])
         row.Type = row.Type or "Trait"
-        row.ItemName = ordinary.realizedKey(payload, index)
+        row.ItemName = ordinary.optionKey(payload, index)
         row.Rarity = option.baseRarity or option.rarity
         if option.replacement then
             row.TraitToReplace = option.replacement.replacedTraitKey
@@ -106,41 +132,9 @@ function ordinary.alignRejected(payload, screen, loot)
     local offer = ordinary.offer(payload)
     if offer == nil or offer.kind == "fallbackGold" or offer.rejected == nil
         or type(screen) ~= "table" then return end
-    local rejected = ordinary.realizedKey(payload, optionIndex(offer.rejected))
+    local rejected = ordinary.optionKey(payload, optionIndex(offer.rejected))
     local index = physicalIndex(loot, rejected)
     if index ~= nil then screen.BlockedIndexes = { index } end
-end
-
-function ordinary.verify(payload, selected, traits)
-    local offer = ordinary.offer(payload)
-    if offer == nil then return false end
-    if offer.kind == "fallbackGold" then
-        if selected ~= "FallbackGold" then return false end
-        for _, trait in pairs(traits or {}) do
-            if type(trait) == "table" and (trait.Name == "FallbackGold" or trait.TraitName == "FallbackGold") then
-                return true
-            end
-        end
-        return false
-    end
-    local selectedIndex = optionIndex(offer.selected)
-    local expected = selectedIndex and ordinary.realizedKey(payload, selectedIndex)
-    if expected == nil or selected ~= expected then return false end
-    local option = offer.options[selectedIndex]
-    for _, trait in pairs(traits or {}) do
-        if type(trait) == "table" and (trait.Name == expected or trait.TraitName == expected) then
-            if option.rarity ~= nil and trait.Rarity ~= option.rarity then return false end
-            if option.effectiveLevel ~= nil and trait.StackNum ~= option.effectiveLevel then return false end
-            if option.replacement then
-                for _, old in pairs(traits or {}) do
-                    if type(old) == "table" and (old.Name == option.replacement.replacedTraitKey
-                        or old.TraitName == option.replacement.replacedTraitKey) then return false end
-                end
-            end
-            return true
-        end
-    end
-    return false
 end
 
 return ordinary

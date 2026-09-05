@@ -44,7 +44,6 @@ local function fakeHandle(row)
         fakePayloads[handle] = {
             transaction = row.transaction,
             detail = row.detail,
-            realizedKey = row.realizedKey,
         }
     end
     return handle
@@ -679,8 +678,8 @@ function TestHookCompositionV10.testWorldShopCompletionUsesCurrentRoomPurchaseCo
     end)
     local session = stub()
     session.current = function() return active end
-    session.complete = function(_, row, verified)
-        completed = { row = row, verified = verified }
+    session.complete = function(_, row)
+        completed = { row = row }
         return true
     end
     attachFeatureHooks(module, session, function() return {} end, function() end, session)
@@ -698,7 +697,6 @@ function TestHookCompositionV10.testWorldShopCompletionUsesCurrentRoomPurchaseCo
     end, { Id = 7 })
     _G.CurrentRun = priorRun
     lu.assertEquals(fakePayload(completed.row).transaction.owner, "shop")
-    lu.assertTrue(completed.verified)
 end
 
 function TestHookCompositionV10.testSuccessfulNativeKeepsakeEquipCompletesTheRackTransaction()
@@ -716,8 +714,8 @@ function TestHookCompositionV10.testSuccessfulNativeKeepsakeEquipCompletesTheRac
     local session = stub()
     session.defineCache = function() end
     session.get = function() return state end
-    session.complete = function(_, handle, verified)
-        completed = { handle = handle, verified = verified }
+    session.complete = function(_, handle)
+        completed = { handle = handle }
         return true
     end
     local priorImport = _G.import
@@ -729,7 +727,6 @@ function TestHookCompositionV10.testSuccessfulNativeKeepsakeEquipCompletesTheRac
     _G.import = priorImport
 
     lu.assertNotNil(completed.handle)
-    lu.assertTrue(completed.verified)
 end
 
 function TestHookCompositionV10.testMysteryBoonPurchaseWaitsForItsTraitResolution()
@@ -785,9 +782,9 @@ function TestHookCompositionV10.testMysteryBoonPurchaseWaitsForItsTraitResolutio
         claimReady = roomCoordinatorModule.claimReady,
         mismatch = function() end,
     }
-    session.complete = function(runtimeState, handle, verified, ...)
-        completions[#completions + 1] = { handle = handle, verified = verified }
-        return roomCoordinatorModule.complete(runtimeState, handle, verified, ...)
+    session.complete = function(runtimeState, handle)
+        completions[#completions + 1] = { handle = handle }
+        return roomCoordinatorModule.complete(runtimeState, handle)
     end
     mysteryAcquisitions.attach(module, session, function() return state end, function() end, roomCoordinatorModule)
     local mysteryCallbacks = {
@@ -820,7 +817,6 @@ function TestHookCompositionV10.testMysteryBoonPurchaseWaitsForItsTraitResolutio
     callbacks.HandleUpgradeChoiceSelection(nil, {}, function() return true end,
         {}, { LootData = loot, Data = { Name = "HeraCastBoon" } }, {})
     lu.assertEquals(#completions, 1)
-    lu.assertTrue(completions[1].verified)
     lu.assertEquals(mismatches, {})
     _G.CurrentRun = priorRun
 end
@@ -876,8 +872,8 @@ function TestHookCompositionV10.testProcessedWellButtonRetainsItsExactGeneration
     end)
     local session = stub()
     session.current = function() return active end
-    session.complete = function(_, row, verified)
-        completed = { row = row, verified = verified }
+    session.complete = function(_, row)
+        completed = { row = row }
         return true
     end
     attachFeatureHooks(module, session, function() return {} end, function() end, session)
@@ -893,6 +889,9 @@ function TestHookCompositionV10.testProcessedWellButtonRetainsItsExactGeneration
         WellPurchases = 0,
         CurrentRoom = { Store = { StoreOptions = { raw } } },
     }
+    local priorTraitData, priorEligibility = _G.TraitData, _G.IsTraitEligible
+    _G.TraitData = { TemporaryEmptySlotDamageTrait = {} }
+    _G.IsTraitEligible = function() return true end
     callbacks.CreateStoreButtons(nil, {}, function(nativeScreen)
         local processed = { Name = "TemporaryEmptySlotDamageTrait", Type = "Trait", Processed = true }
         _G.CurrentRun.CurrentRoom.Store.StoreOptions[1] = processed
@@ -904,10 +903,52 @@ function TestHookCompositionV10.testProcessedWellButtonRetainsItsExactGeneration
     callbacks.HandleStorePurchase(nil, {}, function()
         _G.CurrentRun.WellPurchases = _G.CurrentRun.WellPurchases + 1
     end, screen, screen.Components.PurchaseButton1, {})
+    _G.TraitData, _G.IsTraitEligible = priorTraitData, priorEligibility
     _G.CurrentRun = priorRun
 
     lu.assertEquals(fakePayload(completed.row).transaction.owner, "well-left")
-    lu.assertTrue(completed.verified)
+end
+
+function TestHookCompositionV10.testRejectedWellPurchaseReportsMismatchWithoutCompleting()
+    local module, _, callbacks = capture()
+    local completed, mismatch, nativeCalls = 0, 0, 0
+    local node = {
+        owner = "well-left", kind = "wellPurchase", generationKey = "initial:secondLeft",
+        offerKey = "TemporaryEmptySlotDamageTrait", twistResultKey = nil,
+    }
+    local well = { transaction = node }
+    local active = opaque({}, function(contact)
+        if contact.kind == "generation" and contact.generationKey == "initial:secondLeft" then return well end
+        if contact.kind == "offer" and contact.offerKey == "TemporaryEmptySlotDamageTrait" then return well end
+    end)
+    local session = stub()
+    session.current = function() return active end
+    session.complete = function() completed = completed + 1 end
+    session.mismatch = function() mismatch = mismatch + 1 end
+    attachFeatureHooks(module, session, function() return {} end, function() end, session)
+
+    local priorRun = _G.CurrentRun
+    local priorTraitData, priorEligibility = _G.TraitData, _G.IsTraitEligible
+    _G.TraitData = { TemporaryEmptySlotDamageTrait = {} }
+    _G.IsTraitEligible = function() return false end
+    _G.CurrentRun = {
+        WellPurchases = 0,
+        CurrentRoom = { Store = { StoreOptions = {
+            { Name = "TemporaryEmptySlotDamageTrait", __runPlannerOfferKey = "TemporaryEmptySlotDamageTrait",
+                __runPlannerGenerationKey = "initial:secondLeft" },
+        } } },
+    }
+    local result = callbacks.HandleStorePurchase(nil, {}, function()
+        nativeCalls = nativeCalls + 1
+        return true
+    end, {}, { Data = _G.CurrentRun.CurrentRoom.Store.StoreOptions[1] }, {})
+    _G.TraitData, _G.IsTraitEligible = priorTraitData, priorEligibility
+    _G.CurrentRun = priorRun
+
+    lu.assertTrue(result == nil or result == true)
+    lu.assertEquals(nativeCalls, 1)
+    lu.assertEquals(completed, 0)
+    lu.assertEquals(mismatch, 1)
 end
 
 function TestHookCompositionV10.testTravelDealRefillKeepsSlotBindingSeparateFromReplacementItem()
@@ -931,9 +972,9 @@ function TestHookCompositionV10.testTravelDealRefillKeepsSlotBindingSeparateFrom
     end)
     local session = stub()
     session.current = function() return active end
-    session.complete = function(_, row, verified)
+    session.complete = function(_, row)
         lu.assertTrue(refilled)
-        completed = { row = row, verified = verified }
+        completed = { row = row }
         return true
     end
     attachFeatureHooks(module, session, function() return {} end, function() end, session)
@@ -952,7 +993,6 @@ function TestHookCompositionV10.testTravelDealRefillKeepsSlotBindingSeparateFrom
     end, 1, 10, {})
 
     lu.assertEquals(fakePayload(completed.row).transaction.owner, "travel-refill")
-    lu.assertTrue(completed.verified)
 end
 
 function TestHookCompositionV10.testChaosChoiceCompletesItsBoundOwner()
@@ -978,8 +1018,8 @@ function TestHookCompositionV10.testChaosChoiceCompletesItsBoundOwner()
     local active = opaque({}, function() return nil end)
     local session = stub()
     session.current = function() return active end
-    session.complete = function(_, row, verified)
-        completed[#completed + 1] = { row = row, verified = verified }
+    session.complete = function(_, row)
+        completed[#completed + 1] = { row = row }
         return true
     end
     timeline.attach(module, session, function() return {} end, function() end, session)
@@ -1019,7 +1059,6 @@ function TestHookCompositionV10.testChaosChoiceCompletesItsBoundOwner()
     end, {}, chaosLoot, {})
     _G.CurrentRun = priorRun
     lu.assertEquals(fakePayload(completed[1].row).transaction.owner, "chaos")
-    lu.assertTrue(completed[1].verified)
 end
 
 function TestHookCompositionV10.testMysteryBoonBindsItsUnwrappedSourceTraitOffer()
@@ -1073,9 +1112,9 @@ function TestHookCompositionV10.testMysteryBoonBindsItsUnwrappedSourceTraitOffer
         claimReady = roomCoordinatorModule.claimReady,
         mismatch = function() end,
     }
-    session.complete = function(runtimeState, handle, verified, ...)
-        completions[#completions + 1] = { handle = handle, verified = verified }
-        return roomCoordinatorModule.complete(runtimeState, handle, verified, ...)
+    session.complete = function(runtimeState, handle)
+        completions[#completions + 1] = { handle = handle }
+        return roomCoordinatorModule.complete(runtimeState, handle)
     end
     mysteryAcquisitions.attach(module, session, function() return state end, function() end, roomCoordinatorModule)
     local mysteryCallbacks = {
@@ -1115,7 +1154,6 @@ function TestHookCompositionV10.testMysteryBoonBindsItsUnwrappedSourceTraitOffer
     callbacks.HandleUpgradeChoiceSelection(nil, {}, function() return true end,
         {}, { LootData = loot, Data = { Name = "HeraCastBoon" } }, {})
     lu.assertEquals(#completions, 1)
-    lu.assertTrue(completions[1].verified)
     lu.assertEquals(mismatches, {})
     _G.CurrentRun = priorRun
 end
@@ -1162,8 +1200,8 @@ function TestHookCompositionV10.testEachNativeNpcChoiceFunctionBindsItsPublished
         session.encounterHandle = function()
             return active.resolve({ kind = "encounterInteraction", phaseKey = "Encounter" })
         end
-        session.complete = function(_, actualRow, verified)
-            completed = { row = actualRow, verified = verified }
+        session.complete = function(_, actualRow)
+            completed = { row = actualRow }
             return true
         end
         timeline.attach(module, session, function() return state end, function() end, session)
@@ -1206,7 +1244,6 @@ function TestHookCompositionV10.testEachNativeNpcChoiceFunctionBindsItsPublished
         end, source, args, { Source = source })
         _G.CurrentRun = priorRun
         lu.assertEquals(fakePayload(completed.row), row, functionName)
-        lu.assertTrue(completed.verified, functionName)
     end
     _G.IsGameStateEligible = priorEligibility
 end
@@ -1285,8 +1322,8 @@ function TestHookCompositionV10.testIncidentalConsumableDoesNotClaimTheIncomingR
     end)
     local session = stub()
     session.current = function() return active end
-    session.complete = function(_, row, verified)
-        completed[#completed + 1] = { row = row, verified = verified }
+    session.complete = function(_, row)
+        completed[#completed + 1] = { row = row }
     end
     timeline.attach(module, session, function() return {} end, function() end, session)
     directPickups.attach(module, session, function() return {} end, function() end, session)
@@ -1357,10 +1394,8 @@ function TestHookCompositionV10.testDirectConsumableLevelResolutionForcesAndComp
     local completions = {}
     local session = stub()
     session.current = function() return active end
-    session.complete = function(_, completedRow, verified, expected, observed)
-        completions[#completions + 1] = {
-            row = completedRow, verified = verified, expected = expected, observed = observed,
-        }
+    session.complete = function(_, completedRow)
+        completions[#completions + 1] = { row = completedRow }
     end
     acquisitions.attach(module, session, function() return {} end, function() end, session)
 
@@ -1393,86 +1428,6 @@ function TestHookCompositionV10.testDirectConsumableLevelResolutionForcesAndComp
     lu.assertEquals(#completions, 1)
     lu.assertEquals(fakePayload(completions[1].row).transaction, row.transaction)
     lu.assertEquals(fakePayload(completions[1].row).detail, row.detail)
-    lu.assertTrue(completions[1].verified)
-    lu.assertEquals(completions[1].observed, target.Name)
-end
-
-function TestHookCompositionV10.testStoreFallbackUsesNativeCarrierEligibilityAtGenerationAndPurchase()
-    local module, _, callbacks = capture()
-    local fallback = {
-        availabilityContact = "storeInventoryGeneration",
-        preferredKey = "LastStandShopItem", fallbackKey = "FallbackItem",
-    }
-    local purchaseFallback = {
-        availabilityContact = "storePurchase",
-        preferredKey = "LastStandShopItem", fallbackKey = "FallbackItem",
-    }
-    local node = { owner = "shop", kind = "shopPurchase", offerKey = "shop", runtimeFallbacks = { purchaseFallback } }
-    local active = opaque({
-        occurrence = { overview = { shop = { offers = {
-            { offerKey = "shop", optionKey = "LastStandShopItem", slotIndex = 0, runtimeFallbacks = { fallback } },
-        } } } },
-    }, function(contact)
-        if contact.kind == "offer" and contact.offerKey == "shop" then return { transaction = node } end
-    end)
-    local mismatches, completed = {}, {}
-    local session = stub()
-    session.current = function() return active end
-    session.resolveFallback = function(_, handle, payload, _, relation, available)
-        local key = available(relation.preferredKey) and relation.preferredKey
-            or available(relation.fallbackKey) and relation.fallbackKey or nil
-        if key == nil then
-            mismatches[#mismatches + 1] = relation
-            return nil
-        end
-        payload.realizedKey = key
-        return key, handle, payload
-    end
-    session.complete = function(_, row, verified)
-        completed[#completed + 1] = { row = row, verified = verified }
-        return true
-    end
-    attachFeatureHooks(module, session, function() return {} end, function() end, session)
-    local priorTraits, priorConsumables = _G.TraitData, _G.ConsumableData
-    local priorStoreEligible, priorStateEligible = _G.StoreItemEligible, _G.IsGameStateEligible
-    _G.TraitData = {}
-    _G.ConsumableData = {
-        LastStandShopItem = { Name = "LastStandShopItem", PurchaseRequirements = { missing = "lastStand" } },
-        FallbackItem = { Name = "FallbackItem", UseFunctionNames = { "FallbackUse" } },
-    }
-    _G.StoreItemEligible = function(item) return item.Name == "FallbackItem" end
-    _G.IsGameStateEligible = function(item, requirements)
-        return item.Name == "FallbackItem" or requirements == nil
-    end
-    local generated
-    callbacks.FillInShopOptions(nil, {}, function(args)
-        generated = args.StoreData.GroupsOf[1].OptionsData[1].Name
-        return { StoreOptions = { { Name = "FallbackItem" } } }
-    end, { StoreData = { GroupsOf = { { OptionsData = {
-        { Name = "LastStandShopItem" }, { Name = "FallbackItem" },
-    } } } } })
-    lu.assertEquals(generated, "FallbackItem")
-
-    local item = {
-        __runPlannerOfferKey = "shop", Name = "LastStandShopItem", Index = 2,
-        ResourceCosts = { Money = 200 },
-    }
-    callbacks.HandleStorePurchase(nil, {}, function(_, button)
-        lu.assertEquals(button.Data.Name, "FallbackItem")
-        lu.assertEquals(button.Data.UseFunctionNames, { "FallbackUse" })
-        lu.assertEquals(button.Data.__runPlannerOfferKey, "shop")
-    end, {}, { Data = item }, {})
-    lu.assertTrue(completed[1].verified)
-
-    _G.StoreItemEligible = function() return false end
-    callbacks.FillInShopOptions(nil, {}, function() return { StoreOptions = {} } end, {
-        StoreData = { GroupsOf = { { OptionsData = {
-            { Name = "LastStandShopItem" }, { Name = "FallbackItem" },
-        } } } },
-    })
-    _G.TraitData, _G.ConsumableData = priorTraits, priorConsumables
-    _G.StoreItemEligible, _G.IsGameStateEligible = priorStoreEligible, priorStateEligible
-    lu.assertEquals(#mismatches, 1)
 end
 
 function TestHookCompositionV10.testExplicitGateBHookGroupsStayInstalled()

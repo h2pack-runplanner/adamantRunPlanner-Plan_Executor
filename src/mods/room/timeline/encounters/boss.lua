@@ -1,7 +1,4 @@
 -- Boss lifecycle and its encounter-owned automatic Arcana outcomes.
-local adapter = type(import) == "function" and import("mods/native_timeline_adapters.lua")
-    or require("mods.native_timeline_adapters")
-
 local boss = {}
 
 function boss.attach(module, session, getState, report, room)
@@ -37,24 +34,15 @@ function boss.attach(module, session, getState, report, room)
         local prior = arcanaQueue
         arcanaQueue = { keys = payload.transaction.arcanaKeys, index = 1 }
         local ok, result = pcall(base, count, args)
+        local consumed = arcanaQueue
         arcanaQueue = prior
         if not ok then error(result, 0) end
-        local observed = { arcanaKeys = {}, rarity = payload.transaction.rarity }
-        local rarityOrder = _G.TraitRarityData and _G.TraitRarityData.RarityUpgradeOrder or {}
-        for _, key in ipairs(payload.transaction.arcanaKeys) do
-            local stateEntry = _G.GameState and _G.GameState.MetaUpgradeState
-                and _G.GameState.MetaUpgradeState[key]
-            local rarity = stateEntry and rarityOrder[stateEntry.RarityLevel or stateEntry.Level or 1]
-            if not stateEntry or not stateEntry.Equipped or rarity ~= payload.transaction.rarity
-                or not (_G.CurrentRun and _G.CurrentRun.TemporaryMetaUpgrades
-                    and _G.CurrentRun.TemporaryMetaUpgrades[key]) then
-                observed = { arcanaKeys = {}, rarity = rarity }
-                break
-            end
-            observed.arcanaKeys[#observed.arcanaKeys + 1] = key
+        if consumed.index <= #(payload.transaction.arcanaKeys or {}) then
+            session.mismatch(bossScope.state, "boss-arcana-selection",
+                payload.transaction.arcanaKeys, consumed.index)
+        else
+            session.complete(bossScope.state, handle)
         end
-        session.complete(bossScope.state, handle, adapter.verifyAutomatic(payload, observed),
-            payload.transaction, observed)
         report(runtime)
         return result
     end)

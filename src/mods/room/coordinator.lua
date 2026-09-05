@@ -271,20 +271,11 @@ function coordinator.peek(state, handle)
     return payload
 end
 
-function coordinator.complete(state, handle, proof, expected, observed)
+function coordinator.complete(state, handle)
     if handle == nil then return coordinator.incidental(state) end
-    if proof ~= true then return fail(state, "transaction-outcome", expected, observed) end
     local active = coordinator.current(state)
     if active == nil then return nil end
-    local ok, errorValue = session.complete(active, handle, proof)
-    if not ok then return fail(state, errorValue) end
-    return true
-end
-
-function coordinator.recordRealized(state, handle, key)
-    local active = coordinator.current(state)
-    if active == nil then return nil end
-    local ok, errorValue = timelineSession.realize(portFor(active), handle, key)
+    local ok, errorValue = session.complete(active, handle)
     if not ok then return fail(state, errorValue) end
     return true
 end

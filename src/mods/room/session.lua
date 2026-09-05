@@ -65,9 +65,9 @@ function room.claimReady(session, contact, native, compatible)
     end
     return handle, payload
 end
-function room.complete(session, handle, proof)
+function room.complete(session, handle)
     if session.closed then return mismatch(session, "room-session", "open session", "closed") end
-    return delegate(session, "complete", handle, proof)
+    return delegate(session, "complete", handle)
 end
 function room.incidental(session) return delegate(session, "incidental") end
 function room.checkpoint(session, checkpoint) return delegate(session, "checkpoint", checkpoint) end

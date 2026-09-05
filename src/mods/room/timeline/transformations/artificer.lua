@@ -85,7 +85,7 @@ local function isNativeRewardChoice(rewardStore, exclusions, args)
         and ignoresForcedReward
 end
 
-function artificer.attach(module, _session, getState, report, room)
+function artificer.attach(module, session, getState, report, room)
     local pending = {}
     local rewardSelections = {}
     local activeSpawn
@@ -110,7 +110,7 @@ function artificer.attach(module, _session, getState, report, room)
         action.spawnFailure = true
         local expected = action.childPayload and action.childPayload.detail
         expected = expected and expected.gameName or "published Artificer replacement"
-        room.complete(action.state, action.handle, false, expected, observed)
+        session.mismatch(action.state, "artificer-replacement", expected, observed)
     end
 
     local function observeReplacement(action, result)
@@ -211,7 +211,7 @@ function artificer.attach(module, _session, getState, report, room)
         if action ~= nil then
             if result ~= false and action.spawnVerified then
                 discardAction(action)
-                room.complete(action.state, action.handle, true, action.sourcePayload.transaction, action.source)
+                room.complete(action.state, action.handle)
             else
                 discardAction(action)
             end

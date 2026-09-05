@@ -1,9 +1,9 @@
--- luacheck: globals TestProtocolV16
+-- luacheck: globals TestProtocol
 local lu = require("luaunit")
 local json = require("mods/json")
 local protocol = require("mods/protocol")
 
-TestProtocolV16 = {}
+TestProtocol = {}
 local root = "test/fixtures/execution-plan/"
 
 local function decode(name)
@@ -62,14 +62,6 @@ local function role()
     }
 end
 
-local function fallback(contact)
-    return {
-        preferredKey = "preferred",
-        fallbackKey = "fallback",
-        availabilityContact = contact,
-    }
-end
-
 local function traitOffer()
     return {
         kind = "traits",
@@ -96,7 +88,6 @@ local arrayFields = {
     obligations = true,
     roles = true,
     options = true,
-    runtimeFallbacks = true,
     arcana = true,
     arcanaKeys = true,
 }
@@ -118,7 +109,7 @@ local function minimalPlan(transactions)
     end
     local plan = tagged({
         format = "run-planner-execution",
-        protocolVersion = 16,
+        protocolVersion = 17,
         catalogVersion = "0.54.0-required-boss-rewards",
         projectId = "test-project",
         planFingerprint = "00000000",
@@ -147,7 +138,7 @@ local function minimalPlan(transactions)
     return plan
 end
 
-function TestProtocolV16.testArtificerRoleCarriesSourceOwnedReplacement()
+function TestProtocol.testArtificerRoleCarriesSourceOwnedReplacement()
     local value = minimalPlan({ {
         kind = "acquisition",
         owner = "source",
@@ -171,7 +162,7 @@ function TestProtocolV16.testArtificerRoleCarriesSourceOwnedReplacement()
     lu.assertNil(protocol.decode(value))
 end
 
-function TestProtocolV16.testTimePieceDispositionIsNotPublished()
+function TestProtocol.testTimePieceDispositionIsNotPublished()
     local value = minimalPlan({ {
         kind = "acquisition",
         owner = "source",
@@ -187,7 +178,7 @@ function TestProtocolV16.testTimePieceDispositionIsNotPublished()
     lu.assertNil(protocol.decode(value))
 end
 
-function TestProtocolV16.testEveryPublishedTransactionHasExactlyOneObligation()
+function TestProtocol.testEveryPublishedTransactionHasExactlyOneObligation()
     local value = minimalPlan({ {
         kind = "acquisition",
         owner = "source",
@@ -211,21 +202,21 @@ function TestProtocolV16.testEveryPublishedTransactionHasExactlyOneObligation()
     lu.assertNil(protocol.decode(value))
 end
 
-function TestProtocolV16.testAllGateA2VectorsDecodeAndExpandDiagnostics()
+function TestProtocol.testAllGateA2VectorsDecodeAndExpandDiagnostics()
     for _, name in ipairs({ "f-opening", "fg", "fg-ixion-chaos", "fg-anomaly", "automatic-boss" }) do
         local plan, errorMessage = protocol.decode(decode(name))
         lu.assertNotNil(plan, errorMessage)
-        lu.assertEquals(plan.protocolVersion, 16)
+        lu.assertEquals(plan.protocolVersion, 17)
         lu.assertNotNil(plan.occurrences[1].diagnostics.roomEntered)
     end
 end
 
-function TestProtocolV16.testProtocolAcceptsTaggedNullsFromAnIndependentDecoderModule()
+function TestProtocol.testProtocolAcceptsTaggedNullsFromAnIndependentDecoderModule()
     local plan, errorMessage = protocol.decode(decodeWithIndependentJsonModule("f-opening"))
     lu.assertNotNil(plan, errorMessage)
 end
 
-function TestProtocolV16.testOpaqueOwnerReferencesAreLocalAndLaterContactsAreRejected()
+function TestProtocol.testOpaqueOwnerReferencesAreLocalAndLaterContactsAreRejected()
     local value = decode("f-opening")
     local room = value.occurrences[1]
     room.timeline.dependencies[1] = { owner = "missing", afterOwner = room.timeline.transactions[1].owner }
@@ -235,7 +226,7 @@ function TestProtocolV16.testOpaqueOwnerReferencesAreLocalAndLaterContactsAreRej
     lu.assertNil(protocol.decode(value))
 end
 
-function TestProtocolV16.testNestedSemanticOwnersUseTheOwnerSpecificBound()
+function TestProtocol.testNestedSemanticOwnersUseTheOwnerSpecificBound()
     local owner = string.rep("o", 420)
     local value = minimalPlan({ {
         kind = "acquisition",
@@ -255,7 +246,7 @@ function TestProtocolV16.testNestedSemanticOwnersUseTheOwnerSpecificBound()
     lu.assertNil(protocol.decode(value))
 end
 
-function TestProtocolV16.testForcedShortageTraitOfferSelectsAnExistingOption()
+function TestProtocol.testForcedShortageTraitOfferSelectsAnExistingOption()
     local offer = traitOffer()
     offer.options = { { key = "one" } }
     offer.selected = "option1"
@@ -279,7 +270,7 @@ function TestProtocolV16.testForcedShortageTraitOfferSelectsAnExistingOption()
     lu.assertNil(protocol.decode(value))
 end
 
-function TestProtocolV16.testRecomputedFingerprintCannotHideClosedUnionViolations()
+function TestProtocol.testRecomputedFingerprintCannotHideClosedUnionViolations()
     local value = decode("automatic-boss")
     local transaction = automatic(value)
     transaction.source = "not-valid-on-judgment"
@@ -307,7 +298,7 @@ function TestProtocolV16.testRecomputedFingerprintCannotHideClosedUnionViolation
     lu.assertNil(protocol.decode(value))
 end
 
-function TestProtocolV16.testEveryTimelineTransactionUnionDecodes()
+function TestProtocol.testEveryTimelineTransactionUnionDecodes()
     local transactions = {
         {
             kind = "acquisition",
@@ -317,7 +308,6 @@ function TestProtocolV16.testEveryTimelineTransactionUnionDecodes()
             producerLifecycleKey = "pickup",
             roles = { role() },
             window = window(),
-            runtimeFallbacks = { fallback("traitEligibility") },
         },
         {
             kind = "encounterInteraction",
@@ -334,7 +324,7 @@ function TestProtocolV16.testEveryTimelineTransactionUnionDecodes()
                 kind = "nemesisRandomEvent",
                 outcome = {
                     kind = "freeItem",
-                    runtimeFallbacks = { fallback("npcConsumableSelection") },
+                    itemGameName = "EmptyMaxHealthDrop",
                 },
             },
             window = window(),
@@ -427,7 +417,6 @@ function TestProtocolV16.testEveryTimelineTransactionUnionDecodes()
             reward = reward(),
             producerLifecycleKey = "purchase",
             roles = { role() },
-            runtimeFallbacks = { fallback("storePurchase") },
         },
         {
             kind = "wellPurchase",
@@ -437,7 +426,6 @@ function TestProtocolV16.testEveryTimelineTransactionUnionDecodes()
             generationKey = "initial:healing",
             effect = "lastStand",
             extendedDirectPurchase = false,
-            runtimeFallbacks = { fallback("storeInventoryGeneration") },
         },
         {
             kind = "wellRefill",
@@ -476,7 +464,7 @@ function TestProtocolV16.testEveryTimelineTransactionUnionDecodes()
     lu.assertEquals(#plan.occurrences[1].timeline.transactions, #transactions)
 end
 
-function TestProtocolV16.testFountainUseRequiresItsPublishedInteractionContact()
+function TestProtocol.testFountainUseRequiresItsPublishedInteractionContact()
     local value = minimalPlan({ {
         kind = "fountainUse",
         owner = "fountain",
@@ -494,7 +482,7 @@ function TestProtocolV16.testFountainUseRequiresItsPublishedInteractionContact()
     lu.assertNil(protocol.decode(value))
 end
 
-function TestProtocolV16.testEncounterPhaseAcceptsOnlyTheOptionalFigLeafDecision()
+function TestProtocol.testEncounterPhaseAcceptsOnlyTheOptionalFigLeafDecision()
     local value = minimalPlan({})
     value.occurrences[1].overview.encounterPhases[1] = tagged(
         { slotKey = "phase", encounterKey = "Encounter", kind = "combat", figLeafSkip = false },

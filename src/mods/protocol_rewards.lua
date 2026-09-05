@@ -4,13 +4,6 @@ local p = type(import) == "function" and import("mods/protocol_primitives.lua")
 local rewards = {}
 
 local optionKeys = { option1 = true, option2 = true, option3 = true }
-local availabilityContacts = {
-    traitEligibility = true,
-    storeInventoryGeneration = true,
-    storePurchase = true,
-    npcConsumableSelection = true,
-}
-
 function rewards.reward(value, label)
     local record, errorMessage = p.exact(
         value,
@@ -31,31 +24,6 @@ function rewards.reward(value, label)
         return p.fail(label .. " has invalid acquisitionEnabled")
     end
     return record
-end
-
-function rewards.fallbacks(value, label)
-    local rows, errorMessage = p.arr(value, label)
-    if not rows then return nil, errorMessage end
-    local seen = {}
-    for index, valueRow in ipairs(rows) do
-        local row, rowError = p.exact(
-            valueRow,
-            { "preferredKey", "fallbackKey", "availabilityContact" },
-            {},
-            label .. "[" .. index .. "]"
-        )
-        if not row then return nil, rowError end
-        if not p.str(row.preferredKey, label .. ".preferredKey")
-            or not p.str(row.fallbackKey, label .. ".fallbackKey")
-            or row.preferredKey == row.fallbackKey
-            or not p.one(row.availabilityContact, availabilityContacts, label .. ".availabilityContact") then
-            return p.fail(label .. " has invalid fallback")
-        end
-        local key = row.preferredKey .. "\0" .. row.availabilityContact
-        if seen[key] then return p.fail(label .. " has duplicate preferred key") end
-        seen[key] = true
-    end
-    return rows
 end
 
 local function replacement(value, label)
@@ -127,7 +95,7 @@ function rewards.traitOffer(value, label)
     local row, rowError = p.exact(
         record,
         { "kind", "giver", "options", "selected" },
-        { "rejected", "runtimeFallbacks" },
+        { "rejected" },
         label
     )
     if not row then return nil, rowError end
@@ -165,10 +133,6 @@ function rewards.traitOffer(value, label)
             local _, replacementError = replacement(option.replacement, label .. ".replacement")
             if replacementError then return nil, replacementError end
         end
-    end
-    if row.runtimeFallbacks ~= nil then
-        local _, fallbackError = rewards.fallbacks(row.runtimeFallbacks, label .. ".runtimeFallbacks")
-        if fallbackError then return nil, fallbackError end
     end
     return row
 end
@@ -288,20 +252,13 @@ function rewards.equip(value, label)
         local pom, pomError = p.exact(
             record.jeweledPom,
             { "traitKey" },
-            { "rarity", "runtimeFallbacks" },
+            { "rarity" },
             label .. ".jeweledPom"
         )
         if not pom then return nil, pomError end
         if not p.str(pom.traitKey, label .. ".jeweledPom.traitKey")
             or (pom.rarity ~= nil and not p.str(pom.rarity, label .. ".jeweledPom.rarity")) then
             return p.fail(label .. " has invalid jeweled Pom result")
-        end
-        if pom.runtimeFallbacks ~= nil then
-            local _, fallbackError = rewards.fallbacks(
-                pom.runtimeFallbacks,
-                label .. ".jeweledPom.runtimeFallbacks"
-            )
-            if fallbackError then return nil, fallbackError end
         end
     end
     if record.experimentalHammer ~= nil then

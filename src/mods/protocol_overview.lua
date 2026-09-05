@@ -23,7 +23,7 @@ local function shop(value, label)
         local row, rowError = p.exact(
             valueRow,
             { "offerKey", "optionKey", "rewardType" },
-            { "source", "spurnedSource", "runtimeFallbacks" },
+            { "source", "spurnedSource" },
             label .. ".offers[" .. index .. "]"
         )
         if not row then return nil, rowError end
@@ -37,19 +37,12 @@ local function shop(value, label)
                 return p.fail(label .. " has invalid shop offer")
             end
         end
-        if row.runtimeFallbacks ~= nil then
-            local _, fallbackError = rewards.fallbacks(
-                row.runtimeFallbacks,
-                label .. ".offers.runtimeFallbacks"
-            )
-            if fallbackError then return nil, fallbackError end
-        end
     end
     if record.travelDealRefill ~= nil then
         local refill, refillError = p.exact(
             record.travelDealRefill,
             { "sourceOfferKey", "slotIndex", "optionKey", "reward" },
-            { "runtimeFallbacks" },
+            {},
             label .. ".travelDealRefill"
         )
         if not refill then return nil, refillError end
@@ -60,13 +53,6 @@ local function shop(value, label)
         end
         local _, rewardError = rewards.reward(refill.reward, label .. ".travelDealRefill.reward")
         if rewardError then return nil, rewardError end
-        if refill.runtimeFallbacks ~= nil then
-            local _, fallbackError = rewards.fallbacks(
-                refill.runtimeFallbacks,
-                label .. ".travelDealRefill.runtimeFallbacks"
-            )
-            if fallbackError then return nil, fallbackError end
-        end
     end
     return record
 end
@@ -86,7 +72,7 @@ local function stygianWell(value, label)
         local row, rowError = p.exact(
             valueRow,
             { "generationKey", "offerKey" },
-            { "twistResultKey", "runtimeFallbacks" },
+            { "twistResultKey" },
             label .. ".offers[" .. index .. "]"
         )
         if not row then return nil, rowError end
@@ -97,13 +83,6 @@ local function stygianWell(value, label)
             return p.fail(label .. " has invalid Well offer")
         end
         seen[row.generationKey] = true
-        if row.runtimeFallbacks ~= nil then
-            local _, fallbackError = rewards.fallbacks(
-                row.runtimeFallbacks,
-                label .. ".runtimeFallbacks"
-            )
-            if fallbackError then return nil, fallbackError end
-        end
     end
     return record
 end

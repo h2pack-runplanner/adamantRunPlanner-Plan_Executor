@@ -34,10 +34,9 @@ local function harness(row, native, isBound)
         end,
     }
     local session = {
-        complete = function(_, value, verified, expected, observed)
-            completions[#completions + 1] = {
-                handle = value, verified = verified, expected = expected, observed = observed,
-            }
+        mismatch = function() end,
+        complete = function(_, value)
+            completions[#completions + 1] = { handle = value }
         end,
     }
     levels.attach(module, session, function() return state end, function() end, room)
@@ -120,7 +119,6 @@ function TestLevelAcquisitions.testVisibleSelectionUsesNativeSortedIdentityAndNo
     lu.assertEquals(target.StackNum, 3)
     lu.assertEquals(other.StackNum, 4)
     lu.assertEquals(#completions, 1)
-    lu.assertTrue(completions[1].verified)
     _G.CurrentRun = priorRun
 end
 
@@ -191,7 +189,6 @@ function TestLevelAcquisitions.testRoomRewardNectarSteersTargetAndCompletesThrea
     lu.assertEquals(target.StackNum, 3)
     lu.assertEquals(other.StackNum, 4)
     lu.assertEquals(#completions, 1)
-    lu.assertTrue(completions[1].verified)
     _G.CurrentRun = priorRun
 end
 
@@ -203,7 +200,6 @@ function TestLevelAcquisitions.testNullNectarIsNoOpOnlyWhenNativeHasNoEligibleTa
         lu.assertEquals(args.NumTraits, 0)
     end)
     lu.assertEquals(#completions, 1)
-    lu.assertTrue(completions[1].verified)
     lu.assertEquals(row.detail.levelResolution.selectedTarget, nil)
     _G.GetAllUpgradeableGodTraits = prior
 end
@@ -218,8 +214,7 @@ function TestLevelAcquisitions.testNullNectarDoesNotSuppressNativeEligibleTarget
         lu.assertEquals(args.NumTraits, 1)
     end)
     lu.assertTrue(nativeCalled)
-    lu.assertEquals(#completions, 1)
-    lu.assertFalse(completions[1].verified)
+    lu.assertEquals(#completions, 0)
     _G.GetAllUpgradeableGodTraits = prior
 end
 
@@ -235,8 +230,7 @@ function TestLevelAcquisitions.testIneligibleNectarRestoresNativeArgumentsBefore
         lu.assertEquals(args.NumTraits, 1)
         lu.assertNil(args.TraitName)
     end, 2)
-    lu.assertEquals(#completions, 1)
-    lu.assertFalse(completions[1].verified)
+    lu.assertEquals(#completions, 0)
     _G.CurrentRun = priorRun
 end
 
@@ -252,7 +246,6 @@ function TestLevelAcquisitions.testUnboundDirectNativeCallClaimsAtAcceptedPresen
     lu.assertTrue(begins() > 0)
     lu.assertEquals(target.StackNum, 3)
     lu.assertEquals(#completions, 1)
-    lu.assertTrue(completions[1].verified)
     _G.CurrentRun = priorRun
 end
 

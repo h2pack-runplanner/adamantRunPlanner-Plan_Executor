@@ -4,27 +4,19 @@ local adapter = type(import) == "function" and import("mods/native_timeline_adap
 local chaos = type(import) == "function" and import("mods/chaos.lua") or require("mods/chaos")
 local hooks = {}
 
-local function heroTraits()
-    local hero = _G.CurrentRun and _G.CurrentRun.Hero
-    return type(hero) == "table" and hero.Traits or nil
-end
-
 local function authoredOptionIndex(optionKey)
     return type(optionKey) == "string" and tonumber(optionKey:match("(%d+)$")) or nil
 end
 
-local function realizedTraitKey(row, offer, index)
+local function authoredTraitKey(offer, index)
     local option = offer.options and offer.options[index]
     if option == nil then return nil end
-    if row and row.realizedKey and index == authoredOptionIndex(offer.selected) then
-        return row.realizedKey
-    end
     return option.key
 end
 
-local function physicalTraitIndex(lootData, row, offer, optionKey)
+local function physicalTraitIndex(lootData, offer, optionKey)
     local authoredIndex = authoredOptionIndex(optionKey)
-    local traitKey = authoredIndex and realizedTraitKey(row, offer, authoredIndex)
+    local traitKey = authoredIndex and authoredTraitKey(offer, authoredIndex)
     if traitKey == nil then return nil end
     for index, option in ipairs(lootData and lootData.UpgradeOptions or {}) do
         if option.ItemName == traitKey then return index end
@@ -32,19 +24,19 @@ local function physicalTraitIndex(lootData, row, offer, optionKey)
     return nil
 end
 
-local function alignBlockedTraitOption(screen, lootData, row, offer)
+local function alignBlockedTraitOption(screen, lootData, offer)
     if type(screen) ~= "table" or type(screen.BlockedIndexes) ~= "table"
         or type(offer) ~= "table" or type(offer.options) ~= "table" then
         return
     end
 
-    local rejectedIndex = physicalTraitIndex(lootData, row, offer, offer.rejected)
+    local rejectedIndex = physicalTraitIndex(lootData, offer, offer.rejected)
     if rejectedIndex ~= nil then
         screen.BlockedIndexes = { rejectedIndex }
         return
     end
 
-    local selectedIndex = physicalTraitIndex(lootData, row, offer, offer.selected)
+    local selectedIndex = physicalTraitIndex(lootData, offer, offer.selected)
     if selectedIndex == nil then return end
 
     local selectedBlockPosition
@@ -64,9 +56,9 @@ local function alignBlockedTraitOption(screen, lootData, row, offer)
     table.remove(screen.BlockedIndexes, selectedBlockPosition)
 end
 
-local function authoredTraitOption(row, offer, itemData)
+local function authoredTraitOption(offer, itemData)
     for index, option in ipairs(offer.options or {}) do
-        if realizedTraitKey(row, offer, index) == itemData.ItemName then return option end
+        if authoredTraitKey(offer, index) == itemData.ItemName then return option end
     end
     return nil
 end
@@ -88,24 +80,6 @@ local function incomingHandle(room, _, state, native)
     return room.bind(state, current, room.resolve(state, current, {
         kind = "materialized", source = producer, gameName = gameName,
     }), native)
-end
-
-local function resolveTraitFallback(session, state, handle, payload, native)
-    if handle == nil or payload == nil then return handle, payload end
-    for _, fallback in ipairs(payload.transaction.runtimeFallbacks or {}) do
-        if fallback.availabilityContact == "traitEligibility" then
-            local _, resolved, resolvedPayload = session.resolveFallback(state, handle, payload,
-                "traitEligibility", fallback, function(key)
-                local declaration = _G.TraitData and _G.TraitData[key]
-                return declaration ~= nil and (type(_G.IsTraitEligible) ~= "function"
-                    or _G.IsTraitEligible(declaration) == true)
-            end, native)
-            if resolved == nil then return nil end
-            handle, payload = resolved, resolvedPayload
-        end
-    end
-
-    return handle, payload
 end
 
 function hooks.attach(module, session, getState, report, room)
@@ -142,7 +116,6 @@ function hooks.attach(module, session, getState, report, room)
             local payload = handle and roomCoordinator.begin(state, handle) or nil
             local resolution = payload and payload.transaction.resolution
             if resolution and resolution.kind == "traitOffer" and resolution.offer.giver == giver then
-                handle, payload = resolveTraitFallback(session, state, handle, payload, source)
                 if payload ~= nil and adapter.applyNpcTraitOffer(payload, args) then
                     pendingLegacyTrait = { handle = handle, payload = payload, source = source }
                 elseif payload ~= nil then
@@ -171,7 +144,6 @@ function hooks.attach(module, session, getState, report, room)
             or incomingHandle(roomCoordinator, session, state, usee)
         local payload = handle and roomCoordinator.begin(state, handle) or nil
         if payload == nil then return base(usee, args, user) end
-        handle, payload = resolveTraitFallback(session, state, handle, payload, usee)
         if payload == nil then report(runtime); return base(usee, args, user) end
         usee.__runPlannerTimelineHandle = handle
         local _, seaStarChild = seaStarChildFor(state, usee)
@@ -254,8 +226,8 @@ function hooks.attach(module, session, getState, report, room)
         if chaos.isNativeCarrier(lootData) then
             return base(screen, lootData, itemIndex, itemData, args)
         elseif offer and type(offer.options) == "table" then
-            if itemIndex == 1 then alignBlockedTraitOption(screen, lootData, payload, offer) end
-            local option = authoredTraitOption(payload, offer, itemData)
+            if itemIndex == 1 then alignBlockedTraitOption(screen, lootData, offer) end
+            local option = authoredTraitOption(offer, itemData)
             if option == nil then return base(screen, lootData, itemIndex, itemData, args) end
             itemData.Rarity, itemData.StackNum = option.rarity, option.effectiveLevel
             if option.replacement then
@@ -282,9 +254,12 @@ function hooks.attach(module, session, getState, report, room)
         if pendingLegacyTrait ~= nil then
             local pending = pendingLegacyTrait
             pendingLegacyTrait = nil
-            session.complete(state, pending.handle,
-                adapter.verifyTrait(pending.payload, pending.selected, heroTraits()),
-                adapter.expectedTrait(pending.payload), pending.selected)
+            local expected = adapter.expectedTrait(pending.payload)
+            if expected == nil or expected.key ~= pending.selected then
+                session.mismatch(state, "trait-selection", expected and expected.key, pending.selected)
+            else
+                session.complete(state, pending.handle)
+            end
         end
         report(runtime)
         return result

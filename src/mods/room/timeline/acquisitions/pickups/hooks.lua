@@ -62,9 +62,13 @@ function pickups.attach(module, session, getState, report, room)
 
         if scope.accepted then
             if scope.payload ~= nil then
-                local expected = scope.payload.realizedKey or scope.payload.detail.gameName
+                local expected = scope.payload.detail.gameName
                 local observed = nativeName(item)
-                session.complete(state, scope.handle, expected == observed, scope.payload.detail, observed)
+                if expected ~= observed then
+                    session.mismatch(state, "direct-pickup", expected, observed)
+                else
+                    session.complete(state, scope.handle)
+                end
             end
             report(runtime)
         end

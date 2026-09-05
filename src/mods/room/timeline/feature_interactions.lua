@@ -1,8 +1,6 @@
 -- Timeline contacts for interacting with already-realized room features.
 -- Feature adapters own native inventory construction and expose only stable
 -- item bindings; this module owns purchases, sales, uses, and acquired effects.
-local adapter = type(import) == "function" and import("mods/native_timeline_adapters.lua")
-    or require("mods.native_timeline_adapters")
 local carriers = type(import) == "function" and import("mods/room/features/store_carriers.lua")
     or require("mods.room.features.store_carriers")
 local hooks = {}
@@ -11,10 +9,12 @@ local function current(state, room)
     return room.current(state)
 end
 
-local function verifyShopBinding(payload, bindingKey, itemKey)
+local function shopBinding(payload, bindingKey)
     local transaction = payload and payload.transaction
     if transaction == nil or transaction.kind ~= "shopPurchase" then return false end
-    if payload.realizedKey ~= nil then return payload.realizedKey == itemKey end
+    -- The planner binds a shop purchase to its authored offer slot.  The
+    -- materialized native item is deliberately a separate identity (for
+    -- example BlindBoxLoot is the carrier for the Boon offer).
     return transaction.offerKey == bindingKey
 end
 
@@ -28,8 +28,6 @@ local function completesAtPurchase(node)
 end
 
 -- A world item represents its declared materialized role when one exists.
--- The root offer/generation contact remains the fallback for transactions
--- whose purchase has no distinct materialized carrier.
 local function materializedHandle(state, active, room, root, itemKey)
     if root == nil or itemKey == nil then return root end
     return room.resolve(state, active, {
@@ -54,24 +52,6 @@ function hooks.attach(module, session, getState, report, room, inventoryBindings
         handle = materializedHandle(state, active, room, handle, itemKey)
         handle = room.bind(state, active, handle, item)
         local payload = handle and room.begin(state, handle) or nil
-        if payload then
-            for _, fallback in ipairs(payload.transaction.runtimeFallbacks or {}) do
-                if fallback.availabilityContact == "storePurchase" then
-                    local key, rebound, resolved = session.resolveFallback(state, handle, payload,
-                        "storePurchase", fallback,
-                        function(candidate)
-                        return carriers.eligible(candidate, args, true)
-                    end, item)
-                    if key == nil then report(runtime); return base(screen, button, args) end
-                    handle, payload = rebound, resolved
-                    if carriers.materialize(item, key) == nil then
-                        report(runtime)
-                        return base(screen, button, args)
-                    end
-                    itemKey = key
-                end
-            end
-        end
         pendingTwist = item and item.__runPlannerTwistResultKey
         local purchasesBefore = _G.CurrentRun and _G.CurrentRun.WellPurchases
         local ok, result = pcall(base, screen, button, args)
@@ -81,13 +61,23 @@ function hooks.attach(module, session, getState, report, room, inventoryBindings
         local transaction = payload and payload.transaction
         local purchased = payload ~= nil and (transaction.kind ~= "wellPurchase"
             or type(purchasesBefore) ~= "number" or purchasesAfter == purchasesBefore + 1)
-        if purchased and completesAtPurchase(transaction) then
-            local verified = transaction.kind == "wellPurchase"
-                and adapter.verifyWell(payload, generationKey, itemKey, item.__runPlannerTwistResultKey)
-                or verifyShopBinding(payload, bindingKey, itemKey)
-            session.complete(state, handle, verified, transaction, {
-                generationKey = generationKey, bindingKey = bindingKey, itemKey = itemKey,
-            })
+        local nativeEligible = transaction == nil or transaction.kind ~= "wellPurchase"
+            or carriers.eligible(itemKey, args, true)
+        local exact = transaction and (
+            transaction.kind == "wellPurchase"
+            and transaction.offerKey == itemKey
+            or transaction.kind == "shopPurchase"
+            and shopBinding(payload, bindingKey)
+        )
+        if payload and not exact then
+            session.mismatch(state, "purchase-selection",
+                transaction.kind == "wellPurchase" and transaction.offerKey or transaction.offerKey,
+                itemKey or bindingKey)
+        elseif transaction and (not nativeEligible or not purchased or result == false) then
+            session.mismatch(state, "purchase-selection", itemKey,
+                not nativeEligible and "native-ineligible" or "native-rejected")
+        elseif purchased and completesAtPurchase(transaction) then
+            session.complete(state, handle)
         end
         report(runtime)
         return result
@@ -112,9 +102,11 @@ function hooks.attach(module, session, getState, report, room, inventoryBindings
         local result = base(args)
         local after = nativeRoom and nativeRoom.StoreItemsPurchased or 0
         if payload and payload.transaction.kind == "shopPurchase" and completesAtPurchase(payload.transaction) then
-            local verified = after == before + 1
-                and verifyShopBinding(payload, binding.bindingKey, binding.itemKey)
-            session.complete(state, handle, verified, payload.transaction, binding.itemKey)
+            if after ~= before + 1 or not shopBinding(payload, binding.bindingKey) then
+                session.mismatch(state, "purchase-selection", binding.bindingKey, binding.itemKey)
+            else
+                session.complete(state, handle)
+            end
         end
         if type(args) == "table" then inventoryBindings.forget(args.Id) end
         report(runtime)
@@ -132,7 +124,13 @@ function hooks.attach(module, session, getState, report, room, inventoryBindings
         local payload = handle and room.begin(state, handle) or nil
         local result = base(screen, button, args)
         if payload then
-            session.complete(state, handle, adapter.verifyPool(payload, slot, trait), payload.transaction, trait)
+            if payload.transaction.slotKey ~= slot or payload.transaction.traitKey ~= trait then
+                session.mismatch(state, "pool-sale-selection", {
+                    slotKey = payload.transaction.slotKey, traitKey = payload.transaction.traitKey,
+                }, { slotKey = slot, traitKey = trait })
+            else
+                session.complete(state, handle)
+            end
         end
         report(runtime)
         return result
@@ -146,10 +144,8 @@ function hooks.attach(module, session, getState, report, room, inventoryBindings
         handle = room.bind(state, active, handle, source)
         local payload = handle and room.begin(state, handle) or nil
         local result = base(source, args)
-        local target = payload and payload.transaction.aromaticPhialTarget or nil
         if payload ~= nil then
-            session.complete(state, handle, adapter.verifyFountain(payload, target),
-                payload.transaction, target)
+            session.complete(state, handle)
         end
         report(runtime)
         return result

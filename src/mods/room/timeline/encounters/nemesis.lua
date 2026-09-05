@@ -21,6 +21,24 @@ function nemesis.attach(module, session, getState, report, room)
         return nil
     end
 
+    local function freeItemAvailable(item, itemGameName)
+        if type(item) ~= "table" or (item.Name ~= itemGameName and item.ItemName ~= itemGameName) then
+            return false
+        end
+        if item.GameStateRequirements == nil then return true end
+        return type(_G.IsGameStateEligible) == "function"
+            and _G.IsGameStateEligible(item, item.GameStateRequirements) == true
+    end
+
+    local function constrainConsumables(consumables, matches)
+        local constrained = {}
+        for key, value in pairs(consumables) do
+            if type(key) ~= "number" then constrained[key] = value end
+        end
+        for _, item in ipairs(matches) do constrained[#constrained + 1] = item end
+        return constrained
+    end
+
     module.hooks.wrap("SpawnNemesisForRandomEvents", "run-planner-nemesis-spawn", function(_, _, base, source, args)
         nemesisSpawnDepth = nemesisSpawnDepth + 1
         local ok, result = pcall(base, source, args)
@@ -80,7 +98,7 @@ function nemesis.attach(module, session, getState, report, room)
             elseif outcome.kind == "traitTrade" and accepted then
                 pendingNemesis = { handle = handle, payload = payload, traitKey = outcome.traitKey }
             else
-                session.complete(state, handle, true)
+                session.complete(state, handle)
             end
         end
         report(runtime)
@@ -93,8 +111,11 @@ function nemesis.attach(module, session, getState, report, room)
         if pendingNemesis then
             local state, pending = getState(runtime), pendingNemesis
             pendingNemesis = nil
-            session.complete(state, pending.handle, traitName == pending.traitKey,
-                pending.payload.transaction, traitName)
+            if traitName ~= pending.traitKey then
+                session.mismatch(state, "nemesis-trait-removal", pending.traitKey, traitName)
+            else
+                session.complete(state, pending.handle)
+            end
             report(runtime)
         end
         return result
@@ -108,13 +129,17 @@ function nemesis.attach(module, session, getState, report, room)
         npcRewardSource = priorSource
         if not ok then error(result, 0) end
         local state = getState(runtime)
-        local handle, payload, outcome = row(state, source)
+        local handle, _, outcome = row(state, source)
         if handle and outcome and outcome.kind == "damageContest" then
             local details = source.DamageContestArgs or {}
             local success = type(source.DamageContestAmount) == "number"
                 and type(details.DamageGoal) == "number"
                 and source.DamageContestAmount >= details.DamageGoal
-            session.complete(state, handle, (outcome.result == "success") == success, payload.transaction, success)
+            if (outcome.result == "success") ~= success then
+                session.mismatch(state, "nemesis-damage-contest", outcome.result, success)
+            else
+                session.complete(state, handle)
+            end
         end
         report(runtime)
         return result
@@ -135,27 +160,21 @@ function nemesis.attach(module, session, getState, report, room)
         local state = getState(runtime)
         local source = npcRewardSource or type(args) == "table" and args.Source or nil
         local handle, payload, outcome = row(state, source)
-        if handle and outcome and outcome.runtimeFallbacks then
-            for _, fallback in ipairs(outcome.runtimeFallbacks) do
-                if fallback.availabilityContact == "npcConsumableSelection" then
-                    local key, rebound, resolved = session.resolveFallback(state, handle, payload,
-                        "npcConsumableSelection", fallback,
-                        function(candidate)
-                            for _, item in ipairs(args.Consumables or {}) do
-                                if item.Name == candidate or item.ItemName == candidate then return true end
-                            end
-                            return false
-                        end)
-                    if key == nil then report(runtime); return base(args, choice, line) end
-                    handle, payload = rebound, resolved
-                    local chosen = {}
-                    for _, item in ipairs(args.Consumables or {}) do
-                        if item.Name == key or item.ItemName == key then chosen[#chosen + 1] = item end
-                    end
-                    args.Consumables = chosen
+        if handle and outcome and outcome.kind == "freeItem" then
+            local matches = {}
+            local consumables = type(args) == "table" and type(args.Consumables) == "table"
+                and args.Consumables or {}
+            for _, item in ipairs(consumables) do
+                if freeItemAvailable(item, outcome.itemGameName) then
+                    matches[#matches + 1] = item
                 end
             end
-            pendingNemesis = { handle = handle, payload = payload, reward = true }
+            if #matches == 0 then
+                session.mismatch(state, "nemesis-free-item", outcome.itemGameName, nil)
+            else
+                args.Consumables = constrainConsumables(consumables, matches)
+                pendingNemesis = { handle = handle, payload = payload, reward = true }
+            end
         end
         local result = base(args, choice, line)
         report(runtime)
@@ -167,9 +186,7 @@ function nemesis.attach(module, session, getState, report, room)
         local pending = pendingNemesis
         if pending and pending.reward then
             pendingNemesis = nil
-            local produced = type(args) == "table" and type(args.Consumables) == "table"
-                and #args.Consumables > 0
-            session.complete(getState(runtime), pending.handle, produced, pending.payload.transaction, args)
+            session.complete(getState(runtime), pending.handle)
         end
         report(runtime)
         return result

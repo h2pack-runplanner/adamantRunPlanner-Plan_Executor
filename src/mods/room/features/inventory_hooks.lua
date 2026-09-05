@@ -2,10 +2,6 @@
 -- use, and acquired-effect contacts remain in room/timeline/.
 local inventory = type(import) == "function" and import("mods/room/features/inventory.lua")
     or require("mods.room.features.inventory")
-local adapter = type(import) == "function" and import("mods/native_timeline_adapters.lua")
-    or require("mods/native_timeline_adapters")
-local carriers = type(import) == "function" and import("mods/room/features/store_carriers.lua")
-    or require("mods/room/features/store_carriers")
 local hooks = {}
 
 local function current(_, state, room, route)
@@ -75,19 +71,7 @@ function hooks.attach(module, session, getState, report, room, route)
         local state = getState(runtime)
         local active = current(session, state, room, route)
         local prepared, errorValue = inventory.prepare(active and active.occurrence, args,
-            refillScope ~= nil,
-            function(fallback, defaultKey, offer)
-                if fallback.availabilityContact ~= "storeInventoryGeneration" then return defaultKey end
-                local handle = active and room.resolve(state, active, offer.offerKey
-                    and { kind = "offer", offerKey = offer.offerKey }
-                    or { kind = "generation", generationKey = offer.generationKey })
-                local payload = handle and room.begin(state, handle) or nil
-                local key = session.resolveFallback(state, handle, payload, "storeInventoryGeneration", fallback,
-                    function(candidate)
-                        return carriers.available(args and args.StoreData, candidate, args)
-                    end, nil, active)
-                return key
-            end)
+            refillScope ~= nil)
         if errorValue then mismatch(session, state, errorValue); report(runtime); return base(args) end
         inventorySources = {}
         for _, offer in ipairs(prepared and prepared.expected or {}) do
@@ -163,11 +147,7 @@ function hooks.attach(module, session, getState, report, room, route)
             handle = materializedHandle(state, active, room, handle, itemKey)
             handle = room.bind(state, active, handle, result)
             local payload = handle and room.begin(state, handle) or nil
-            if payload and payload.transaction.kind == "wellRefill" then
-                local verified = adapter.verifyWell(payload, generationKey, itemKey,
-                    itemData.__runPlannerTwistResultKey)
-                session.complete(state, handle, verified, payload.transaction, itemKey)
-            end
+            if payload and payload.transaction.kind == "wellRefill" then session.complete(state, handle) end
             if type(result) == "table" and result.ObjectId ~= nil and handle ~= nil then
                 worldItemsById[result.ObjectId] = {
                     handle = handle, bindingKey = bindingKey, itemKey = itemKey,

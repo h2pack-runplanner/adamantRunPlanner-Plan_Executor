@@ -1,5 +1,6 @@
 -- Occurrence-local Timeline DAG: readiness, completion, and obligation
--- deadlines. Native adapters own actual effects and their proofs.
+-- deadlines. Native adapters own actual effects; completion only closes its
+-- exact published owner.
 local lifecycle = type(import) == "function" and import("mods/room/timeline/lifecycle.lua")
     or require("mods.room.timeline.lifecycle")
 local bindings = type(import) == "function" and import("mods/room/timeline/bindings.lua")
@@ -162,13 +163,6 @@ function timeline.claimReady(session, contact, native, compatible)
     return nil
 end
 
-function timeline.realize(session, handle, key)
-    local row, errorValue = rowFor(session, handle)
-    if row == nil then return nil, errorValue end
-    bindings.realize(row, key)
-    return true
-end
-
 function timeline.open(session, window)
     if session.closed then return mismatch(session, "room-session", "open session", "closed") end
     if session.firstMismatch ~= nil then return nil, session.firstMismatch end
@@ -231,7 +225,7 @@ function timeline.activePhase(session, kind)
     return lifecycle.activePhase(session.capabilities, kind)
 end
 
-function timeline.complete(session, handle, _proof)
+function timeline.complete(session, handle)
     local row, rowError = rowFor(session, handle)
     if row == nil then return nil, rowError end
     local owner = row.transaction.owner

@@ -60,7 +60,6 @@ function session.verifyCompleted(state, mismatch)
     if observedKeepsake ~= startingKeepsake then
         return mismatch(state, "starting-keepsake", startingKeepsake, observedKeepsake)
     end
-    if not session.finishKeepsake(state, mismatch) then return nil end
     if expected.startingHex then
         if not native.hasTrait(expected.startingHex.spellTraitKey) then
             return mismatch(state, "starting-hex-spell", expected.startingHex.spellTraitKey, nil)
@@ -90,38 +89,10 @@ function session.beginKeepsake(state, key)
     if not expected then return nil end
     -- Startup validation is deliberately deferred until native StartNewRun
     -- returns. A wrong carrier must not desynchronize the provisional session
-    -- or suppress the other native startup contacts.
+    -- or suppress the other native startup contacts. Equip-result effects are
+    -- steered at their native contacts and are not re-proved here.
     if key ~= expected.keepsakeKey then return nil end
-    state.startingLoadout = state.startingLoadout or {}
-    state.startingLoadout.keepsake = { active = true, expected = expected, results = {} }
     return expected
-end
-
-function session.recordKeepsakeResult(state, kind, value)
-    local pending = state.startingLoadout and state.startingLoadout.keepsake
-    if pending and pending.active then pending.results[kind] = value end
-end
-
-function session.finishKeepsake(state, mismatch)
-    local pending = state.startingLoadout and state.startingLoadout.keepsake
-    if not pending or not pending.active then return mismatch(state, "starting-keepsake", "EquipKeepsake contact", nil) end
-    for kind, expected in pairs(pending.expected.equipResults or {}) do
-        local actual = pending.results[kind]
-        local matches = same(expected, actual)
-        if kind == "jeweledPom" and expected.runtimeFallbacks then
-            matches = false
-            if actual ~= nil then for _, fallback in ipairs(expected.runtimeFallbacks) do
-            if (actual.traitKey == fallback.preferredKey or actual.traitKey == fallback.fallbackKey)
-                and actual.rarity == expected.rarity then matches = true; break end
-            end
-            end
-        end
-        if not matches then
-            return mismatch(state, "starting-keepsake:" .. kind, expected, pending.results[kind])
-        end
-    end
-    pending.active = false
-    return true
 end
 
 return session

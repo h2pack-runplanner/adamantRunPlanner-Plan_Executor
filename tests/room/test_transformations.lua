@@ -76,10 +76,8 @@ local function roomHarness(source, child, boundSource, authoredSource)
             nativeBindings[native] = handle
             return handle
         end,
-        complete = function(_, handle, proof, expected, observed)
-            completed[#completed + 1] = {
-                handle = handle, proof = proof, expected = expected, observed = observed,
-            }
+        complete = function(_, handle)
+            completed[#completed + 1] = { handle = handle }
         end,
     }
     return room, active, completed, function() return readyClaims end, boundChildren
@@ -182,7 +180,6 @@ function TestTransformations.testArtificerPublishesChildButCompletesOnlyAfterVer
     module.registered.Destroy["run-planner-artificer-source-destroyed"](
         nil, {}, function() return true end, { Id = 17 })
     lu.assertEquals(#completed, 1)
-    lu.assertTrue(completed[1].proof)
 end
 
 function TestTransformations.testArtificerRetainsSourceSteeringWhenTimePieceConsumesChild()
@@ -224,7 +221,6 @@ function TestTransformations.testArtificerRetainsSourceSteeringWhenTimePieceCons
     module.registered.Destroy["run-planner-artificer-source-destroyed"](
         nil, {}, function() return true end, { Id = target.ObjectId })
     lu.assertEquals(#completed, 1)
-    lu.assertTrue(completed[1].proof)
 end
 
 function TestTransformations.testArtificerWrongSpawnReportsMismatchAndPassesThroughNativeResult()
@@ -232,19 +228,17 @@ function TestTransformations.testArtificerWrongSpawnReportsMismatchAndPassesThro
     local source, child = {}, childRow()
     local target = { ObjectId = 19, Name = "MetaCurrencyDrop" }
     local room, _, completed = roomHarness(source, child, target)
-    transformations.attach(module, {}, function() return {} end, function() end, room)
+    transformations.attach(module, { mismatch = function() end }, function() return {} end, function() end, room)
 
     lu.assertEquals(callbacks.ConvertMetaRewardPresentation(nil, {}, function(value) return value end, target), target)
     local result = callbacks.SpawnRoomReward(nil, {}, function()
         return callbacks.CreateLoot(nil, {}, function() return { Name = "WeaponUpgrade" } end, {})
     end, {}, { IgnoreRoomSpawnOnLootPoint = true, SpawnRewardOnId = target.ObjectId })
     lu.assertEquals(result.Name, "WeaponUpgrade")
-    lu.assertEquals(completed, {
-        { handle = source, proof = false, expected = "RoomRewardConsolationPrize", observed = "WeaponUpgrade" },
-    })
+    lu.assertEquals(completed, {})
     module.registered.Destroy["run-planner-artificer-source-destroyed"](
         nil, {}, function() return true end, { Id = target.ObjectId })
-    lu.assertEquals(#completed, 1)
+    lu.assertEquals(#completed, 0)
 end
 
 function TestTransformations.testArtificerRejectedPresentationLeavesNativeResultAndNoPendingSelection()

@@ -18,24 +18,13 @@ local function retain(values, expected)
     return result
 end
 
-local function resolveOffer(offer, field, resolve)
-    local result = copy(offer)
-    if resolve and result.runtimeFallbacks and result.runtimeFallbacks[1] then
-        local key, errorValue = resolve(result.runtimeFallbacks[1], result[field], result)
-        if key == nil then return nil, errorValue end
-        result[field] = key
-    end
-    return result
-end
-
-function inventory.prepare(occurrence, args, refillOnly, resolve)
+function inventory.prepare(occurrence, args, refillOnly)
     local expected = occurrence and occurrence.overview or {}
     local shop, well = expected.shop, expected.stygianWell
     local storeData = copy(type(args) == "table" and args.StoreData or nil)
     if type(storeData) ~= "table" then return nil end
     if refillOnly and shop and shop.travelDealRefill then
-        local refill, fallbackError = resolveOffer(shop.travelDealRefill, "optionKey", resolve)
-        if refill == nil then return nil, fallbackError end
+        local refill = copy(shop.travelDealRefill)
         local group = storeData.GroupsOf and storeData.GroupsOf[refill.slotIndex + 1]
         if type(group) ~= "table" then return nil, { checkpoint = "shop-refill-slot", expected = refill.slotIndex } end
         local wanted = { [refill.optionKey] = true }
@@ -49,8 +38,7 @@ function inventory.prepare(occurrence, args, refillOnly, resolve)
         if type(storeData.GroupsOf) ~= "table" then return nil end
         local expectedOffers = {}
         for index, rawOffer in ipairs(shop.offers or {}) do
-            local offer, fallbackError = resolveOffer(rawOffer, "optionKey", resolve)
-            if offer == nil then return nil, fallbackError end
+            local offer = copy(rawOffer)
             expectedOffers[index] = offer
             local group = storeData.GroupsOf[index]
             if type(group) ~= "table" then return nil, { checkpoint = "shop-inventory-slot", expected = index } end
@@ -65,8 +53,7 @@ function inventory.prepare(occurrence, args, refillOnly, resolve)
     if well and well.interacted then
         local byGeneration = {}
         for _, rawOffer in ipairs(well.offers or {}) do
-            local offer, fallbackError = resolveOffer(rawOffer, "offerKey", resolve)
-            if offer == nil then return nil, fallbackError end
+            local offer = copy(rawOffer)
             byGeneration[offer.generationKey] = offer
         end
         local healing = byGeneration["initial:healing"]

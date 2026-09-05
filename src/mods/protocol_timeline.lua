@@ -52,18 +52,11 @@ local function validateBase(record, label)
     return timeline.lifecycle(record.window, label .. ".window")
 end
 
-local function validateFallbacks(value, label)
-    if value == nil then return true end
-    local _, errorMessage = rewards.fallbacks(value, label)
-    if errorMessage then return nil, errorMessage end
-    return true
-end
-
 local function acquisition(value, label)
     local record, errorMessage = p.exact(
         value,
         { "kind", "owner", "sourceOwner", "reward", "producerLifecycleKey", "roles", "window" },
-        { "runtimeFallbacks" },
+        {},
         label
     )
     if not record then return nil, errorMessage end
@@ -77,8 +70,6 @@ local function acquisition(value, label)
     if rewardError then return nil, rewardError end
     local _, rolesError = rewards.roles(record.roles, label .. ".roles")
     if rolesError then return nil, rolesError end
-    local _, fallbackError = validateFallbacks(record.runtimeFallbacks, label .. ".runtimeFallbacks")
-    if fallbackError then return nil, fallbackError end
     return record
 end
 
@@ -86,10 +77,11 @@ local function nemesisOutcome(value, label)
     local record, errorMessage = p.obj(value, label)
     if not record then return nil, errorMessage end
     if record.kind == "freeItem" then
-        local row, rowError = p.exact(record, { "kind" }, { "runtimeFallbacks" }, label)
+        local row, rowError = p.exact(record, { "kind", "itemGameName" }, {}, label)
         if not row then return nil, rowError end
-        local _, fallbackError = validateFallbacks(row.runtimeFallbacks, label .. ".runtimeFallbacks")
-        if fallbackError then return nil, fallbackError end
+        if not p.str(row.itemGameName, label .. ".itemGameName") then
+            return p.fail(label .. " has invalid free-item identity")
+        end
         return row
     end
     if record.kind == "goldTrade" or record.kind == "damageTrade" then
@@ -222,7 +214,7 @@ local function shopPurchase(value, label)
             "kind", "owner", "window", "offerKey", "rewardType", "sourceOwner", "reward",
             "producerLifecycleKey", "roles",
         },
-        { "runtimeFallbacks" },
+        {},
         label
     )
     if not record then return nil, errorMessage end
@@ -240,8 +232,6 @@ local function shopPurchase(value, label)
     if rewardError then return nil, rewardError end
     local _, rolesError = rewards.roles(record.roles, label .. ".roles")
     if rolesError then return nil, rolesError end
-    local _, fallbackError = validateFallbacks(record.runtimeFallbacks, label .. ".runtimeFallbacks")
-    if fallbackError then return nil, fallbackError end
     return record
 end
 
@@ -254,8 +244,6 @@ local function validateWell(record, label)
         or (record.twistResultKey ~= nil and not p.str(record.twistResultKey, label .. ".twistResultKey")) then
         return p.fail(label .. " has invalid Well outcome")
     end
-    local _, fallbackError = validateFallbacks(record.runtimeFallbacks, label .. ".runtimeFallbacks")
-    if fallbackError then return nil, fallbackError end
     return record
 end
 
@@ -266,7 +254,7 @@ local function wellPurchase(value, label)
             "kind", "owner", "window", "offerKey", "generationKey", "effect",
             "extendedDirectPurchase",
         },
-        { "twistResultKey", "runtimeFallbacks" },
+        { "twistResultKey" },
         label
     )
     if not record then return nil, errorMessage end
@@ -282,7 +270,7 @@ local function wellRefill(value, label)
     local record, errorMessage = p.exact(
         value,
         { "kind", "owner", "window", "generationKey", "offerKey", "effect" },
-        { "twistResultKey", "runtimeFallbacks" },
+        { "twistResultKey" },
         label
     )
     if not record then return nil, errorMessage end

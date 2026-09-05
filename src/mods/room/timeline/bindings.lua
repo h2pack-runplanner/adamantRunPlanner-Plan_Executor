@@ -119,13 +119,7 @@ end
 
 function bindings.payload(row)
     if row == nil then return nil end
-    return { transaction = row.transaction, detail = row.detail, realizedKey = row.realizedKey }
-end
-
-function bindings.realize(row, key)
-    if row == nil then return nil end
-    row.realizedKey = key
-    return true
+    return { transaction = row.transaction, detail = row.detail }
 end
 
 return bindings
