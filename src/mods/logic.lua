@@ -30,6 +30,7 @@ function logic.attach(module, data)
     local featureInteractionHooks = import("mods/room/timeline/feature_interactions.lua")
     local acquisitionHooks = import("mods/room/timeline/acquisitions/hooks.lua")
     local transformationHooks = import("mods/room/timeline/transformations/hooks.lua")
+    local hexTree = import("mods/hex/tree.lua")
 
     local function getState(runtime) return data.session.get(runtime) end
     local function diagnosticValue(value, depth)
@@ -63,6 +64,7 @@ function logic.attach(module, data)
         end
     end
 
+    hexTree.attach(module)
     loadoutHooks.attach(module, data, getState, report, room)
 
     timelineHooks.attach(module, data.session, getState, report, room)

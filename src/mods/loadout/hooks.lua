@@ -6,8 +6,9 @@ local function traitKey(value) return type(value) == "table" and (value.Name or 
 function hooks.attach(module, data, getState, report, room)
     local nativeFacts = import("mods/native_fact_bindings.lua")
     local chaos = import("mods/chaos.lua")
+    local hexTree = import("mods/hex/tree.lua")
     local roomCoordinator = room
-    local startDepth, equipScope, hexScope, treeScope, embryoContext = 0, nil, nil, nil, nil
+    local startDepth, equipScope, embryoContext, startingHexScope = 0, nil, nil, nil
 
     local function enforcing(runtime)
         local state = getState(runtime)
@@ -76,43 +77,14 @@ function hooks.attach(module, data, getState, report, room)
         end
         return base(values, rng)
     end)
-    module.hooks.wrap("CreateTalentTree", "run-planner-selene-tree", function(_, runtime, base, spellData)
-        if not enforcing(runtime) then return base(spellData) end
-        local prior = treeScope
-        treeScope = hexScope
-        local ok, tree = pcall(base, spellData)
-        treeScope = prior
-        if not ok then error(tree, 0) end
-        return tree
-    end)
-    module.hooks.wrap("GetRandomValue", "run-planner-selene-layout", function(_, runtime, base, values, ...)
-        if not enforcing(runtime) then return base(values, ...) end
-        if treeScope and type(values) == "table" then
-            for _, value in ipairs(values) do
-                if type(value) == "table" and value.Name == treeScope.layoutKey then return value end
-            end
-        end
-        return base(values, ...)
-    end)
-    module.hooks.wrap("RemoveRandomValue", "run-planner-selene-god-sent", function(_, runtime, base, values, ...)
-        if not enforcing(runtime) then return base(values, ...) end
-        if treeScope and type(values) == "table" then
-            local candidates = {}
-            for _, key in ipairs(treeScope.rareTalentKeys) do candidates[#candidates + 1] = key end
-            for _, key in ipairs(treeScope.epicTalentKeys) do candidates[#candidates + 1] = key end
-            if treeScope.godSent then candidates[#candidates + 1] = treeScope.godSent.olympianTalentKey end
-            for _, expected in ipairs(candidates) do
-                for index, value in ipairs(values) do
-                    if value == expected then return table.remove(values, index) end
-                end
-            end
-        end
-        return base(values, ...)
-    end)
     module.hooks.wrap("StartNewRun", "run-planner-start", function(_, runtime, base, previousRun, args)
         startDepth = startDepth + 1
         local ok, result = pcall(base, previousRun, args)
-        startDepth, hexScope = startDepth - 1, nil
+        startDepth = startDepth - 1
+        if startDepth == 0 and startingHexScope ~= nil then
+            hexTree.clear(startingHexScope)
+            startingHexScope = nil
+        end
         if not ok then error(result, 0) end
         local state = getState(runtime)
         if state ~= nil and state.state == "starting" then
@@ -125,9 +97,12 @@ function hooks.attach(module, data, getState, report, room)
         if startDepth <= 0 then return base(previousRun, args) end
         local state = getState(runtime)
         if not state.initialized then data.session.start(state, data.inbox, "starting") end
-        if state.state == "starting" then
-            local expected = state.plan and state.plan.startingLoadout
-            hexScope = expected and expected.startingHex or nil
+        local expected = state.state == "starting" and state.plan and state.plan.startingLoadout
+        local startingHex = expected and expected.startingHex or nil
+        if startingHex ~= nil then
+            startingHexScope = hexTree.prepare(startingHex, function(checkpoint, expectedValue, observed)
+                data.session.mismatch(state, checkpoint, expectedValue, observed)
+            end)
         end
         local ok, result = pcall(base, previousRun, args)
         if not ok then error(result, 0) end

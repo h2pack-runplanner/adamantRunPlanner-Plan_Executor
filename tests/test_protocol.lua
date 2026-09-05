@@ -2,9 +2,21 @@
 local lu = require("luaunit")
 local json = require("mods/json")
 local protocol = require("mods/protocol")
+local rewards = require("mods/protocol_rewards")
 
 TestProtocol = {}
 local root = "test/fixtures/execution-plan/"
+
+function TestProtocol.testSpellOfferWireRequiresCompleteTreeAndThreeOptions()
+    local offer = assert(json.decode('{"kind":"traits","giver":"SpellDrop","selected":"option1","options":[{"key":"one"},{"key":"two"},{"key":"three"}],"hexTree":{"layoutKey":"Lung","rareTalentKeys":["rare"],"epicTalentKeys":["epic"]}}'))
+    lu.assertNotNil(rewards.traitOffer(offer, "spell"))
+    local missing = assert(json.decode('{"kind":"traits","giver":"SpellDrop","selected":"option1","options":[{"key":"one"},{"key":"two"},{"key":"three"}]}'))
+    lu.assertNil(rewards.traitOffer(missing, "spell"))
+    local short = assert(json.decode('{"kind":"traits","giver":"SpellDrop","selected":"option1","options":[{"key":"one"}],"hexTree":{"layoutKey":"Lung","rareTalentKeys":["rare"],"epicTalentKeys":["epic"]}}'))
+    lu.assertNil(rewards.traitOffer(short, "spell"))
+    local foreign = assert(json.decode('{"kind":"traits","giver":"Zeus","selected":"option1","options":[{"key":"one"},{"key":"two"},{"key":"three"}],"hexTree":{"layoutKey":"Lung","rareTalentKeys":["rare"],"epicTalentKeys":["epic"]}}'))
+    lu.assertNil(rewards.traitOffer(foreign, "spell"))
+end
 
 local function decode(name)
     local file = assert(io.open(root .. name .. ".execution.json", "rb"))

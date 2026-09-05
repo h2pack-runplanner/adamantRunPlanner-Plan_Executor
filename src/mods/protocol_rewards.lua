@@ -73,6 +73,33 @@ local function concaveStoneResult(value, label)
     return p.fail(label .. ".kind is unsupported")
 end
 
+local function hexTree(value, label)
+    local tree, treeError = p.exact(value, { "layoutKey", "rareTalentKeys", "epicTalentKeys" }, { "godSent" }, label)
+    if not tree then return nil, treeError end
+    if not p.str(tree.layoutKey, label .. ".layoutKey") then return p.fail(label .. " has invalid layout") end
+    local seen = {}
+    for _, key in ipairs({ "rareTalentKeys", "epicTalentKeys" }) do
+        local rows, rowsError = p.strings(tree[key], label .. "." .. key)
+        if not rows then return nil, rowsError end
+        for _, talent in ipairs(rows) do
+            if seen[talent] then return p.fail(label .. " has duplicate talent") end
+            seen[talent] = true
+        end
+    end
+    if tree.godSent ~= nil then
+        local duo, duoError = p.exact(tree.godSent,
+            { "olympianTalentKey", "lineageTalentKey" }, {}, label .. ".godSent")
+        if not duo then return nil, duoError end
+        if not p.str(duo.olympianTalentKey, label .. ".godSent.olympianTalentKey")
+            or not p.str(duo.lineageTalentKey, label .. ".godSent.lineageTalentKey")
+            or duo.olympianTalentKey == duo.lineageTalentKey
+            or seen[duo.olympianTalentKey] or seen[duo.lineageTalentKey] then
+            return p.fail(label .. " has invalid God Sent identities")
+        end
+    end
+    return tree
+end
+
 function rewards.traitOffer(value, label)
     local record, errorMessage = p.obj(value, label)
     if not record then return nil, errorMessage end
@@ -123,7 +150,7 @@ function rewards.traitOffer(value, label)
     local row, rowError = p.exact(
         record,
         { "kind", "giver", "options", "selected" },
-        { "rejected" },
+        { "rejected", "hexTree" },
         label
     )
     if not row then return nil, rowError end
@@ -134,9 +161,20 @@ function rewards.traitOffer(value, label)
     if row.rejected ~= nil and not p.one(row.rejected, optionKeys, label .. ".rejected") then
         return p.fail(label .. " has malformed rejected option")
     end
+    if row.hexTree ~= nil then
+        local _, treeError = hexTree(row.hexTree, label .. ".hexTree")
+        if treeError then return nil, treeError end
+        if row.giver ~= "SpellDrop" then return p.fail(label .. ".hexTree requires SpellDrop") end
+    end
     local options, optionsError = p.arr(row.options, label .. ".options", 3)
     if not options then return nil, optionsError end
     if #options == 0 then return p.fail(label .. ".options must contain one to three options") end
+    if row.giver == "SpellDrop" and #options ~= 3 then
+        return p.fail(label .. ".options must contain three options for SpellDrop")
+    end
+    if row.giver == "SpellDrop" and row.hexTree == nil then
+        return p.fail(label .. ".hexTree is required for SpellDrop")
+    end
     local optionIndex = { option1 = 1, option2 = 2, option3 = 3 }
     if optionIndex[row.selected] > #options
         or (row.rejected ~= nil and optionIndex[row.rejected] > #options) then

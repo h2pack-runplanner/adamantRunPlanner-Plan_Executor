@@ -2736,6 +2736,15 @@
                 "traitOffer": {
                   "kind": "traits",
                   "giver": "SpellDrop",
+                  "hexTree": {
+                    "layoutKey": "Lung",
+                    "rareTalentKeys": ["PolymorphBossDamageTalent", "PolymorphDeathExplodeTalent"],
+                    "epicTalentKeys": ["PolymorphSandwichTalent"],
+                    "godSent": {
+                      "olympianTalentKey": "PolymorphZeusTalent",
+                      "lineageTalentKey": "OlympianSpellCountTalent"
+                    }
+                  },
                   "options": [
                     { "key": "SpellPolymorphTrait" },
                     { "key": "SpellMeteorTrait" },
@@ -3531,5 +3540,5 @@
       }
     }
   ],
-  "planFingerprint": "b47fe5fd"
+  "planFingerprint": "92423965"
 }

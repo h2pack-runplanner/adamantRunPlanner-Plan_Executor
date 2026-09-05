@@ -3,6 +3,7 @@ local native = require("mods/loadout/native")
 local session = require("mods/loadout/session")
 local roomHooks = require("mods.room.hooks")
 local loadoutHooks = require("mods/loadout/hooks")
+local hexTree = require("mods.hex.tree")
 local loadoutProtocol = require("mods/loadout/protocol")
 local json = require("mods/json")
 
@@ -39,6 +40,7 @@ local function captureLoadoutHooks(state)
         end,
     }
     local getState = type(state) == "function" and state or function() return state end
+    hexTree.attach(module)
     loadoutHooks.attach(module, { session = sessionAdapter, loadout = session, inbox = {} }, getState,
         function() end, sessionAdapter)
     _G.import = priorImport
@@ -240,16 +242,22 @@ function TestLoadoutV11.testAttachedSeleneTreeForcesOnlySpecialPools()
     state.plan.startingLoadout.weaponKey, state.plan.startingLoadout.aspectKey = "WeaponSuit", "SuitHexAspect"
     callbacks = captureLoadoutHooks(state)
     local result = callbacks.StartNewRun(nil, {}, function()
-        callbacks.CreateNewHero(nil, {}, function() return {} end, nil, {})
+        callbacks.CreateNewHero(nil, {}, function()
+            local tree = callbacks.CreateTalentTree(nil, {}, function()
+                local layout = callbacks.GetRandomValue(nil, {}, function(values) return values[1] end,
+                    { { Name = "OtherLayout" }, { Name = "ExpectedLayout" } })
+                local rare = callbacks.RemoveRandomValue(nil, {}, function(values) return table.remove(values, 1) end,
+                    { "RareOther", "RareExpected" })
+                local epic = callbacks.RemoveRandomValue(nil, {}, function(values) return table.remove(values, 1) end,
+                    { "EpicExpected" })
+                local duo = callbacks.RemoveRandomValue(nil, {}, function(values) return table.remove(values, 1) end,
+                    { "DuoExpected" })
+                return { Name = layout.Name, { { Name = rare, Rarity = "Rare" }, { Name = epic, Rarity = "Epic" }, { Name = duo }, { Name = "OlympianSpellCountTalent" }, { Name = "RepeatRare", Rarity = "Rare" } } }
+            end, _G.SpellData.MoonBeam)
+            _G.CurrentRun.Hero.SlottedSpell = { Name = "MoonBeam", Talents = tree }
+            return {}
+        end, nil, {})
         callbacks.EquipKeepsake(nil, {}, function() end, {}, "ManaOverTimeRefundKeepsake", {})
-        local tree = callbacks.CreateTalentTree(nil, {}, function()
-            local layout = callbacks.GetRandomValue(nil, {}, function(values) return values[1] end, { { Name = "OtherLayout" }, { Name = "ExpectedLayout" } })
-            local rare = callbacks.RemoveRandomValue(nil, {}, function(values) return table.remove(values, 1) end, { "RareOther", "RareExpected" })
-            local epic = callbacks.RemoveRandomValue(nil, {}, function(values) return table.remove(values, 1) end, { "EpicExpected" })
-            local duo = callbacks.RemoveRandomValue(nil, {}, function(values) return table.remove(values, 1) end, { "DuoExpected" })
-            return { Name = layout.Name, { { Name = rare, Rarity = "Rare" }, { Name = epic, Rarity = "Epic" }, { Name = duo }, { Name = "OlympianSpellCountTalent" }, { Name = "RepeatRare", Rarity = "Rare" } } }
-        end, _G.SpellData.MoonBeam)
-        _G.CurrentRun.Hero.SlottedSpell = { Name = "MoonBeam", Talents = tree }
         return true
     end, nil, {})
     _G.GameState, _G.CurrentRun, _G.GetEquippedWeapon, _G.SpellData, _G.TraitData = priorGame, priorRun, priorWeapon, priorSpell, priorTrait
@@ -269,12 +277,18 @@ function TestLoadoutV11.testAttachedSeleneRejectsUnexpectedGodSentPair()
     state.plan.startingLoadout.weaponKey, state.plan.startingLoadout.aspectKey = "WeaponSuit", "SuitHexAspect"
     callbacks = captureLoadoutHooks(state)
     local result = callbacks.StartNewRun(nil, {}, function()
-        callbacks.CreateNewHero(nil, {}, function() return {} end, nil, {})
+        callbacks.CreateNewHero(nil, {}, function()
+            local tree = callbacks.CreateTalentTree(nil, {}, function()
+                local rare = callbacks.RemoveRandomValue(nil, {}, function(values) return table.remove(values, 1) end,
+                    { "RareExpected" })
+                local epic = callbacks.RemoveRandomValue(nil, {}, function(values) return table.remove(values, 1) end,
+                    { "EpicExpected" })
+                return { Name = "ExpectedLayout", { { Name = rare }, { Name = epic }, { Name = "UnexpectedDuo" }, { Name = "OlympianSpellCountTalent" } } }
+            end, _G.SpellData.MoonBeam)
+            _G.CurrentRun.Hero.SlottedSpell = { Name = "MoonBeam", Talents = tree }
+            return {}
+        end, nil, {})
         callbacks.EquipKeepsake(nil, {}, function() end, {}, "ManaOverTimeRefundKeepsake", {})
-        local tree = callbacks.CreateTalentTree(nil, {}, function()
-            return { Name = "ExpectedLayout", { { Name = "RareExpected" }, { Name = "EpicExpected" }, { Name = "UnexpectedDuo" }, { Name = "OlympianSpellCountTalent" } } }
-        end, _G.SpellData.MoonBeam)
-        _G.CurrentRun.Hero.SlottedSpell = { Name = "MoonBeam", Talents = tree }
         return true
     end, nil, {})
     _G.GameState, _G.CurrentRun, _G.GetEquippedWeapon, _G.SpellData, _G.TraitData = priorGame, priorRun, priorWeapon, priorSpell, priorTrait
