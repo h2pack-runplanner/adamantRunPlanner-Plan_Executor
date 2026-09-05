@@ -1,7 +1,8 @@
 -- Structural room-feature realization and proof. Native inventories remain
 -- feature-owned; purchases and acquired effects remain Timeline-owned.
-local bindings = type(import) == "function" and import("mods/room/features/native_bindings.lua")
-    or require("mods.room.features.native_bindings")
+local nativeBindings = type(import) == "function" and import("mods/native_bindings.lua")
+    or require("mods.native_bindings")
+local bindings = nativeBindings.roomFeatures
 local features = {}
 
 local function hasObstacle(context, functionName)

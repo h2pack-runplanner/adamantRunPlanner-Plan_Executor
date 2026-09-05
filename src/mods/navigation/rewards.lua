@@ -1,7 +1,8 @@
 -- Stateless realization and proof for the reward delivered by a route entry or
 -- selected Door. Generated acquisition overrides are supplied by their owner.
-local bindings = type(import) == "function" and import("mods/navigation/native_bindings.lua")
-    or require("mods.navigation.native_bindings")
+local nativeBindings = type(import) == "function" and import("mods/native_bindings.lua")
+    or require("mods.native_bindings")
+local bindings = nativeBindings.navigation
 local rewards = {}
 
 local function rewardName(value)

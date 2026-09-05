@@ -6,8 +6,9 @@ local features = require("mods.room.features.structure")
 local rewards = require("mods.navigation.rewards")
 local doors = require("mods.navigation.doors")
 local navigationHooks = require("mods.navigation.hooks")
-local featureBindings = require("mods.room.features.native_bindings")
-local rewardBindings = require("mods.navigation.native_bindings")
+local nativeBindings = require("mods.native_bindings")
+local featureBindings = nativeBindings.roomFeatures
+local rewardBindings = nativeBindings.navigation
 
 TestRoomNavigationStructure = {}
 

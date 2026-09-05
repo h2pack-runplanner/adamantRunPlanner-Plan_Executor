@@ -3,8 +3,8 @@
 -- item bindings; this module owns purchases, sales, uses, and acquired effects.
 local carriers = type(import) == "function" and import("mods/room/features/store_carriers.lua")
     or require("mods.room.features.store_carriers")
-local nativeFacts = type(import) == "function" and import("mods/native_fact_bindings.lua")
-    or require("mods.native_fact_bindings")
+local nativeBindings = type(import) == "function" and import("mods/native_bindings.lua")
+    or require("mods.native_bindings")
 local aromaticPhial = type(import) == "function" and import("mods/keepsakes/aromatic_phial.lua")
     or require("mods.keepsakes.aromatic_phial")
 local hooks = {}
@@ -46,7 +46,7 @@ function hooks.attach(module, session, getState, report, room, inventoryBindings
         getState = getState,
         report = report,
         room = room,
-        phialTraitKey = nativeFacts.conformance.keepsakeTraits.phial,
+        phialTraitKey = nativeBindings.conformance.keepsakeTraits.phial,
     })
 
     module.hooks.wrap("HandleStorePurchase", "run-planner-store-purchase", function(_, runtime, base, screen,

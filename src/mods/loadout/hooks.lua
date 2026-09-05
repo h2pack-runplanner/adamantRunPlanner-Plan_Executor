@@ -2,13 +2,13 @@
 local hooks = {}
 
 function hooks.attach(module, data, getState, report, room)
-    local nativeFacts = import("mods/native_fact_bindings.lua")
+    local nativeBindings = import("mods/native_bindings.lua")
     local hexTree = import("mods/hex/tree.lua")
     local roomCoordinator = room
     local startDepth, startingHexScope = 0, nil
 
     local equipResults = import("mods/keepsakes/equip_results.lua").attach(module, {
-        contacts = nativeFacts.keepsakeEquipContacts,
+        contacts = nativeBindings.keepsakeEffects.equipContacts,
         enforcing = function(runtime)
             local state = getState(runtime)
             return state ~= nil and (state.state == "synchronized"

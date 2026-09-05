@@ -2,9 +2,9 @@
 -- ownership into the already-decoded expected shape; they do not reconstruct
 -- planner chronology or action provenance.
 local chaos = type(import) == "function" and import("mods/chaos.lua") or require("mods/chaos")
-local nativeFacts = type(import) == "function" and import("mods/native_fact_bindings.lua")
-    or require("mods/native_fact_bindings")
-local conformanceBindings = nativeFacts.conformance
+local nativeBindings = type(import) == "function" and import("mods/native_bindings.lua")
+    or require("mods.native_bindings")
+local conformanceBindings = nativeBindings.conformance
 local keepsakeConformance = type(import) == "function" and import("mods/keepsakes/conformance.lua")
     or require("mods.keepsakes.conformance")
 local readers = {}
