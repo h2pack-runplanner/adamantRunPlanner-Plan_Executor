@@ -1,12 +1,7 @@
 -- Boss lifecycle and its encounter-owned automatic Arcana outcomes.
 local boss = {}
-
-local function contains(values, expected)
-    for _, value in ipairs(values or {}) do
-        if value == expected then return true end
-    end
-    return false
-end
+local arcana = type(import) == "function" and import("mods/keepsakes/crystal_figurine.lua")
+    or require("mods.keepsakes.crystal_figurine")
 
 function boss.attach(module, session, getState, report, room)
     local bossScope
@@ -39,16 +34,12 @@ function boss.attach(module, session, getState, report, room)
         local payload = handle and room.begin(bossScope.state, handle) or nil
         if payload == nil then return base(count, args) end
         local prior = arcanaQueue
-        arcanaQueue = {
-            keys = payload.transaction.arcanaKeys,
-            index = 1,
-            admitCastCount = contains(payload.transaction.arcanaKeys, "CastCount"),
-        }
+        arcanaQueue = arcana.begin(payload.transaction)
         local ok, result = pcall(base, count, args)
         local consumed = arcanaQueue
         arcanaQueue = prior
         if not ok then error(result, 0) end
-        if consumed.index <= #(payload.transaction.arcanaKeys or {}) then
+        if not arcana.complete(consumed) then
             session.mismatch(bossScope.state, "boss-arcana-selection",
                 payload.transaction.arcanaKeys, consumed.index)
         else
@@ -60,25 +51,14 @@ function boss.attach(module, session, getState, report, room)
 
     module.hooks.wrap("RandomChance", "run-planner-boss-arcana-admission", function(_, _, base,
         chance, ...)
-        if arcanaQueue and arcanaQueue.admitCastCount and
-            not arcanaQueue.castCountAdmissionConsumed and arcanaQueue.index == 1 then
-            arcanaQueue.castCountAdmissionConsumed = true
-            return true
-        end
+        local forced = arcana.admitCastCount(arcanaQueue)
+        if forced ~= nil then return forced end
         return base(chance, ...)
     end)
 
     module.hooks.wrap("RemoveRandomValue", "run-planner-boss-arcana-selection", function(_, _, base, values)
-        if arcanaQueue and arcanaQueue.keys[arcanaQueue.index] then
-            local key = arcanaQueue.keys[arcanaQueue.index]
-            for index, value in ipairs(values or {}) do
-                if value == key then
-                    table.remove(values, index)
-                    arcanaQueue.index = arcanaQueue.index + 1
-                    return value
-                end
-            end
-        end
+        local selected = arcana.select(arcanaQueue, values)
+        if selected ~= nil then return selected end
         return base(values)
     end)
 end

@@ -6,6 +6,8 @@ local chaos = type(import) == "function" and import("mods/room/timeline/acquisit
     or require("mods.room.timeline.acquisitions.traits.chaos")
 local seaStar = type(import) == "function" and import("mods/room/timeline/acquisitions/sea_star.lua")
     or require("mods.room.timeline.acquisitions.sea_star")
+local concaveStoneModule = type(import) == "function" and import("mods/keepsakes/concave_stone.lua")
+    or require("mods.keepsakes.concave_stone")
 
 local hooks = {}
 
@@ -30,16 +32,9 @@ function hooks.attach(module, session, getState, report, room)
     local targetedAcquisitionPending = {}
     local activeTargetedAcquisition = nil
     local activeTargetedRarity = nil
-    local concaveStonePending = {}
-    local failedConcaveStoneHandles = {}
-    local activeConcaveStone = nil
-
-    local function discardConcaveStone(pending)
-        if pending == nil then return end
-        concaveStonePending[pending.handle] = nil
-        if pending.failed then failedConcaveStoneHandles[pending.handle] = true end
-        if activeConcaveStone == pending then activeConcaveStone = nil end
-    end
+    local concaveStone = concaveStoneModule.create({
+        module = module, session = session, getState = getState, room = room, ordinary = ordinary,
+    })
 
     local function scopeIsCurrent(state, pending)
         return pending ~= nil and pending.context == room.current(state) and state.state == "synchronized"
@@ -48,15 +43,7 @@ function hooks.attach(module, session, getState, report, room)
     -- C1 remains the only terminal. D3/D4 and Concave Stone merely delay it
     -- while their bounded native callbacks are still in flight.
     local function completeOuter(state, handle)
-        if failedConcaveStoneHandles[handle] then return end
-        local stone = concaveStonePending[handle]
-        if stone ~= nil then
-            if stone.failed or not stone.outerReturned or not stone.rollConsumed then return end
-            if stone.result.kind == "proc" and not stone.residualReturned then return end
-            failedConcaveStoneHandles[handle] = nil
-            discardConcaveStone(stone)
-        end
-        session.complete(state, handle)
+        concaveStone.completeOuter(state, handle)
     end
 
     local function discardPending(pending)
@@ -225,74 +212,11 @@ function hooks.attach(module, session, getState, report, room)
         end
     end
 
-    local function steerConcaveStoneResidual(runtime, base, candidates, rng)
-        local pending = activeConcaveStone
-        if pending == nil or pending.result.kind ~= "proc" or not pending.rollConsumed
-            or pending.residualButton ~= nil then
-            return base(candidates, rng)
-        end
-        local state = getState(runtime)
-        if not scopeIsCurrent(state, pending) then
-            pending.failed = true
-            discardConcaveStone(pending)
-            return base(candidates, rng)
-        end
-        local expected = ordinary.optionForOptionKey(pending.payload, pending.result.optionKey)
-        local expectedKey = expected and expected.key or nil
-        local sawButton, selected = false, nil
-        for _, candidate in pairs(candidates or {}) do
-            if type(candidate) == "table" and type(candidate.Data) == "table" then
-                sawButton = true
-                if candidate.Data.Name == expectedKey then selected = candidate end
-            end
-        end
-        if not sawButton then return base(candidates, rng) end
-        if selected == nil then
-            pending.failed = true
-            discardConcaveStone(pending)
-            session.mismatch(state, "concave-stone-residual", expectedKey, "native-ineligible")
-            return base(candidates, rng)
-        end
-        pending.residualButton = selected
-        return selected
-    end
-
-    module.hooks.wrap("HasHeroTraitValue", "run-planner-scope-concave-stone-roll", function(_, runtime, base,
-        traitName, ...)
-        local result = base(traitName, ...)
-        local pending = activeConcaveStone
-        if pending == nil or traitName ~= "DoubleBoonChance" then return result end
-        local state = getState(runtime)
-        if not scopeIsCurrent(state, pending) then
-            pending.failed = true
-            discardConcaveStone(pending)
-        else
-            pending.rollTraitObserved = true
-        end
-        return result
-    end)
-
-    module.hooks.wrap("RandomChance", "run-planner-steer-concave-stone-roll", function(_, runtime, base,
-        chance, args)
-        local pending = activeConcaveStone
-        if pending == nil or not pending.rollTraitObserved or pending.rollConsumed then
-            return base(chance, args)
-        end
-        local state = getState(runtime)
-        if not scopeIsCurrent(state, pending) then
-            pending.failed = true
-            discardConcaveStone(pending)
-            return base(chance, args)
-        end
-        pending.rollConsumed = true
-        return pending.result.kind == "proc"
-    end)
-
     module.hooks.wrap("GetRandomValue", "run-planner-steer-all-together", function(_, runtime, base,
         candidates, rng)
         local active = activeAllTogether
         local setKey = active and setForCandidates(active, candidates) or nil
-        if setKey == nil then return steerConcaveStoneResidual(runtime, base, candidates, rng) end
+        if setKey == nil then return concaveStone.steerResidual(runtime, base, candidates, rng) end
         local state = getState(runtime)
         local expected = active.result[setKey]
         if ordinary.isNull(expected) then
@@ -567,22 +491,9 @@ function hooks.attach(module, session, getState, report, room)
         local seaStarScope = seaStar.scope(state, payload)
         local nested = type(args) == "table" and args.DoubleBoonChance == true
         if nested then
-            local stone = activeConcaveStone
-            if stone == nil then return base(screen, button, args) end
-            if not scopeIsCurrent(state, stone) then
-                stone.failed = true
-                discardConcaveStone(stone)
-                return base(screen, button, args)
-            end
-            local expected = stone.result.kind == "proc"
-                and ordinary.optionForOptionKey(stone.payload, stone.result.optionKey) or nil
-            if stone.failed or not stone.rollConsumed or expected == nil or button ~= stone.residualButton
-                or selected ~= expected.key then
-                stone.failed = true
-                discardConcaveStone(stone)
-                session.mismatch(state, "concave-stone-residual", expected and expected.key or nil, selected)
-                return base(screen, button, args)
-            end
+            local stone = concaveStone.active()
+            local valid, pending = concaveStone.validateResidual(state, button, selected)
+            if valid == nil or not valid then return base(screen, button, args) end
             local pendingForSelection, naturalSelectionForSelection,
                 targetedAcquisitionForSelection = consequenceScopes(
                 payload, loot, offer, selected, handle, current)
@@ -590,10 +501,10 @@ function hooks.attach(module, session, getState, report, room)
                 naturalSelectionForSelection, targetedAcquisitionForSelection)
             if not ok then
                 stone.failed = true
-                discardConcaveStone(stone)
+                concaveStone.discard(stone)
                 error(result, 0)
             end
-            stone.residualReturned = true
+            concaveStone.markResidualReturned(pending)
             settleSelection(
                 state,
                 payload,
@@ -624,19 +535,7 @@ function hooks.attach(module, session, getState, report, room)
         local concaveResult = ordinary.concaveStoneResult(payload)
         local stone = nil
         if concaveResult ~= nil then
-            stone = {
-                handle = handle,
-                context = current,
-                payload = payload,
-                result = concaveResult,
-                outerReturned = false,
-                rollTraitObserved = false,
-                rollConsumed = false,
-                residualReturned = concaveResult.kind == "noProc",
-            }
-            concaveStonePending[handle] = stone
-            failedConcaveStoneHandles[handle] = nil
-            activeConcaveStone = stone
+            stone = concaveStone.begin(handle, current, payload, concaveResult)
         end
         local ok, result = pcall(function()
             return seaStar.call(seaStarScope, function()
@@ -644,26 +543,15 @@ function hooks.attach(module, session, getState, report, room)
                     targetedAcquisitionForSelection)
             end, session.mismatch)
         end)
-        if activeConcaveStone == stone then activeConcaveStone = nil end
         if not ok then
             if stone ~= nil then
                 stone.failed = true
-                discardConcaveStone(stone)
+                concaveStone.discard(stone)
             end
             error(result, 0)
         end
         if stone ~= nil then
-            stone.outerReturned = true
-            if not stone.rollConsumed then
-                stone.failed = true
-                discardConcaveStone(stone)
-                session.mismatch(state, "concave-stone-roll", stone.result.kind, "missing")
-            elseif stone.result.kind == "proc" and not stone.residualReturned then
-                stone.failed = true
-                discardConcaveStone(stone)
-                local expected = ordinary.optionForOptionKey(payload, stone.result.optionKey)
-                session.mismatch(state, "concave-stone-residual", expected and expected.key or nil, "missing")
-            end
+            concaveStone.finishOuter(state, stone)
         end
         settleSelection(
             state,

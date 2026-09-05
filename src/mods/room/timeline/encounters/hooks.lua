@@ -7,10 +7,10 @@ local boss = type(import) == "function" and import("mods/room/timeline/encounter
     or require("mods.room.timeline.encounters.boss")
 local nemesis = type(import) == "function" and import("mods/room/timeline/encounters/nemesis.lua")
     or require("mods.room.timeline.encounters.nemesis")
-local figLeaf = type(import) == "function" and import("mods/room/timeline/encounters/fig_leaf.lua")
-    or require("mods.room.timeline.encounters.fig_leaf")
-local gorgon = type(import) == "function" and import("mods/room/timeline/encounters/gorgon.lua")
-    or require("mods.room.timeline.encounters.gorgon")
+local figLeaf = type(import) == "function" and import("mods/keepsakes/fig_leaf.lua")
+    or require("mods.keepsakes.fig_leaf")
+local gorgon = type(import) == "function" and import("mods/keepsakes/gorgon.lua")
+    or require("mods.keepsakes.gorgon")
 
 local hooks = {}
 

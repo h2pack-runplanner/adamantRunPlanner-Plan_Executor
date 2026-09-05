@@ -3,13 +3,15 @@ local lu = require("luaunit")
 local json = require("mods.json")
 local ordinary = require("mods.room.timeline.acquisitions.traits.ordinary")
 local hooks = require("mods.room.timeline.acquisitions.traits.hooks")
-local binding = require("mods.room.timeline.acquisitions.binding")
+local traitSupport = require("tests.room.ordinary_trait_support")
 
 TestOrdinaryTraits = {}
 
 local function payload(offer, disposition)
-    return { detail = { traitOffer = offer, disposition = disposition or "normal" }, transaction = {} }
+    return traitSupport.payload(offer, disposition)
 end
+
+local attached = traitSupport.attached
 
 function TestOrdinaryTraits.testInstallsBaseRarityAndFinalEffectiveLevelOnNativeCarriers()
     local row = payload({
@@ -63,60 +65,6 @@ function TestOrdinaryTraits.testOlympianHermesAndHammerShareTheNativeRowContract
         lu.assertEquals(loot.UpgradeOptions[1].ItemName, "Chosen")
         lu.assertEquals(loot.UpgradeOptions[1].Rarity, "Common")
     end
-end
-
-local function attached(offer, disposition, carrierName)
-    local callbacks, bound, begins, completed, mismatches = {}, setmetatable({}, { __mode = "k" }), 0, 0, {}
-    local activePayload
-    local module = { hooks = { wrap = function(name, _, callback) callbacks[name] = callback end } }
-    local producer, materialized = {}, {}
-    local active = { occurrence = {
-        overview = { incomingReward = { producerLifecycleKey = "incoming", rewardType = "Boon" } },
-    } }
-    local state = { state = "synchronized" }
-    local room = {
-        current = function() return active end,
-        resolve = function(_, _, contact)
-            if contact.kind == "producer" then return producer end
-            if contact.kind == "materialized" and contact.source == producer
-                and contact.gameName == (carrierName or "ApolloUpgrade") then return materialized end
-            return nil
-        end,
-        bind = function(_, _, value, native) bound[native] = value; return value end,
-        bound = function(_, _, native) return bound[native] end,
-        peek = function(_, value)
-            if value ~= materialized then return nil end
-            if activePayload == nil then
-                activePayload = payload(offer or { kind = "traits", selected = "option1", options = {
-                    { key = "ApolloAttack", rarity = "Rare" },
-                } }, disposition)
-            end
-            return activePayload
-        end,
-        begin = function(_, value)
-            if state.state ~= "synchronized" then return nil end
-            if value ~= materialized then return nil end
-            begins = begins + 1
-            if activePayload == nil then
-                activePayload = payload(offer or {
-                    kind = "traits", selected = "option1", options = {
-                        { key = "ApolloAttack", rarity = "Rare" },
-                    },
-                }, disposition)
-            end
-            return activePayload
-        end,
-    }
-    local session = {
-        complete = function() completed = completed + 1 end,
-        mismatch = function(_, checkpoint, expected, observed)
-            mismatches[#mismatches + 1] = { checkpoint = checkpoint, expected = expected, observed = observed }
-        end,
-    }
-    binding.attach(module, session, function() return state end, function() end, room)
-    hooks.attach(module, session, function() return state end, function() end, room)
-    return callbacks, function() return begins end, function() return completed end,
-        function() return mismatches end, function(value) active = value end
 end
 
 function TestOrdinaryTraits.testFailedUseLootHasNoC1BeginAndPickupBeginsTheBoundOwner()
@@ -282,144 +230,6 @@ function TestOrdinaryTraits.testQuickBuckC1CompletesWithoutWaitingForItsDelayedN
     lu.assertTrue(pendingDrop.NotRequiredPickup)
     lu.assertEquals(completed(), 1)
     lu.assertEquals(mismatches(), {})
-end
-
-local function concaveOffer(result, residual)
-    return {
-        kind = "traits",
-        selected = "option1",
-        options = {
-            { key = "Primary", concaveStoneResult = result },
-            residual or { key = "Residual" },
-            { key = "Other" },
-        },
-    }
-end
-
-local function selectConcave(callbacks, loot, candidates, nested)
-    callbacks.HandleUpgradeChoiceSelection(nil, {}, function(_, outerButton)
-        local stone = callbacks.HasHeroTraitValue(nil, {}, function()
-            return { Uses = 1, DoubleBoonChance = 0.75 }
-        end, "DoubleBoonChance")
-        if callbacks.RandomChance(nil, {}, function() return false end, stone.DoubleBoonChance, {}) then
-            local nextButton = callbacks.GetRandomValue(nil, {}, function(values) return values[1] end, candidates)
-            callbacks.HandleUpgradeChoiceSelection(nil, {}, nested or function() return true end,
-                {}, nextButton, { DoubleBoonChance = true })
-        end
-        return outerButton
-    end, {}, { LootData = loot, Data = { Name = "Primary" } }, {})
-end
-
-function TestOrdinaryTraits.testConcaveStoneEpicNoProcConsumesTheNativeRollBeforeTheOuterTerminal()
-    local callbacks, _, completed, mismatches = attached(concaveOffer({ kind = "noProc" }))
-    local loot = { GodLoot = true, Name = "ApolloUpgrade" }
-    callbacks.SpawnRoomReward(nil, {}, function()
-        return callbacks.CreateLoot(nil, {}, function() return loot end, {})
-    end, {}, {})
-    callbacks.HandleLootPickup(nil, {}, function() return true end, {}, loot, {})
-    selectConcave(callbacks, loot, {})
-    lu.assertEquals(completed(), 1)
-    lu.assertEquals(mismatches(), {})
-end
-
-function TestOrdinaryTraits.testConcaveStoneEpicProcForcesItsExactResidualButton()
-    local callbacks, _, completed, mismatches = attached(concaveOffer({ kind = "proc", optionKey = "option2" }))
-    local loot = { GodLoot = true, Name = "ApolloUpgrade" }
-    callbacks.SpawnRoomReward(nil, {}, function()
-        return callbacks.CreateLoot(nil, {}, function() return loot end, {})
-    end, {}, {})
-    callbacks.HandleLootPickup(nil, {}, function() return true end, {}, loot, {})
-    local residual = { LootData = loot, Data = { Name = "Residual" } }
-    selectConcave(callbacks, loot, { { LootData = loot, Data = { Name = "Other" } }, residual })
-    lu.assertEquals(mismatches(), {})
-    lu.assertEquals(completed(), 1)
-    lu.assertEquals(mismatches(), {})
-end
-
-function TestOrdinaryTraits.testConcaveStoneForcedHeroicProcOverridesOnlyTheNativeRoll()
-    local callbacks, _, completed, mismatches = attached(concaveOffer({ kind = "proc", optionKey = "option2" }))
-    local loot = { GodLoot = true, Name = "ApolloUpgrade" }
-    callbacks.SpawnRoomReward(nil, {}, function()
-        return callbacks.CreateLoot(nil, {}, function() return loot end, {})
-    end, {}, {})
-    callbacks.HandleLootPickup(nil, {}, function() return true end, {}, loot, {})
-    selectConcave(callbacks, loot, { { LootData = loot, Data = { Name = "Residual" } } })
-    lu.assertEquals(mismatches(), {})
-    lu.assertEquals(completed(), 1)
-    lu.assertEquals(mismatches(), {})
-end
-
-function TestOrdinaryTraits.testConcaveResidualAllTogetherStaysWithinTheOuterC1Scope()
-    local callbacks, _, completed, mismatches = attached(concaveOffer(
-        { kind = "proc", optionKey = "option2" },
-        { key = "AllElementalBoon", allTogetherResult = {
-            earth = "Earth", fire = json.null, air = json.null, water = json.null,
-        } }
-    ))
-    local loot = { GodLoot = true, Name = "ApolloUpgrade" }
-    callbacks.SpawnRoomReward(nil, {}, function()
-        return callbacks.CreateLoot(nil, {}, function() return loot end, {})
-    end, {}, {})
-    callbacks.HandleLootPickup(nil, {}, function() return true end, {}, loot, {})
-    local residual = { LootData = loot, Data = { Name = "AllElementalBoon" } }
-    selectConcave(callbacks, loot, { residual }, function(_, nestedButton)
-        callbacks.GrantBoons(nil, {}, function(args)
-            lu.assertEquals(callbacks.GetRandomValue(nil, {}, function(values) return values[1] end,
-                args.BoonSets[1]), "Earth")
-        end, { BoonSets = { { "OtherEarth", "Earth" }, {}, {}, {} } }, nestedButton.Data)
-        lu.assertEquals(completed(), 0)
-        return true
-    end)
-    lu.assertEquals(completed(), 1)
-    lu.assertEquals(mismatches(), {})
-end
-
-function TestOrdinaryTraits.testConcaveMissingOrUnavailableResidualLeavesOuterIncompleteAndCleansScope()
-    local callbacks, _, completed, mismatches = attached(concaveOffer({ kind = "proc", optionKey = "option2" }))
-    local loot = { GodLoot = true, Name = "ApolloUpgrade" }
-    callbacks.SpawnRoomReward(nil, {}, function()
-        return callbacks.CreateLoot(nil, {}, function() return loot end, {})
-    end, {}, {})
-    callbacks.HandleLootPickup(nil, {}, function() return true end, {}, loot, {})
-    selectConcave(callbacks, loot, { { LootData = loot, Data = { Name = "Other" } } })
-    lu.assertEquals(completed(), 0)
-    lu.assertEquals(mismatches()[1].checkpoint, "concave-stone-residual")
-    lu.assertFalse(callbacks.RandomChance(nil, {}, function() return false end, 1, {}))
-end
-
-function TestOrdinaryTraits.testConcaveMissingNativeRollLeavesOuterIncompleteAndCleansScope()
-    local callbacks, _, completed, mismatches = attached(concaveOffer({ kind = "noProc" }))
-    local loot = { GodLoot = true, Name = "ApolloUpgrade" }
-    callbacks.SpawnRoomReward(nil, {}, function()
-        return callbacks.CreateLoot(nil, {}, function() return loot end, {})
-    end, {}, {})
-    callbacks.HandleLootPickup(nil, {}, function() return true end, {}, loot, {})
-    callbacks.HandleUpgradeChoiceSelection(nil, {}, function() return true end,
-        {}, { LootData = loot, Data = { Name = "Primary" } }, {})
-    lu.assertEquals(completed(), 0)
-    lu.assertEquals(mismatches()[1].checkpoint, "concave-stone-roll")
-    lu.assertFalse(callbacks.RandomChance(nil, {}, function() return false end, 1, {}))
-end
-
-function TestOrdinaryTraits.testConcaveNativeErrorClearsItsScopeWithoutCompletingC1()
-    local callbacks, _, completed = attached(concaveOffer({ kind = "noProc" }))
-    local loot = { GodLoot = true, Name = "ApolloUpgrade" }
-    callbacks.SpawnRoomReward(nil, {}, function()
-        return callbacks.CreateLoot(nil, {}, function() return loot end, {})
-    end, {}, {})
-    callbacks.HandleLootPickup(nil, {}, function() return true end, {}, loot, {})
-    local ok = pcall(function()
-        callbacks.HandleUpgradeChoiceSelection(nil, {}, function()
-            local stone = callbacks.HasHeroTraitValue(nil, {}, function()
-                return { Uses = 1, DoubleBoonChance = 0.75 }
-            end, "DoubleBoonChance")
-            callbacks.RandomChance(nil, {}, function() return false end, stone.DoubleBoonChance, {})
-            error("native selection failure")
-        end, {}, { LootData = loot, Data = { Name = "Primary" } }, {})
-    end)
-    lu.assertFalse(ok)
-    lu.assertEquals(completed(), 0)
-    lu.assertFalse(callbacks.RandomChance(nil, {}, function() return false end, 1, {}))
 end
 
 local function beginAllTogether(callbacks)

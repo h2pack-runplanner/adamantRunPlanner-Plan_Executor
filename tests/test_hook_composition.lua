@@ -15,6 +15,7 @@ local npcAcquisitions = require("mods.room.timeline.acquisitions.npc.hooks")
 local mysteryAcquisitions = require("mods.room.timeline.acquisitions.mystery.hooks")
 local featureInventoryHooks = require("mods.room.features.inventory_hooks")
 local featureInteractionHooks = require("mods.room.timeline.feature_interactions")
+local loadoutHooks = require("mods/loadout/hooks")
 local logic = require("mods/logic")
 
 TestHookComposition = {}
@@ -1379,6 +1380,12 @@ function TestHookComposition.testExplicitGateBHookGroupsStayInstalled()
     local session = stub()
     local getState, report = function() end, function() end
     local route = { expected = function() end, reportDestination = function() return true end }
+    local priorImport = _G.import
+    _G.import = function(path)
+        return require((path:gsub("%.lua$", ""):gsub("/", ".")))
+    end
+    loadoutHooks.attach(module, { session = session, loadout = {} }, getState, report, session)
+    _G.import = priorImport
     acquisitions.attach(module, session, getState, report, session)
     local transformationScope = transformations.attach(module, session, getState, report, session)
     local featureScope = roomFeatureHooks.attach(module, session, getState, report, session)
@@ -1403,6 +1410,36 @@ function TestHookComposition.testExplicitGateBHookGroupsStayInstalled()
     end
     lu.assertNil(names.GoldifyPresentation)
     lu.assertNil(names.SetTransformingTraitsOnLoot)
+end
+
+function TestHookComposition.testKeepsakeAdaptersAreInstalledOnceAtTheirCarrierBoundaries()
+    local module, names = capture()
+    local session = stub()
+    local priorImport = _G.import
+    _G.import = function(path)
+        return require((path:gsub("%.lua$", ""):gsub("/", ".")))
+    end
+    loadoutHooks.attach(module, { session = session, loadout = {} }, function() end, function() end, session)
+    _G.import = priorImport
+    encounterHooks.attach(module, session, function() end, function() end, session)
+    traitAcquisitions.attach(module, session, function() end, function() end, session)
+
+    local expected = {
+        { "GiveDurationHammer", "run-planner-equip-hammer" },
+        { "AddRandomMetaUpgrades", "run-planner-boss-arcana" },
+        { "AddRandomChaosBlessing", "run-planner-equip-embryo-result" },
+        { "AddRandomChaosBlessing", "run-planner-embryo" },
+        { "GetProcessedTraitData", "run-planner-equip-embryo-values" },
+        { "GetProcessedTraitData", "run-planner-embryo-values" },
+        { "AthenaUse", "run-planner-gorgon-athena-use" },
+        { "HandleEncounterPreSpawns", "run-planner-fig-leaf-pre-spawns" },
+        { "HandleEnemySpawns", "run-planner-fig-leaf-enemy-spawns" },
+        { "HasHeroTraitValue", "run-planner-scope-concave-stone-roll" },
+        { "RandomChance", "run-planner-steer-concave-stone-roll" },
+    }
+    for _, item in ipairs(expected) do
+        lu.assertEquals(names[item[1]][item[2]], true, item[1] .. ":" .. item[2])
+    end
 end
 
 function TestHookComposition.testMismatchStopsEnforcementWithoutBlockingNativeRoomFlow()
