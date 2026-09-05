@@ -121,7 +121,7 @@ local function minimalPlan(transactions)
     end
     local plan = tagged({
         format = "run-planner-execution",
-        protocolVersion = 18,
+        protocolVersion = 19,
         catalogVersion = "0.54.0-required-boss-rewards",
         projectId = "test-project",
         planFingerprint = "00000000",
@@ -287,6 +287,27 @@ function TestProtocol.testCirceResolutionIsClosedAndBelongsOnlyToTheSelectedCirc
     lu.assertNil(rewards.traitOffer(tagged(offer), "offer"))
 end
 
+function TestProtocol.testIcarusHammerTargetBelongsOnlyToSelectedLatestModel()
+    local offer = traitOffer()
+    offer.giver = "Icarus"
+    offer.options[1].key = "UpgradeHammerBoon"
+    offer.options[1].icarusHammerTarget = "StaffDoubleAttackTrait"
+    lu.assertNotNil(rewards.traitOffer(tagged(offer), "offer"))
+
+    offer.options[1].icarusHammerTarget = 3
+    lu.assertNil(rewards.traitOffer(tagged(offer), "offer"))
+    offer.options[1].icarusHammerTarget = "StaffDoubleAttackTrait"
+    offer.options[1].key = "IcarusUpgradeBoon"
+    lu.assertNil(rewards.traitOffer(tagged(offer), "offer"))
+    offer.options[1].key = "UpgradeHammerBoon"
+    offer.giver = "Circe"
+    lu.assertNil(rewards.traitOffer(tagged(offer), "offer"))
+    offer.giver = "Icarus"
+    offer.options[1].icarusHammerTarget = nil
+    offer.options[2].icarusHammerTarget = "StaffDoubleAttackTrait"
+    lu.assertNil(rewards.traitOffer(tagged(offer), "offer"))
+end
+
 function TestProtocol.testTimePieceDispositionIsNotPublished()
     local value = minimalPlan({ {
         kind = "acquisition",
@@ -331,7 +352,7 @@ function TestProtocol.testAllGateA2VectorsDecodeAndExpandDiagnostics()
     for _, name in ipairs({ "f-opening", "fg", "fg-ixion-chaos", "fg-anomaly", "automatic-boss" }) do
         local plan, errorMessage = protocol.decode(decode(name))
         lu.assertNotNil(plan, errorMessage)
-        lu.assertEquals(plan.protocolVersion, 18)
+        lu.assertEquals(plan.protocolVersion, 19)
         lu.assertNotNil(plan.occurrences[1].diagnostics.roomEntered)
     end
 end

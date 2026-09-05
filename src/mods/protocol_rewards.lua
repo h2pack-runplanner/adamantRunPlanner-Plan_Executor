@@ -213,7 +213,8 @@ function rewards.traitOffer(value, label)
             { "key" },
             {
                 "baseRarity", "rarity", "effectiveLevel", "allTogetherResult",
-                "naturalSelectionTargets", "concaveStoneResult", "circeResolution", "replacement",
+                "naturalSelectionTargets", "concaveStoneResult", "circeResolution",
+                "icarusHammerTarget", "replacement",
             },
             label .. ".options[" .. index .. "]"
         )
@@ -265,6 +266,18 @@ function rewards.traitOffer(value, label)
             end
             if index ~= optionIndex[row.selected] then
                 return p.fail(label .. ".options[" .. index .. "].circeResolution must belong to selected option")
+            end
+        end
+        if option.icarusHammerTarget ~= nil then
+            if not p.str(option.icarusHammerTarget,
+                label .. ".options[" .. index .. "].icarusHammerTarget") then
+                return p.fail(label .. ".options[" .. index .. "] has invalid Icarus Hammer target")
+            end
+            if row.giver ~= "Icarus" or option.key ~= "UpgradeHammerBoon" then
+                return p.fail(label .. ".options[" .. index .. "].icarusHammerTarget requires Icarus Latest Model")
+            end
+            if index ~= optionIndex[row.selected] then
+                return p.fail(label .. ".options[" .. index .. "].icarusHammerTarget must belong to selected option")
             end
         end
     end

@@ -1,4 +1,4 @@
--- Strict protocol-v18 composition. Fact-family modules validate closed wire
+-- Strict execution-protocol composition. Fact-family modules validate closed wire
 -- shapes; this root owns only the execution-plan envelope and derived indexes.
 local p = type(import) == "function" and import("mods/protocol_primitives.lua")
     or require("mods/protocol_primitives")
@@ -11,7 +11,7 @@ local loadout = type(import) == "function" and import("mods/loadout/protocol.lua
 
 local protocol = {
     FORMAT = "run-planner-execution",
-    VERSION = 18,
+    VERSION = 19,
     CATALOG_VERSION = "0.54.0-required-boss-rewards",
     MAX_ITEMS = p.MAX_ITEMS,
     MAX_STRING = p.MAX_STRING,
