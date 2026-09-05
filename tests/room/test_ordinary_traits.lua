@@ -65,7 +65,7 @@ function TestOrdinaryTraits.testOlympianHermesAndHammerShareTheNativeRowContract
     end
 end
 
-local function attached(offer, disposition)
+local function attached(offer, disposition, carrierName)
     local callbacks, bound, begins, completed, mismatches = {}, setmetatable({}, { __mode = "k" }), 0, 0, {}
     local activePayload
     local module = { hooks = { wrap = function(name, _, callback) callbacks[name] = callback end } }
@@ -79,7 +79,7 @@ local function attached(offer, disposition)
         resolve = function(_, _, contact)
             if contact.kind == "producer" then return producer end
             if contact.kind == "materialized" and contact.source == producer
-                and contact.gameName == "ApolloUpgrade" then return materialized end
+                and contact.gameName == (carrierName or "ApolloUpgrade") then return materialized end
             return nil
         end,
         bind = function(_, _, value, native) bound[native] = value; return value end,
@@ -254,6 +254,34 @@ function TestOrdinaryTraits.testConcaveNestedSelectionDoesNotCompletePrimary()
     local button = { LootData = loot, Data = { Name = "ApolloAttack" } }
     callbacks.HandleUpgradeChoiceSelection(nil, {}, function() return true end, {}, button, { DoubleBoonChance = true })
     lu.assertEquals(completed(), 0)
+end
+
+function TestOrdinaryTraits.testQuickBuckC1CompletesWithoutWaitingForItsDelayedNativePickup()
+    local callbacks, _, completed, mismatches = attached({
+        kind = "traits", selected = "option1", options = { { key = "MoneyMultiplierBoon" } },
+    }, nil, "HermesUpgrade")
+    lu.assertNil(callbacks.GiveRandomConsumables)
+    local loot = { GodLoot = true, Name = "HermesUpgrade" }
+    callbacks.SpawnRoomReward(nil, {}, function()
+        return callbacks.CreateLoot(nil, {}, function() return loot end, {})
+    end, {}, {})
+    callbacks.HandleLootPickup(nil, {}, function() return true end, {}, loot, {})
+    local pendingDrop
+    callbacks.HandleUpgradeChoiceSelection(nil, {}, function()
+        pendingDrop = {
+            Delay = 0.2,
+            NotRequiredPickup = true,
+            LootOptions = { { Name = "RoomMoneyDrop" } },
+        }
+        return true
+    end, {}, {
+        LootData = loot, Data = { Name = "MoneyMultiplierBoon" },
+    }, {})
+    lu.assertNotNil(pendingDrop)
+    lu.assertEquals(pendingDrop.LootOptions[1].Name, "RoomMoneyDrop")
+    lu.assertTrue(pendingDrop.NotRequiredPickup)
+    lu.assertEquals(completed(), 1)
+    lu.assertEquals(mismatches(), {})
 end
 
 local function concaveOffer(result, residual)

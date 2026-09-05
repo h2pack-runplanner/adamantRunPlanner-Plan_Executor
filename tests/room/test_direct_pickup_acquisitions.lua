@@ -121,6 +121,76 @@ function TestDirectPickupAcquisitions.testUnboundSameNameConsumableClaimsAtAccep
     lu.assertEquals(completions[1].handle, handle)
 end
 
+function TestDirectPickupAcquisitions.testUnselectedGeneratedPickupPassesThroughWithoutAnObligation()
+    local item = { Name = "RoomMoneyDrop" }
+    local module, callbacks = capture()
+    local claims, begins, completions, reports = 0, 0, 0, 0
+    local room = {
+        current = function() return { occurrence = { overview = {} } } end,
+        bound = function() return nil end,
+        claimReady = function(_, _, contact)
+            claims = claims + 1
+            lu.assertEquals(contact, { kind = "directPickup", gameName = "RoomMoneyDrop" })
+            return nil
+        end,
+        begin = function() begins = begins + 1 end,
+    }
+    local session = { complete = function() completions = completions + 1 end }
+    pickups.attach(module, session, function() return { state = "synchronized" } end,
+        function() reports = reports + 1 end, room)
+    local nativeApplied = false
+    lu.assertEquals(acceptedUse(callbacks, item, function() nativeApplied = true end), "native-result")
+    lu.assertTrue(nativeApplied)
+    lu.assertEquals(claims, 1)
+    lu.assertEquals(begins, 0)
+    lu.assertEquals(completions, 0)
+    lu.assertEquals(reports, 0)
+end
+
+function TestDirectPickupAcquisitions.testSameIdentityGeneratedPickupsClaimReadyActionsInUseOrder()
+    local callbacks = {}
+    local module = { hooks = { wrap = function(name, _, callback) callbacks[name] = callback end } }
+    local state, active = { state = "synchronized" }, { occurrence = { overview = {} } }
+    local rows, handles = {}, { {}, {} }
+    for index, owner in ipairs({ "buried-treasure-tiny-1", "buried-treasure-tiny-2" }) do
+        rows[index] = acquisitionRow("RoomMoneyTinyDrop")
+        rows[index].transaction.owner = owner
+    end
+    local nativeHandles, claimed, begins, completions = {}, {}, 0, {}
+    local room = {
+        current = function() return active end,
+        bound = function(_, _, native) return nativeHandles[native] end,
+        peek = function(_, handle)
+            for index, value in ipairs(handles) do if value == handle then return rows[index] end end
+        end,
+        claimReady = function(_, _, contact, native, compatible)
+            for index, row in ipairs(rows) do
+                if not claimed[index] and compatible(row.transaction, contact) ~= nil then
+                    claimed[index] = true
+                    nativeHandles[native] = handles[index]
+                    return handles[index], row
+                end
+            end
+        end,
+        begin = function(_, handle)
+            begins = begins + 1
+            for index, value in ipairs(handles) do if value == handle then return rows[index] end end
+        end,
+    }
+    local session = {
+        complete = function(_, handle) completions[#completions + 1] = handle end,
+    }
+    pickups.attach(module, session, function() return state end, function() end, room)
+
+    local firstPhysical, secondPhysical = { Name = "RoomMoneyTinyDrop" }, { Name = "RoomMoneyTinyDrop" }
+    lu.assertEquals(acceptedUse(callbacks, secondPhysical), "native-result")
+    lu.assertEquals(acceptedUse(callbacks, firstPhysical), "native-result")
+    lu.assertEquals(nativeHandles[secondPhysical], handles[1])
+    lu.assertEquals(nativeHandles[firstPhysical], handles[2])
+    lu.assertEquals(completions, { handles[1], handles[2] })
+    lu.assertEquals(begins, 2)
+end
+
 function TestDirectPickupAcquisitions.testTalentDropRemainsOwnedByInteractiveHexAdapter()
     local item = { Name = "TalentDrop", UseFunctionName = "OpenTalentScreen" }
     local callbacks, _, begins, completions = harness(acquisitionRow(item.Name), item)
