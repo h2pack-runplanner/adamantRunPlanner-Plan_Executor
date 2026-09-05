@@ -18,13 +18,20 @@ function hooks.attach(module, data, getState, report, room)
         mismatch = data.session.mismatch,
     })
 
-    local function expectedEquip(state, keepsakeKey)
+    local function expectedEquip(state, keepsakeKey, args)
         if startDepth > 0 then return state.plan and state.plan.startingKeepsake.equipResults end
         local current = roomCoordinator.current(state)
+        local replay = type(args) == "table"
+            and args.ForceRarity == "Common"
+            and args.FromLoot == true
+            and args.OverwriteSlot == true
+        local contact = replay
+            and { kind = "keepsakeReplay", keepsakeKey = keepsakeKey }
+            or { kind = "keepsake", keepsakeKey = keepsakeKey }
         local handle = current and roomCoordinator.resolve(state, current,
-            { kind = "keepsake", keepsakeKey = keepsakeKey })
+            contact)
         local payload = handle and roomCoordinator.begin(state, handle) or nil
-        return payload and payload.transaction.equipResults, handle, payload
+        return payload and payload.transaction.equipResults, handle, payload, replay
     end
     module.hooks.wrap("StartNewRun", "run-planner-start", function(_, runtime, base, previousRun, args)
         startDepth = startDepth + 1
@@ -75,14 +82,22 @@ function hooks.attach(module, data, getState, report, room)
                 return result
             end
         end
-        local expected, handle, payload = expectedEquip(state, key)
+        local expected, handle, payload, replay = expectedEquip(state, key, args)
+        local deferReplay = replay and expected ~= nil
         local result = equipResults.run(runtime, expected, function()
             return base(hero, keepsakeKey, args)
+        end, deferReplay, function(terminalRuntime)
+            local terminalState = getState(terminalRuntime)
+            if terminalState ~= nil and handle ~= nil and payload ~= nil then
+                data.session.complete(terminalState, handle)
+            end
+            report(terminalRuntime)
         end)
-        if startDepth == 0 and handle ~= nil and payload ~= nil then
+        if not deferReplay and startDepth == 0 and handle ~= nil and payload ~= nil then
             data.session.complete(state, handle)
         end
-        report(runtime); return result
+        if not deferReplay then report(runtime) end
+        return result
     end)
 end
 

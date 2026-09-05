@@ -121,7 +121,7 @@ local function minimalPlan(transactions)
     end
     local plan = tagged({
         format = "run-planner-execution",
-        protocolVersion = 20,
+        protocolVersion = 21,
         catalogVersion = "0.54.0-required-boss-rewards",
         projectId = "test-project",
         planFingerprint = "00000000",
@@ -382,7 +382,7 @@ function TestProtocol.testAllGateA2VectorsDecodeAndExpandDiagnostics()
     for _, name in ipairs({ "f-opening", "fg", "fg-ixion-chaos", "fg-anomaly", "automatic-boss" }) do
         local plan, errorMessage = protocol.decode(decode(name))
         lu.assertNotNil(plan, errorMessage)
-        lu.assertEquals(plan.protocolVersion, 20)
+        lu.assertEquals(plan.protocolVersion, 21)
         lu.assertNotNil(plan.occurrences[1].diagnostics.roomEntered)
     end
 end
@@ -652,6 +652,15 @@ function TestProtocol.testEveryTimelineTransactionUnionDecodes()
             },
         },
         {
+            kind = "keepsakeReplay",
+            owner = "echo-replay",
+            window = window("beforeCombat"),
+            keepsakeKey = "hammer",
+            equipResults = {
+                experimentalHammer = { kind = "exhausted" },
+            },
+        },
+        {
             kind = "fountainUse",
             owner = "fountain",
             window = window("postOutgoing"),
@@ -679,6 +688,61 @@ function TestProtocol.testFountainUseRequiresItsPublishedInteractionContact()
 
     value.occurrences[1].timeline.transactions[1].interactionKey = "other"
     refreshFingerprint(value)
+    lu.assertNil(protocol.decode(value))
+end
+
+function TestProtocol.testKeepsakeReplayIsAClosedBeforeCombatEquipTransaction()
+    local value = minimalPlan({ {
+        kind = "keepsakeReplay",
+        owner = "echo-replay",
+        window = window("beforeCombat"),
+        keepsakeKey = "hammer",
+        equipResults = { experimentalHammer = { kind = "exhausted" } },
+    } })
+    lu.assertNotNil(protocol.decode(value))
+
+    value.occurrences[1].timeline.transactions[1].equipResults = nil
+    refreshFingerprint(value)
+    lu.assertNil(protocol.decode(value))
+
+    value = minimalPlan({ {
+        kind = "keepsakeReplay",
+        owner = "echo-replay",
+        window = window("beforeCombat"),
+        keepsakeKey = "hammer",
+        equipResults = { jeweledPom = { traitKey = "PomTrait" } },
+    } })
+    lu.assertNil(protocol.decode(value))
+
+    value = minimalPlan({ {
+        kind = "keepsakeReplay",
+        owner = "echo-replay",
+        window = window("beforeCombat"),
+        keepsakeKey = "hammer",
+        equipResults = {
+            experimentalHammer = { kind = "exhausted" },
+            transcendentEmbryo = { blessingKey = "Blessing", blessingValues = {} },
+        },
+    } })
+    lu.assertNil(protocol.decode(value))
+
+    value = minimalPlan({ {
+        kind = "keepsakeReplay",
+        owner = "echo-replay",
+        window = window("postOutgoing"),
+        keepsakeKey = "hammer",
+        equipResults = { experimentalHammer = { kind = "exhausted" } },
+    } })
+    lu.assertNil(protocol.decode(value))
+
+    value = minimalPlan({ {
+        kind = "keepsakeReplay",
+        owner = "echo-replay",
+        window = window("beforeCombat"),
+        keepsakeKey = "hammer",
+        equipResults = { experimentalHammer = { kind = "exhausted" } },
+        extra = true,
+    } })
     lu.assertNil(protocol.decode(value))
 end
 

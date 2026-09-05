@@ -34,6 +34,26 @@ function TestNativeAdapters.testIndexesRejectAmbiguousPublishedKeys()
     lu.assertEquals(errorValue.checkpoint, "timeline-binding")
 end
 
+function TestNativeAdapters.testKeepsakeReplayUsesItsOwnCarrierNamespace()
+    local item = occurrence()
+    item.transactionsByOwner = {
+        rack = {
+            owner = "rack", kind = "keepsakeChange", keepsakeKey = "hammer",
+            window = { kind = "standard", phase = "afterCombat" },
+        },
+        replay = {
+            owner = "replay", kind = "keepsakeReplay", keepsakeKey = "hammer",
+            window = { kind = "standard", phase = "beforeCombat" },
+            equipResults = { experimentalHammer = { kind = "exhausted" } },
+        },
+    }
+    local index = assert(bindings.index(item))
+    lu.assertEquals(bindings.resolve(index, { kind = "keepsake", keepsakeKey = "hammer" }).transaction.owner,
+        "rack")
+    lu.assertEquals(bindings.resolve(index, { kind = "keepsakeReplay", keepsakeKey = "hammer" }).transaction.owner,
+        "replay")
+end
+
 function TestNativeAdapters.testExactTraitAdapterInstallsAuthoredRows()
     local row = {
         transaction = {},

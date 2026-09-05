@@ -324,6 +324,33 @@ local function keepsakeChange(value, label)
     return record
 end
 
+local function keepsakeReplay(value, label)
+    local record, errorMessage = p.exact(
+        value,
+        { "kind", "owner", "window", "keepsakeKey", "equipResults" },
+        {},
+        label
+    )
+    if not record then return nil, errorMessage end
+    local _, baseError = validateBase(record, label)
+    if baseError then return nil, baseError end
+    if not p.str(record.keepsakeKey, label .. ".keepsakeKey") then
+        return p.fail(label .. " has invalid keepsakeKey")
+    end
+    if record.window.kind ~= "standard" or record.window.phase ~= "beforeCombat" then
+        return p.fail(label .. ".window must be standard beforeCombat")
+    end
+    local _, equipError = rewards.equip(record.equipResults, label .. ".equipResults")
+    if equipError then return nil, equipError end
+    local hasHammer = record.equipResults.experimentalHammer ~= nil
+    local hasEmbryo = record.equipResults.transcendentEmbryo ~= nil
+    if (hasHammer and hasEmbryo) or (not hasHammer and not hasEmbryo)
+        or record.equipResults.jeweledPom ~= nil then
+        return p.fail(label .. ".equipResults must contain exactly one volatile replay result")
+    end
+    return record
+end
+
 local function fountainUse(value, label)
     local record, errorMessage = p.exact(
         value,
@@ -353,6 +380,7 @@ local decoders = {
     wellRefill = wellRefill,
     poolSale = poolSale,
     keepsakeChange = keepsakeChange,
+    keepsakeReplay = keepsakeReplay,
     fountainUse = fountainUse,
 }
 

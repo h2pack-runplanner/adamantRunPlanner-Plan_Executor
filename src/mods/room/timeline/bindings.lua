@@ -16,7 +16,7 @@ function bindings.index(occurrence)
     local index = {
         owner = {}, producer = {}, offer = {}, generation = {}, source = {},
         slot = {}, keepsake = {}, automatic = {}, encounterInteraction = {}, interaction = {}, produced = {},
-        materialized = {},
+        materialized = {}, keepsakeReplay = {},
     }
     for owner, transaction in pairs(occurrence.transactionsByOwner or {}) do
         index.owner[owner] = { transaction = transaction }
@@ -38,8 +38,13 @@ function bindings.index(occurrence)
         end
         ok, errorValue = add(index, "slot", transaction.slotKey, transaction)
         if not ok then return nil, errorValue end
-        ok, errorValue = add(index, "keepsake", transaction.keepsakeKey, transaction)
-        if not ok then return nil, errorValue end
+        if transaction.kind == "keepsakeChange" then
+            ok, errorValue = add(index, "keepsake", transaction.keepsakeKey, transaction)
+            if not ok then return nil, errorValue end
+        elseif transaction.kind == "keepsakeReplay" then
+            ok, errorValue = add(index, "keepsakeReplay", transaction.keepsakeKey, transaction)
+            if not ok then return nil, errorValue end
+        end
         ok, errorValue = add(index, "interaction", transaction.interactionKey, transaction)
         if not ok then return nil, errorValue end
         if transaction.kind == "automatic" then
@@ -72,6 +77,8 @@ function bindings.resolve(index, contact, source)
         return indexed(index, "encounterInteraction", contact.phaseKey)
     elseif contact.kind == "slot" then return indexed(index, "slot", contact.slotKey)
     elseif contact.kind == "keepsake" then return indexed(index, "keepsake", contact.keepsakeKey)
+    elseif contact.kind == "keepsakeReplay" then
+        return indexed(index, "keepsakeReplay", contact.keepsakeKey)
     elseif contact.kind == "interaction" then return indexed(index, "interaction", contact.interactionKey)
     elseif contact.kind == "automatic" then
         return indexed(index, "automatic", contact.effect .. "\0" .. contact.phaseKey)

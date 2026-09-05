@@ -14,16 +14,39 @@ function equipResults.attach(module, options)
     local scope
     local embryoContext
 
+    local function finishReplay(runtime, kind)
+        local active = scope
+        if active == nil or not active.defer or active.expected[kind] == nil or active.finished then
+            return
+        end
+        active.contacts[kind] = true
+        active.finished = true
+        scope = active.prior
+        for expectedKind in pairs(active.expected) do
+            if not active.contacts[expectedKind] then
+                options.mismatch(
+                    options.state(runtime),
+                    "availability:keepsakeEquipResult",
+                    expectedKind,
+                    "missing native contact"
+                )
+            end
+        end
+        if active.onTerminal ~= nil then active.onTerminal(runtime, kind) end
+    end
+
     local function wrapEquipResult(functionName, hookId, kind)
         module.hooks.wrap(functionName, hookId, function(_, runtime, base, ...)
             if not options.enforcing(runtime) then return base(...) end
             local expected = scope and scope.expected and scope.expected[kind]
             if expected == nil then return base(...) end
+            scope.contacts[kind] = true
             local priorKind = scope.kind
             scope.kind = kind
             local ok, result = pcall(base, ...)
             scope.kind = priorKind
             if not ok then error(result, 0) end
+            finishReplay(runtime, kind)
             return result
         end)
     end
@@ -74,12 +97,22 @@ function equipResults.attach(module, options)
     end)
 
     return {
-        run = function(_, expected, callback)
+        run = function(_, expected, callback, defer, onTerminal)
             local prior = scope
-            scope = { expected = expected or {} }
+            local active = {
+                expected = expected or {},
+                contacts = {},
+                defer = defer and expected ~= nil,
+                onTerminal = onTerminal,
+                prior = prior,
+            }
+            scope = active
             local ok, result = pcall(callback)
-            scope = prior
-            if not ok then error(result, 0) end
+            if not ok then
+                if scope == active then scope = prior end
+                error(result, 0)
+            end
+            if not active.defer and scope == active then scope = prior end
             return result
         end,
     }
