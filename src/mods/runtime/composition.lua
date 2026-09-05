@@ -4,14 +4,14 @@ local logic = {}
 
 function logic.bind(data, root)
     if type(root) ~= "string" or root == "" then error("executor config path is required", 2) end
-    local json = import("mods/json.lua")
+    local json = import("mods/protocol/json.lua")
     local protocol = import("mods/protocol/decoder.lua")
-    data.inbox = import("mods/inbox.lua").create(root, function(raw)
+    data.inbox = import("mods/host/inbox.lua").create(root, function(raw)
         local value, errorMessage = json.decode(raw)
         if value == nil then return nil, "malformed-json: " .. tostring(errorMessage) end
         return protocol.decode(value)
     end, rom.path)
-    data.session = import("mods/runtime_session.lua")
+    data.session = import("mods/runtime/session.lua")
     data.loadout = import("mods/loadout/session.lua")
     return logic
 end

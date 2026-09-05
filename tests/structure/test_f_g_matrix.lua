@@ -3,7 +3,7 @@
 -- that are not present in an F/G execution fixture.
 -- luacheck: globals TestFGStructureMatrix
 local lu = require("luaunit")
-local json = require("mods/json")
+local json = require("mods/protocol/json")
 local protocol = require("mods.protocol.decoder")
 local overview = require("mods.room.overview")
 local encounters = require("mods.room.timeline.encounters.phases")

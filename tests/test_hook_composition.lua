@@ -16,7 +16,7 @@ local mysteryAcquisitions = require("mods.room.timeline.acquisitions.mystery.hoo
 local featureInventoryHooks = require("mods.room.features.inventory_hooks")
 local featureInteractionHooks = require("mods.room.timeline.feature_interactions")
 local loadoutHooks = require("mods/loadout/hooks")
-local logic = require("mods/logic")
+local logic = require("mods/runtime/composition")
 
 TestHookComposition = {}
 

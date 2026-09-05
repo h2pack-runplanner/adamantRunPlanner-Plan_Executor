@@ -1,7 +1,7 @@
 -- Echo keeps its native outer menu and native effects. Only the two authored
 -- volatile results persist beyond that outer selection: the nested prior-run
 -- Boon menu and Pom's greatest-level target.
-local json = type(import) == "function" and import("mods/json.lua") or require("mods.json")
+local json = type(import) == "function" and import("mods/protocol/json.lua") or require("mods.protocol.json")
 
 local echo = {}
 

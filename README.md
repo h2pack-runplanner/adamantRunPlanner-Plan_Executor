@@ -35,6 +35,13 @@ primitive, and loadout shapes. Diagnostic frame expansion and named
 conformance-fact resolution are separate products even though both are
 consumed while decoding occurrences.
 
+Host integration lives under `src/mods/host/`: `data.lua` declares the
+ModpackLib storage and status products, `inbox.lua` owns the fixed published
+plan slot, and `status_ui.lua` renders inspection state. Runtime composition
+and the route/room execution coordinator live under `src/mods/runtime/`;
+`composition.lua` wires the module and `session.lua` coordinates the active
+route and room sessions.
+
 The sole outer cursor lives in `src/mods/route/`; one volatile occurrence
 session lives in `src/mods/room/`. `src/mods/navigation/` is stateless and owns
 only destination Doors, their rewards, native Door bindings, and reporting the

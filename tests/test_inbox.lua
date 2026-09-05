@@ -1,9 +1,9 @@
 local lu = require("luaunit")
 local lfs = require("lfs")
-local inbox = require("mods/inbox")
+local inbox = require("mods/host/inbox")
 local protocol = require("mods.protocol.decoder")
 local fixtures = require("tests/harness/fixture_loader")
-local json = require("mods/json")
+local json = require("mods/protocol/json")
 
 TestInbox = {}
 

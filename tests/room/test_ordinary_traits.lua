@@ -1,6 +1,6 @@
 -- luacheck: globals TestOrdinaryTraits
 local lu = require("luaunit")
-local json = require("mods.json")
+local json = require("mods.protocol.json")
 local ordinary = require("mods.room.timeline.acquisitions.traits.ordinary")
 local hooks = require("mods.room.timeline.acquisitions.traits.hooks")
 local traitSupport = require("tests.room.ordinary_trait_support")

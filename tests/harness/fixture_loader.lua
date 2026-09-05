@@ -1,5 +1,5 @@
 -- Test-only loader for the current producer fixture. Runtime code never uses it.
-local json = require("mods/json")
+local json = require("mods/protocol/json")
 local loader = {}
 loader.fixturePath = "test/fixtures/execution-plan/f-opening.execution.json"
 

@@ -1,6 +1,6 @@
 -- luacheck: globals TestProtocol
 local lu = require("luaunit")
-local json = require("mods/json")
+local json = require("mods/protocol/json")
 local protocol = require("mods.protocol.decoder")
 local rewards = require("mods.protocol.rewards")
 local conformance = require("mods.protocol.conformance")
@@ -69,7 +69,7 @@ local function decode(name)
 end
 
 local function decodeWithIndependentJsonModule(name)
-    local independentJson = assert(loadfile("src/mods/json.lua"))()
+    local independentJson = assert(loadfile("src/mods/protocol/json.lua"))()
     local file = assert(io.open(root .. name .. ".execution.json", "rb"))
     local value = assert(independentJson.decode(file:read("*a")))
     file:close()

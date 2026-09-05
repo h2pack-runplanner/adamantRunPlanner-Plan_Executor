@@ -5,7 +5,7 @@ local roomHooks = require("mods.room.hooks")
 local loadoutHooks = require("mods/loadout/hooks")
 local hexTree = require("mods.spells.hex_tree")
 local loadoutProtocol = require("mods.protocol.loadout")
-local json = require("mods/json")
+local json = require("mods/protocol/json")
 
 TestLoadoutV11 = {}
 

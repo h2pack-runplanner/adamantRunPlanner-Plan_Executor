@@ -724,7 +724,7 @@ end
 function TestNpcAcquisitions.testEchoPomJsonNullCompletesWithoutSteeringNativeSelection()
     local selected = "EchoDoubleLevelBoon"
     local outer = offer("Echo", selected)
-    outer.options[2].echoPomTarget = require("mods/json").null
+    outer.options[2].echoPomTarget = require("mods/protocol/json").null
     local callbacks, source, _, _, _, _, _, _, mismatches, completions, finish = harness(
         "Echo", selected, { offer = outer })
     local args = { UpgradeOptions = {

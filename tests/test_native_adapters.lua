@@ -169,7 +169,7 @@ function TestNativeAdapters.testReachableReadersProjectNativeState()
     local keepsakes = readers.read("keepsakeEffects", run, nil, {})
     lu.assertEquals(keepsakes.olympianSources, {})
     lu.assertEquals(keepsakes.experimentalHammers, {})
-    lu.assertTrue(require("mods/json").isNull(keepsakes.figurine))
+    lu.assertTrue(require("mods/protocol/json").isNull(keepsakes.figurine))
     lu.assertEquals(readers.read("rewardPriorities", run), { Boon = 1 })
     lu.assertEquals(readers.read("pathOfStars", run), {
         spellTraitKey = nil, layoutKey = nil, talentKeys = {}, closed = false,

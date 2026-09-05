@@ -3,7 +3,7 @@
 -- remains covered by tests/room/test_ordinary_traits.lua.
 local lu = require("luaunit")
 local support = require("tests.room.ordinary_trait_support")
-local json = require("mods.json")
+local json = require("mods.protocol.json")
 
 TestConcaveStone = {}
 

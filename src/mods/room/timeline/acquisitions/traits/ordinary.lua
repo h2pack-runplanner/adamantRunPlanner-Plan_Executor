@@ -2,7 +2,7 @@
 -- This module owns only the frozen offer result; native code owns generation,
 -- menu behavior, trait application, replacement, and rarification clicks.
 local ordinary = {}
-local json = type(import) == "function" and import("mods/json.lua") or require("mods.json")
+local json = type(import) == "function" and import("mods/protocol/json.lua") or require("mods.protocol.json")
 
 local function normalRole(transaction, contact)
     if type(transaction) ~= "table" or transaction.kind ~= "acquisition" then return nil end

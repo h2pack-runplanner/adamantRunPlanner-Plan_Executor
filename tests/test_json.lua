@@ -1,5 +1,5 @@
 local lu = require("luaunit")
-local json = require("mods/json")
+local json = require("mods/protocol/json")
 
 TestJson = {}
 

@@ -1,13 +1,13 @@
 -- luacheck: globals TestRuntimeSession
 local lu = require("luaunit")
-local runtime = require("mods/runtime_session")
+local runtime = require("mods/runtime/session")
 local route = require("mods.route.session")
 local room = require("mods.room.coordinator")
 local timeline = require("mods.room.timeline.bindings")
 local timelineSession = require("mods.room.timeline.session")
 local protocol = require("mods.protocol.decoder")
 local occurrenceProtocol = require("mods.protocol.occurrences")
-local json = require("mods.json")
+local json = require("mods.protocol.json")
 
 TestRuntimeSession = {}
 
