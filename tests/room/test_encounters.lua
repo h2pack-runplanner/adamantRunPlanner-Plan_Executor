@@ -313,15 +313,10 @@ function TestEncounters.testGorgonAthenaHandsItsPublishedOfferToOrdinaryUseLoot(
     encounterHooks.attach(module, session, function() return state end, function() end, room)
     timelineHooks.attach(module, session, function() return state end, function() end, room)
 
-    local result = callbacks.AthenaUse(nil, {}, function(source, args, user)
-        return callbacks.UseLoot(nil, {}, function() return "native-use" end, source, args, user)
-    end, athena, { value = 1 }, { id = 2 })
+    local result = callbacks.AthenaUse(nil, {}, function() return "native-use" end,
+        athena, { value = 1 }, { id = 2 })
     _G.CurrentRun = priorRun
 
     lu.assertEquals(result, "native-use")
     lu.assertEquals(bound[athena], handle)
-    lu.assertEquals(athena.UpgradeOptions, {
-        { ItemName = "AthenaAttack", Rarity = "Rare", StackNum = 2 },
-        { ItemName = "AthenaSpecial", Rarity = "Common", StackNum = 1 },
-    })
 end

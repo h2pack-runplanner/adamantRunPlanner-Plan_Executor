@@ -1,106 +1,32 @@
--- Consequential acquisition and trait transaction contacts.
+-- Deferred later-route NPC trait menus. F/G acquisition, Chaos, and nested
+-- consequence contacts live in their focused timeline adapters.
 local adapter = type(import) == "function" and import("mods/native_timeline_adapters.lua")
-    or require("mods/native_timeline_adapters")
-local chaos = type(import) == "function" and import("mods/chaos.lua") or require("mods/chaos")
+    or require("mods.native_timeline_adapters")
 local hooks = {}
 
-local function authoredOptionIndex(optionKey)
-    return type(optionKey) == "string" and tonumber(optionKey:match("(%d+)$")) or nil
-end
-
-local function authoredTraitKey(offer, index)
-    local option = offer.options and offer.options[index]
-    if option == nil then return nil end
-    return option.key
-end
-
-local function physicalTraitIndex(lootData, offer, optionKey)
-    local authoredIndex = authoredOptionIndex(optionKey)
-    local traitKey = authoredIndex and authoredTraitKey(offer, authoredIndex)
-    if traitKey == nil then return nil end
-    for index, option in ipairs(lootData and lootData.UpgradeOptions or {}) do
-        if option.ItemName == traitKey then return index end
-    end
-    return nil
-end
-
-local function alignBlockedTraitOption(screen, lootData, offer)
-    if type(screen) ~= "table" or type(screen.BlockedIndexes) ~= "table"
-        or type(offer) ~= "table" or type(offer.options) ~= "table" then
-        return
-    end
-
-    local rejectedIndex = physicalTraitIndex(lootData, offer, offer.rejected)
-    if rejectedIndex ~= nil then
-        screen.BlockedIndexes = { rejectedIndex }
-        return
-    end
-
-    local selectedIndex = physicalTraitIndex(lootData, offer, offer.selected)
-    if selectedIndex == nil then return end
-
-    local selectedBlockPosition
-    local blocked = {}
-    for position, index in ipairs(screen.BlockedIndexes) do
-        blocked[index] = true
-        if index == selectedIndex then selectedBlockPosition = position end
-    end
-    if selectedBlockPosition == nil then return end
-
-    for index = 1, #offer.options do
-        if index ~= selectedIndex and not blocked[index] then
-            screen.BlockedIndexes[selectedBlockPosition] = index
-            return
-        end
-    end
-    table.remove(screen.BlockedIndexes, selectedBlockPosition)
-end
-
 local function authoredTraitOption(offer, itemData)
-    for index, option in ipairs(offer.options or {}) do
-        if authoredTraitKey(offer, index) == itemData.ItemName then return option end
+    for _, option in ipairs(offer.options or {}) do
+        if option.key == itemData.ItemName then return option end
     end
     return nil
-end
-
-local function isOrdinaryTraitCarrier(value)
-    return type(value) == "table" and (value.GodLoot == true or value.Name == "HermesUpgrade"
-        or value.Name == "WeaponUpgrade")
-end
-
-local function incomingHandle(room, _, state, native)
-    local current = room.current(state)
-    if current == nil then return nil end
-    local reward = current.occurrence.overview.incomingReward
-    if reward == nil then return nil end
-    local producer = room.resolve(state, current, {
-        kind = "producer", producerLifecycleKey = reward.producerLifecycleKey, rewardType = reward.rewardType,
-    })
-    local gameName = type(native) == "table" and (native.Name or native.ItemName or native.LootName) or nil
-    return room.bind(state, current, room.resolve(state, current, {
-        kind = "materialized", source = producer, gameName = gameName,
-    }), native)
 end
 
 function hooks.attach(module, session, getState, report, room)
-    local roomCoordinator = room
-    -- Legacy trait screens outside the focused acquisition adapters retain
-    -- their existing screen-local handoff. Arachne/Narcissus are owned by the
-    -- focused acquisition adapter.
-    local pendingLegacyTrait
+    -- These four named menus are unreachable in F/G. Their source-specific
+    -- wrappers remain until their biome routes publish complete consequences.
+    local pendingDeferredNpcTrait
 
     local function attachNpcTraitChoice(functionName, giver)
-        module.hooks.wrap(functionName, "run-planner-npc-trait-offer", function(_, runtime, base, source,
+        module.hooks.wrap(functionName, "run-planner-deferred-npc-trait-offer", function(_, runtime, base, source,
             args, screen)
             local state = getState(runtime)
-            local handle = type(roomCoordinator.encounterHandle) == "function"
-                and roomCoordinator.encounterHandle(state, source) or nil
-            local payload = handle and roomCoordinator.begin(state, handle) or nil
+            local handle = type(room.encounterHandle) == "function" and room.encounterHandle(state, source) or nil
+            local payload = handle and room.begin(state, handle) or nil
             local resolution = payload and payload.transaction.resolution
             if resolution and resolution.kind == "traitOffer" and resolution.offer.giver == giver then
-                if payload ~= nil and adapter.applyNpcTraitOffer(payload, args) then
-                    pendingLegacyTrait = { handle = handle, payload = payload, source = source }
-                elseif payload ~= nil then
+                if adapter.applyNpcTraitOffer(payload, args) then
+                    pendingDeferredNpcTrait = { handle = handle, payload = payload }
+                else
                     session.mismatch(state, "npc-trait-offer", "published " .. giver .. " trait offer", nil)
                 end
             end
@@ -110,73 +36,17 @@ function hooks.attach(module, session, getState, report, room)
         end)
     end
 
-    module.hooks.wrap("UseLoot", "run-planner-use-loot", function(_, runtime, base, usee, args, user)
-        -- C1 owns ordinary Olympian/Hermes/Hammer acquisition. It begins only
-        -- after native UseLoot commits at HandleLootPickup.
-        -- C2 owns the visible Pom carrier. Its adapter marks the exact loot
-        -- while this call is in flight so this legacy family hook cannot begin
-        -- an acquisition before native pickup acceptance.
-        if isOrdinaryTraitCarrier(usee) or usee and usee.__runPlannerLevelCarrier
-            or chaos.isNativeCarrier(usee) then
-            return base(usee, args, user)
-        end
-        local state = getState(runtime)
-        local current = roomCoordinator.current(state)
-        local handle = roomCoordinator.bound(state, current, usee)
-            or incomingHandle(roomCoordinator, session, state, usee)
-        local payload = handle and roomCoordinator.begin(state, handle) or nil
-        if payload == nil then return base(usee, args, user) end
-        if payload == nil then report(runtime); return base(usee, args, user) end
-        usee.__runPlannerTimelineHandle = handle
-        local expected = adapter.expectedTrait(payload)
-        if expected ~= nil then
-            adapter.applyTraitOffer(payload, usee)
-            pendingLegacyTrait = { handle = handle, payload = payload, source = usee }
-        end
-        local result = base(usee, args, user)
-        report(runtime)
-        return result
-    end)
-
-    module.hooks.wrap("CreateBoonLootButtons", "run-planner-trait-screen", function(_, runtime, base, screen,
-        lootData, reroll, args)
-        if isOrdinaryTraitCarrier(lootData) or lootData and lootData.__runPlannerLevelCarrier
-            or chaos.isNativeCarrier(lootData) then
-            return base(screen, lootData, reroll, args)
-        end
-        local state = getState(runtime)
-        local current = roomCoordinator.current(state)
-        local handle = roomCoordinator.bound(state, current, lootData)
-            or (pendingLegacyTrait and pendingLegacyTrait.handle)
-            or incomingHandle(roomCoordinator, session, state, lootData)
-        local payload = handle and roomCoordinator.begin(state, handle) or nil
-        if payload ~= nil then
-            lootData.__runPlannerTimelineHandle = handle
-            local _, offer = adapter.expectedTrait(payload)
-            if offer then adapter.applyTraitOffer(payload, lootData) end
-        end
-        return base(screen, lootData, reroll, args)
-    end)
-
     attachNpcTraitChoice("MedeaCurseChoice", "Medea")
     attachNpcTraitChoice("CirceBlessingChoice", "Circe")
     attachNpcTraitChoice("IcarusBenefitChoice", "Icarus")
     attachNpcTraitChoice("EchoChoice", "Echo")
 
-    module.hooks.wrap("CreateUpgradeChoiceButton", "run-planner-trait-option", function(_, runtime, base, screen,
-        lootData, itemIndex, itemData, args)
-        if isOrdinaryTraitCarrier(lootData) then
-            return base(screen, lootData, itemIndex, itemData, args)
-        end
-        local handle = lootData and lootData.__runPlannerTimelineHandle
-            or pendingLegacyTrait and pendingLegacyTrait.handle
-        local payload = handle and roomCoordinator.begin(getState(runtime), handle)
-            or pendingLegacyTrait and pendingLegacyTrait.payload
+    module.hooks.wrap("CreateUpgradeChoiceButton", "run-planner-deferred-npc-trait-option", function(_, runtime,
+        base, screen, lootData, itemIndex, itemData, args)
+        local pending = pendingDeferredNpcTrait
+        local payload = pending and room.begin(getState(runtime), pending.handle) or pending and pending.payload
         local _, offer = adapter.expectedTrait(payload)
-        if chaos.isNativeCarrier(lootData) then
-            return base(screen, lootData, itemIndex, itemData, args)
-        elseif offer and type(offer.options) == "table" then
-            if itemIndex == 1 then alignBlockedTraitOption(screen, lootData, offer) end
+        if offer and type(offer.options) == "table" then
             local option = authoredTraitOption(offer, itemData)
             if option == nil then return base(screen, lootData, itemIndex, itemData, args) end
             itemData.Rarity, itemData.StackNum = option.rarity, option.effectiveLevel
@@ -188,22 +58,15 @@ function hooks.attach(module, session, getState, report, room)
         return base(screen, lootData, itemIndex, itemData, args)
     end)
 
-    module.hooks.wrap("HandleUpgradeChoiceSelection", "run-planner-trait-selection", function(_, runtime, base,
-        screen, button, args)
-        local lootData = button and button.LootData
-        if isOrdinaryTraitCarrier(lootData) or lootData and lootData.__runPlannerLevelCarrier
-            or chaos.isNativeCarrier(lootData) then
-            return base(screen, button, args)
-        end
+    module.hooks.wrap("HandleUpgradeChoiceSelection", "run-planner-deferred-npc-trait-selection", function(_, runtime,
+        base, screen, button, args)
         local state = getState(runtime)
         local selected = button and button.Data and button.Data.Name
-        if pendingLegacyTrait ~= nil then
-            pendingLegacyTrait.selected = selected
-        end
+        if pendingDeferredNpcTrait ~= nil then pendingDeferredNpcTrait.selected = selected end
         local result = base(screen, button, args)
-        if pendingLegacyTrait ~= nil then
-            local pending = pendingLegacyTrait
-            pendingLegacyTrait = nil
+        if pendingDeferredNpcTrait ~= nil then
+            local pending = pendingDeferredNpcTrait
+            pendingDeferredNpcTrait = nil
             local expected = adapter.expectedTrait(pending.payload)
             if expected == nil or expected.key ~= pending.selected then
                 session.mismatch(state, "trait-selection", expected and expected.key, pending.selected)
@@ -214,7 +77,6 @@ function hooks.attach(module, session, getState, report, room)
         report(runtime)
         return result
     end)
-
 end
 
 return hooks

@@ -1,4 +1,4 @@
--- luacheck: globals TestHookCompositionV10
+-- luacheck: globals TestHookComposition
 local lu = require("luaunit")
 local navigation = require("mods.navigation.hooks")
 local roomHooks = require("mods.room.hooks")
@@ -11,13 +11,14 @@ local transformations = require("mods.room.timeline.transformations.hooks")
 local acquisitions = require("mods.room.timeline.acquisitions.hooks")
 local directPickups = require("mods.room.timeline.acquisitions.pickups.hooks")
 local chaosAcquisitions = require("mods.room.timeline.acquisitions.traits.chaos")
+local traitAcquisitions = require("mods.room.timeline.acquisitions.traits.hooks")
 local npcAcquisitions = require("mods.room.timeline.acquisitions.npc.hooks")
 local mysteryAcquisitions = require("mods.room.timeline.acquisitions.mystery.hooks")
 local featureInventoryHooks = require("mods.room.features.inventory_hooks")
 local featureInteractionHooks = require("mods.room.timeline.feature_interactions")
 local logic = require("mods/logic")
 
-TestHookCompositionV10 = {}
+TestHookComposition = {}
 
 local function capture()
     local names, callbacks = {}, {}
@@ -127,7 +128,7 @@ local function attachFeatureHooks(module, session, getState, report, room, route
     return inventoryBindings
 end
 
-function TestHookCompositionV10.testDoorChoiceIsForcedDuringNativeGeneration()
+function TestHookComposition.testDoorChoiceIsForcedDuringNativeGeneration()
     local module, _, callbacks = capture()
     local selected, mismatch
     local target = { room = { id = "next", gameName = "F_Next" }, reward = { rewardType = "Boon" } }
@@ -168,7 +169,7 @@ function TestHookCompositionV10.testDoorChoiceIsForcedDuringNativeGeneration()
     lu.assertEquals(physicalDoor.Room.__runPlannerExecutionRoomId, "next")
 end
 
-function TestHookCompositionV10.testDoorUseReportsSelectionWithoutAdvancingTheRouteCursor()
+function TestHookComposition.testDoorUseReportsSelectionWithoutAdvancingTheRouteCursor()
     local module, _, callbacks = capture()
     local first = {
         id = "first", gameName = "F_First",
@@ -200,7 +201,7 @@ function TestHookCompositionV10.testDoorUseReportsSelectionWithoutAdvancingTheRo
     lu.assertEquals(active.occurrence, first)
 end
 
-function TestHookCompositionV10.testChaosDoorIsExcludedAfterNormalDoorGeneration()
+function TestHookComposition.testChaosDoorIsExcludedAfterNormalDoorGeneration()
     local module, _, callbacks = capture()
     local additional = {
         owner = "chaos-exit", kind = "chaos",
@@ -264,7 +265,7 @@ function TestHookCompositionV10.testChaosDoorIsExcludedAfterNormalDoorGeneration
     lu.assertEquals(selectedDestination, "chaos")
 end
 
-function TestHookCompositionV10.testRoomSessionStartsBeforeNativeFeatureSpawns()
+function TestHookComposition.testRoomSessionStartsBeforeNativeFeatureSpawns()
     local module, _, callbacks = capture()
     local entered, proved = false, false
     local occurrence = { id = "opening", gameName = "F_Opening01" }
@@ -313,7 +314,7 @@ function TestHookCompositionV10.testRoomSessionStartsBeforeNativeFeatureSpawns()
     lu.assertTrue(eligible)
 end
 
-function TestHookCompositionV10.testCreateRoomReappliesForcedAndSuppressedResourceOutcomes()
+function TestHookComposition.testCreateRoomReappliesForcedAndSuppressedResourceOutcomes()
     local module, _, callbacks = capture()
     local occurrence = {
         id = "opening", gameName = "F_Opening01",
@@ -350,7 +351,7 @@ function TestHookCompositionV10.testCreateRoomReappliesForcedAndSuppressedResour
     lu.assertEquals(result.__runPlannerExecutionRoomId, "opening")
 end
 
-function TestHookCompositionV10.testIncomingRewardProofRemainsNavigationOwnedAtRoomEntry()
+function TestHookComposition.testIncomingRewardProofRemainsNavigationOwnedAtRoomEntry()
     local module, _, callbacks = capture()
     local occurrence = { id = "opening", gameName = "F_Opening01" }
     local state = { state = "synchronized", route = {} }
@@ -385,7 +386,7 @@ function TestHookCompositionV10.testIncomingRewardProofRemainsNavigationOwnedAtR
     lu.assertNil(roomProof)
 end
 
-function TestHookCompositionV10.testZagreusContractRemainsAnAdditionalDoorDuringNormalDoorProof()
+function TestHookComposition.testZagreusContractRemainsAnAdditionalDoorDuringNormalDoorProof()
     local module, _, callbacks = capture()
     local additional = {
         owner = "contract-exit", kind = "zagreusContract",
@@ -461,7 +462,7 @@ function TestHookCompositionV10.testZagreusContractRemainsAnAdditionalDoorDuring
     lu.assertEquals(contractDoor.__runPlannerExecutionAdditionalKind, "zagreusContract")
 end
 
-function TestHookCompositionV10.testEncounterForcingKeepsNativeSetupAndGeneration()
+function TestHookComposition.testEncounterForcingKeepsNativeSetupAndGeneration()
     local module, _, callbacks = capture()
     local declaration = { Name = "OpeningGeneratedF", Generated = true }
     local occurrence = {
@@ -506,7 +507,7 @@ function TestHookCompositionV10.testEncounterForcingKeepsNativeSetupAndGeneratio
     _G.game, _G.ForceNextEncounter = priorGame, priorGlobalForce
 end
 
-function TestHookCompositionV10.testRoomRewardForcingConsumesTheMatchingNativeBagEntry()
+function TestHookComposition.testRoomRewardForcingConsumesTheMatchingNativeBagEntry()
     local module, _, callbacks = capture()
     local occurrence = {
         id = "opening",
@@ -545,7 +546,7 @@ function TestHookCompositionV10.testRoomRewardForcingConsumesTheMatchingNativeBa
     lu.assertEquals(run.RewardStores.RunProgress, { { Name = "Boon" } })
 end
 
-function TestHookCompositionV10.testPublishedRewardStoreOverridesAStaleNativeStore()
+function TestHookComposition.testPublishedRewardStoreOverridesAStaleNativeStore()
     local module, _, callbacks = capture()
     local occurrence = {
         id = "target",
@@ -595,7 +596,7 @@ function TestHookCompositionV10.testPublishedRewardStoreOverridesAStaleNativeSto
     lu.assertEquals(run.RewardPriorities, { "MetaCardPointsCommonDrop", "MetaCurrencyDrop", "Boon" })
 end
 
-function TestHookCompositionV10.testContractTraitAcquisitionDoesNotOwnTheNativeMetaRewardChoice()
+function TestHookComposition.testContractTraitAcquisitionDoesNotOwnTheNativeMetaRewardChoice()
     local module, _, callbacks = capture()
     local occurrence = {
         id = "contract",
@@ -617,7 +618,7 @@ function TestHookCompositionV10.testContractTraitAcquisitionDoesNotOwnTheNativeM
     lu.assertEquals(mismatches, {})
 end
 
-function TestHookCompositionV10.testEffectNeutralBossRewardUsesNativeForcedRewardChoice()
+function TestHookComposition.testEffectNeutralBossRewardUsesNativeForcedRewardChoice()
     local module, _, callbacks = capture()
     local occurrence = {
         id = "boss",
@@ -639,7 +640,7 @@ function TestHookCompositionV10.testEffectNeutralBossRewardUsesNativeForcedRewar
     lu.assertEquals(result, "MixerFBossDrop")
 end
 
-function TestHookCompositionV10.testRewardSourceUsesTheTargetOccurrenceNotTheCurrentRoom()
+function TestHookComposition.testRewardSourceUsesTheTargetOccurrenceNotTheCurrentRoom()
     local module, _, callbacks = capture()
     local current = {
         id = "current",
@@ -665,7 +666,7 @@ function TestHookCompositionV10.testRewardSourceUsesTheTargetOccurrenceNotTheCur
     lu.assertEquals(room.ForceLootName, "ZeusUpgrade")
 end
 
-function TestHookCompositionV10.testWorldShopCompletionUsesCurrentRoomPurchaseCounter()
+function TestHookComposition.testWorldShopCompletionUsesCurrentRoomPurchaseCounter()
     local module, _, callbacks = capture()
     local completed
     local node = { owner = "shop", kind = "shopPurchase", offerKey = "Boon" }
@@ -699,7 +700,7 @@ function TestHookCompositionV10.testWorldShopCompletionUsesCurrentRoomPurchaseCo
     lu.assertEquals(fakePayload(completed.row).transaction.owner, "shop")
 end
 
-function TestHookCompositionV10.testSuccessfulNativeKeepsakeEquipCompletesTheRackTransaction()
+function TestHookComposition.testSuccessfulNativeKeepsakeEquipCompletesTheRackTransaction()
     local module, _, callbacks = capture()
     local completed
     local node = {
@@ -729,7 +730,7 @@ function TestHookCompositionV10.testSuccessfulNativeKeepsakeEquipCompletesTheRac
     lu.assertNotNil(completed.handle)
 end
 
-function TestHookCompositionV10.testMysteryBoonPurchaseWaitsForItsTraitResolution()
+function TestHookComposition.testMysteryBoonPurchaseWaitsForItsTraitResolution()
     local module, _, callbacks = capture()
     local priorRun = _G.CurrentRun
     _G.CurrentRun = { Hero = { Traits = {} } }
@@ -740,7 +741,8 @@ function TestHookCompositionV10.testMysteryBoonPurchaseWaitsForItsTraitResolutio
         roles = {
             { role = "box", lifecyclePoint = "purchase", gameName = "BlindBoxLoot" },
             {
-                role = "hiddenSource", lifecyclePoint = "afterUnwrap", gameName = "HeraUpgrade",
+                role = "hiddenSource", lifecyclePoint = "afterUnwrap", kind = "trait",
+                disposition = "normal", gameName = "HeraUpgrade",
                 traitOffer = {
                     kind = "traits", giver = "Hera", selected = "option1",
                     options = {
@@ -767,7 +769,7 @@ function TestHookCompositionV10.testMysteryBoonPurchaseWaitsForItsTraitResolutio
     local active = assert(roomCoordinatorModule.enter(state, occurrence))
     local root = assert(roomCoordinatorModule.resolve(state, active, { kind = "offer", offerKey = "Boon" }))
     local box = { Name = "BlindBoxLoot" }
-    local loot = { Name = "HeraUpgrade" }
+    local loot = { Name = "HeraUpgrade", GodLoot = true }
     local boxHandle = assert(roomCoordinatorModule.resolve(state, active,
         { kind = "materialized", gameName = box.Name, source = root }))
     lu.assertTrue(roomCoordinatorModule.bind(state, active, boxHandle, box) ~= nil)
@@ -796,6 +798,7 @@ function TestHookCompositionV10.testMysteryBoonPurchaseWaitsForItsTraitResolutio
     }
     timeline.attach(module, session, function() return state end, function() end, roomCoordinatorModule)
     for name, callback in pairs(mysteryCallbacks) do callbacks[name] = callback end
+    traitAcquisitions.attach(module, session, function() return state end, function() end, roomCoordinatorModule)
 
     callbacks.UseConsumableItem(nil, {}, function(nativeItem)
         lu.assertTrue(callbacks.ConsumableUsedPresentation(nil, {}, function() return true end,
@@ -811,7 +814,7 @@ function TestHookCompositionV10.testMysteryBoonPurchaseWaitsForItsTraitResolutio
     lu.assertEquals(#completions, 0)
     lu.assertTrue(rawequal(roomCoordinatorModule.bound(state, active, loot), boxHandle))
     lu.assertEquals(roomCoordinatorModule.peek(state, boxHandle).detail, node.roles[2])
-    callbacks.UseLoot(nil, {}, function() end, loot, {}, {})
+    callbacks.HandleLootPickup(nil, {}, function() end, _G.CurrentRun, loot, {})
     lu.assertEquals(#completions, 0)
     _G.CurrentRun.Hero.Traits = { { Name = "HeraCastBoon", Rarity = "Common", StackNum = 4 } }
     callbacks.HandleUpgradeChoiceSelection(nil, {}, function() return true end,
@@ -821,7 +824,7 @@ function TestHookCompositionV10.testMysteryBoonPurchaseWaitsForItsTraitResolutio
     _G.CurrentRun = priorRun
 end
 
-function TestHookCompositionV10.testDestinationShopInventoryUsesTheNextOccurrenceBeforeRoomEntry()
+function TestHookComposition.testDestinationShopInventoryUsesTheNextOccurrenceBeforeRoomEntry()
     local module, _, callbacks = capture()
     local shop = opaque({
         occurrence = { id = "shop", overview = { shop = { offers = {
@@ -858,7 +861,7 @@ function TestHookCompositionV10.testDestinationShopInventoryUsesTheNextOccurrenc
     lu.assertEquals(result.StoreOptions[3].Name, "MaxManaDrop")
 end
 
-function TestHookCompositionV10.testProcessedWellButtonRetainsItsExactGenerationBinding()
+function TestHookComposition.testProcessedWellButtonRetainsItsExactGenerationBinding()
     local module, _, callbacks = capture()
     local completed
     local node = {
@@ -909,7 +912,7 @@ function TestHookCompositionV10.testProcessedWellButtonRetainsItsExactGeneration
     lu.assertEquals(fakePayload(completed.row).transaction.owner, "well-left")
 end
 
-function TestHookCompositionV10.testRejectedWellPurchaseReportsMismatchWithoutCompleting()
+function TestHookComposition.testRejectedWellPurchaseReportsMismatchWithoutCompleting()
     local module, _, callbacks = capture()
     local completed, mismatch, nativeCalls = 0, 0, 0
     local node = {
@@ -951,7 +954,7 @@ function TestHookCompositionV10.testRejectedWellPurchaseReportsMismatchWithoutCo
     lu.assertEquals(mismatch, 1)
 end
 
-function TestHookCompositionV10.testTravelDealRefillKeepsSlotBindingSeparateFromReplacementItem()
+function TestHookComposition.testTravelDealRefillKeepsSlotBindingSeparateFromReplacementItem()
     local module, _, callbacks = capture()
     local completed, refilled
     local node = {
@@ -995,7 +998,7 @@ function TestHookCompositionV10.testTravelDealRefillKeepsSlotBindingSeparateFrom
     lu.assertEquals(fakePayload(completed.row).transaction.owner, "travel-refill")
 end
 
-function TestHookCompositionV10.testChaosChoiceCompletesItsBoundOwner()
+function TestHookComposition.testChaosChoiceCompletesItsBoundOwner()
     local module, _, callbacks = capture()
     local completed = {}
     local chaos = {
@@ -1061,7 +1064,7 @@ function TestHookCompositionV10.testChaosChoiceCompletesItsBoundOwner()
     lu.assertEquals(fakePayload(completed[1].row).transaction.owner, "chaos")
 end
 
-function TestHookCompositionV10.testMysteryBoonBindsItsUnwrappedSourceTraitOffer()
+function TestHookComposition.testMysteryBoonBindsItsUnwrappedSourceTraitOffer()
     local module, _, callbacks = capture()
     local priorRun = _G.CurrentRun
     _G.CurrentRun = { Hero = { Traits = {} } }
@@ -1100,7 +1103,7 @@ function TestHookCompositionV10.testMysteryBoonBindsItsUnwrappedSourceTraitOffer
     local state = { state = "synchronized", plan = plan, room = room }
     local active = assert(roomCoordinatorModule.enter(state, occurrence))
     local box = { Name = "BlindBoxLoot" }
-    local loot = { Name = "HeraUpgrade" }
+    local loot = { Name = "HeraUpgrade", GodLoot = true }
     local completions = {}
     local session = {
         current = roomCoordinatorModule.current,
@@ -1126,6 +1129,7 @@ function TestHookCompositionV10.testMysteryBoonBindsItsUnwrappedSourceTraitOffer
     }
     timeline.attach(module, session, function() return state end, function() end, roomCoordinatorModule)
     for name, callback in pairs(mysteryCallbacks) do callbacks[name] = callback end
+    traitAcquisitions.attach(module, session, function() return state end, function() end, roomCoordinatorModule)
 
     callbacks.UseConsumableItem(nil, {}, function(nativeItem)
         lu.assertTrue(callbacks.ConsumableUsedPresentation(nil, {}, function() return true end,
@@ -1142,13 +1146,15 @@ function TestHookCompositionV10.testMysteryBoonBindsItsUnwrappedSourceTraitOffer
     lu.assertNotNil(boxHandle)
     lu.assertEquals(roomCoordinatorModule.peek(state, boxHandle).detail, node.roles[2])
     lu.assertTrue(rawequal(roomCoordinatorModule.bound(state, active, loot), boxHandle))
-    callbacks.UseLoot(nil, {}, function()
-        lu.assertEquals(loot.UpgradeOptions, {
-            { ItemName = "HeraCastBoon", Rarity = "Common", StackNum = 4 },
-            { ItemName = "HeraSprintBoon", Rarity = "Common", StackNum = 4 },
-            { ItemName = "HeraManaBoon", Rarity = "Common", StackNum = 4 },
-        })
-    end, loot, {}, {})
+    callbacks.HandleLootPickup(nil, {}, function(_, nativeLoot)
+        return callbacks.CreateBoonLootButtons(nil, {}, function()
+            lu.assertEquals(nativeLoot.UpgradeOptions, {
+                { Type = "Trait", ItemName = "HeraCastBoon", Rarity = "Common", StackNum = 4 },
+                { Type = "Trait", ItemName = "HeraSprintBoon", Rarity = "Common", StackNum = 4 },
+                { Type = "Trait", ItemName = "HeraManaBoon", Rarity = "Common", StackNum = 4 },
+            })
+        end, {}, nativeLoot, false, {})
+    end, _G.CurrentRun, loot, {})
     lu.assertEquals(#completions, 0)
     _G.CurrentRun.Hero.Traits = { { Name = "HeraCastBoon", Rarity = "Common", StackNum = 4 } }
     callbacks.HandleUpgradeChoiceSelection(nil, {}, function() return true end,
@@ -1158,7 +1164,7 @@ function TestHookCompositionV10.testMysteryBoonBindsItsUnwrappedSourceTraitOffer
     _G.CurrentRun = priorRun
 end
 
-function TestHookCompositionV10.testEachNativeNpcChoiceFunctionBindsItsPublishedTraitOffer()
+function TestHookComposition.testEachNativeNpcChoiceFunctionBindsItsPublishedTraitOffer()
     local contacts = {
         ArachneCostumeChoice = "Arachne",
         NarcissusBenefitChoice = "Narcissus",
@@ -1248,58 +1254,7 @@ function TestHookCompositionV10.testEachNativeNpcChoiceFunctionBindsItsPublished
     _G.IsGameStateEligible = priorEligibility
 end
 
-function TestHookCompositionV10.testNativeTraitOrderRetainsAuthoredMetadataAndRejectedIdentity()
-    local module, _, callbacks = capture()
-    local row = {
-        transaction = {
-            owner = "aphrodite",
-            resolution = {
-                kind = "traitOffer",
-                offer = {
-                    kind = "traits",
-                    selected = "option2",
-                    rejected = "option1",
-                    options = {
-                        { key = "AphroditeCastBoon", rarity = "Epic", effectiveLevel = 4 },
-                        { key = "AphroditeSpecialBoon", rarity = "Rare", effectiveLevel = 2 },
-                        { key = "AphroditeSprintBoon", rarity = "Common", effectiveLevel = 1 },
-                    },
-                },
-            },
-        },
-    }
-    local loot = {
-        __runPlannerTimelineHandle = fakeHandle(row),
-        UpgradeOptions = {
-            { ItemName = "AphroditeSpecialBoon" },
-            { ItemName = "AphroditeCastBoon" },
-            { ItemName = "AphroditeSprintBoon" },
-        },
-    }
-    local screen = { BlockedIndexes = { 2 } }
-    local seen = {}
-    local session = stub()
-    timeline.attach(module, session, function() return {} end, function() end, session)
-
-    for index = 1, 3 do
-        callbacks.CreateUpgradeChoiceButton(nil, {}, function(_, _, itemIndex, itemData)
-            seen[itemIndex] = {
-                blocked = screen.BlockedIndexes[1], key = itemData.ItemName,
-                rarity = itemData.Rarity, level = itemData.StackNum,
-            }
-            return {}
-        end, screen, loot, index, loot.UpgradeOptions[index], {})
-    end
-
-    lu.assertEquals(screen.BlockedIndexes, { 2 })
-    lu.assertEquals(seen, {
-        { blocked = 2, key = "AphroditeSpecialBoon", rarity = "Rare", level = 2 },
-        { blocked = 2, key = "AphroditeCastBoon", rarity = "Epic", level = 4 },
-        { blocked = 2, key = "AphroditeSprintBoon", rarity = "Common", level = 1 },
-    })
-end
-
-function TestHookCompositionV10.testIncidentalConsumableDoesNotClaimTheIncomingRewardTransaction()
+function TestHookComposition.testIncidentalConsumableDoesNotClaimTheIncomingRewardTransaction()
     local module, _, callbacks = capture()
     local completed = {}
     local node = {
@@ -1336,7 +1291,7 @@ function TestHookCompositionV10.testIncidentalConsumableDoesNotClaimTheIncomingR
     lu.assertNil(active.bindingFor(consolation))
 end
 
-function TestHookCompositionV10.testBossWindowUsesTheRoomCoordinator()
+function TestHookComposition.testBossWindowUsesTheRoomCoordinator()
     local module, _, callbacks = capture()
     local state = { state = "synchronized" }
     local active = {
@@ -1363,7 +1318,7 @@ function TestHookCompositionV10.testBossWindowUsesTheRoomCoordinator()
     lu.assertEquals(opened, "bossDefeated:Encounter")
 end
 
-function TestHookCompositionV10.testDirectConsumableLevelResolutionForcesAndCompletesThePublishedTarget()
+function TestHookComposition.testDirectConsumableLevelResolutionForcesAndCompletesThePublishedTarget()
     local module, _, callbacks = capture()
     local target = { Name = "ZeusWeaponBoon", StackNum = 2 }
     local other = { Name = "ApolloSpecialBoon", StackNum = 4 }
@@ -1430,7 +1385,7 @@ function TestHookCompositionV10.testDirectConsumableLevelResolutionForcesAndComp
     lu.assertEquals(fakePayload(completions[1].row).detail, row.detail)
 end
 
-function TestHookCompositionV10.testExplicitGateBHookGroupsStayInstalled()
+function TestHookComposition.testExplicitGateBHookGroupsStayInstalled()
     local module, names = capture()
     local session = stub()
     local getState, report = function() end, function() end
@@ -1460,7 +1415,7 @@ function TestHookCompositionV10.testExplicitGateBHookGroupsStayInstalled()
     lu.assertNil(names.SetTransformingTraitsOnLoot)
 end
 
-function TestHookCompositionV10.testMismatchStopsEnforcementWithoutBlockingNativeRoomFlow()
+function TestHookComposition.testMismatchStopsEnforcementWithoutBlockingNativeRoomFlow()
     local module, _, callbacks = capture()
     local session = stub()
     local getState = function()
@@ -1491,7 +1446,7 @@ function TestHookCompositionV10.testMismatchStopsEnforcementWithoutBlockingNativ
     lu.assertEquals(left, "native-exit")
 end
 
-function TestHookCompositionV10.testRoomAfterConfiguredPrefixHandsControlBackToNativeGame()
+function TestHookComposition.testRoomAfterConfiguredPrefixHandsControlBackToNativeGame()
     local module, _, callbacks = capture()
     local state = { state = "synchronized", route = {}, room = {} }
     local session = stub()

@@ -22,7 +22,7 @@ require("tests/room/test_path_acquisitions")
 require("tests/room/test_transformations")
 require("tests/room/test_nemesis_encounters")
 require("tests/test_loadout_v11")
-require("tests/test_hook_composition_v10")
+require("tests/test_hook_composition")
 
 local lu = require("luaunit")
 os.exit(lu.LuaUnit.run())

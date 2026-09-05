@@ -3,7 +3,6 @@
 local lu = require("luaunit")
 local chaos = require("mods.room.timeline.acquisitions.traits.chaos")
 local binding = require("mods.room.timeline.acquisitions.binding")
-local legacyTimeline = require("mods/hooks_timeline")
 
 TestChaosTraits = {}
 
@@ -108,20 +107,6 @@ function TestChaosTraits.testInitialRowsAreSteeredAfterNativeSortAndSelectedPair
     lu.assertEquals(#completed, 1)
     lu.assertEquals(begins(), 1)
     lu.assertEquals(state.state, "synchronized")
-end
-
-function TestChaosTraits.testFailedUseLootDoesNotBeginChaosAcquisition()
-    local loot = { Name = "TrialUpgrade" }
-    local _, state, room, _, _, _, begins, session = harness(loot)
-    local module, callbacks = capture()
-    legacyTimeline.attach(module, session, function() return state end, function() end, room)
-    local nativeCalled = false
-    callbacks.UseLoot(nil, {}, function()
-        nativeCalled = true
-        return true
-    end, loot, {}, {})
-    lu.assertTrue(nativeCalled)
-    lu.assertEquals(begins(), 0)
 end
 
 function TestChaosTraits.testSelectedCurseAndRevelationValuesAreScopedToTheirRows()
