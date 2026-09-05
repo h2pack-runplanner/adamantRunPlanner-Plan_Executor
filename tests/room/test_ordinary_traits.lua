@@ -389,3 +389,141 @@ function TestOrdinaryTraits.testAllTogetherBaseErrorAndLaterRoomCannotReuseStale
     lu.assertEquals(completed(), 0)
     lu.assertEquals(mismatches(), {})
 end
+
+local function naturalOffer(targets)
+    return { kind = "traits", selected = "option1", options = {
+        { key = "GoodStuffBoon", naturalSelectionTargets = targets },
+    } }
+end
+
+local function selectNatural(callbacks, distribute)
+    local loot = { GodLoot = true, Name = "ApolloUpgrade" }
+    callbacks.SpawnRoomReward(nil, {}, function()
+        return callbacks.CreateLoot(nil, {}, function() return loot end, {})
+    end, {}, {})
+    callbacks.HandleLootPickup(nil, {}, function() return true end, {}, loot, {})
+    callbacks.HandleUpgradeChoiceSelection(nil, {}, function()
+        distribute()
+        return true
+    end, {}, { LootData = loot, Data = { Name = "GoodStuffBoon" } }, {})
+end
+
+local function distribute(callbacks, candidates, successfulTargets)
+    local order, applied = nil, {}
+    callbacks.DistributeLevels(nil, {}, function()
+        order = callbacks.FYShuffle(nil, {}, function(values) return values end, candidates)
+        for _, target in ipairs(successfulTargets) do
+            callbacks.IncreaseTraitLevel(nil, {}, function(trait)
+                applied[#applied + 1] = trait.Name
+            end, { Name = target })
+        end
+        return true
+    end, { Slots = {} }, { Name = "GoodStuffBoon" })
+    return order, applied
+end
+
+function TestOrdinaryTraits.testNaturalSelectionCompletesFewerThanEightSuccessfulLevelsAfterExhaustion()
+    local callbacks, _, completed, mismatches = attached(naturalOffer({ "Attack", "Special" }))
+    local order, applied
+    selectNatural(callbacks, function()
+        order, applied = distribute(callbacks, { "Attack", "Special", "Cast" }, { "Attack", "Special" })
+    end)
+    lu.assertEquals(order, { "Attack", "Special", "Cast" })
+    lu.assertEquals(applied, { "Attack", "Special" })
+    lu.assertEquals(completed(), 1)
+    lu.assertEquals(mismatches(), {})
+end
+
+function TestOrdinaryTraits.testNaturalSelectionRetainsThenLetsNativeCondemnACappedTargetBetweenRounds()
+    local targets = { "Attack", "Special", "Cast", "Attack", "Special" }
+    local callbacks, _, completed, mismatches = attached(naturalOffer(targets))
+    local order, applied
+    selectNatural(callbacks, function()
+        order, applied = distribute(callbacks, { "Attack", "Special", "Cast", "Mana" }, targets)
+    end)
+    lu.assertEquals(order, { "Attack", "Special", "Cast", "Mana" })
+    lu.assertEquals(applied, targets)
+    lu.assertEquals(#applied, 5)
+    lu.assertEquals(applied[3], "Cast")
+    lu.assertEquals(applied[4], "Attack")
+    local castCallbacks = 0
+    for _, target in ipairs(applied) do
+        if target == "Cast" then castCallbacks = castCallbacks + 1 end
+    end
+    lu.assertEquals(castCallbacks, 1)
+    lu.assertEquals(completed(), 1)
+    lu.assertEquals(mismatches(), {})
+end
+
+function TestOrdinaryTraits.testNaturalSelectionConsumesEightSuccessfulLevelsAcrossSeveralSlots()
+    local targets = { "Attack", "Special", "Cast", "Attack", "Special", "Cast", "Attack", "Special" }
+    local callbacks, _, completed, mismatches = attached(naturalOffer(targets))
+    local applied
+    selectNatural(callbacks, function()
+        _, applied = distribute(callbacks, { "Attack", "Special", "Cast" }, targets)
+    end)
+    lu.assertEquals(applied, targets)
+    lu.assertEquals(completed(), 1)
+    lu.assertEquals(mismatches(), {})
+end
+
+function TestOrdinaryTraits.testNaturalSelectionReportsMissingTargetAndCleansItsScope()
+    local callbacks, _, completed, mismatches, setActive = attached(naturalOffer({ "Attack", "Special" }))
+    selectNatural(callbacks, function()
+        distribute(callbacks, { "Attack", "Special" }, { "Attack" })
+    end)
+    lu.assertEquals(completed(), 0)
+    lu.assertEquals(mismatches()[1].checkpoint, "natural-selection-target")
+
+    setActive({ occurrence = { overview = {} } })
+    local order = distribute(callbacks, { "NativeOne", "NativeTwo" }, {})
+    lu.assertEquals(order, { "NativeOne", "NativeTwo" })
+    lu.assertEquals(#mismatches(), 1)
+end
+
+function TestOrdinaryTraits.testNaturalSelectionUnavailableTargetLeavesNativeShuffleAndOuterIncomplete()
+    local callbacks, _, completed, mismatches, setActive = attached(naturalOffer({ "Attack" }))
+    local order
+    selectNatural(callbacks, function()
+        order = distribute(callbacks, { "Special" }, { "Special" })
+    end)
+    lu.assertEquals(order, { "Special" })
+    lu.assertEquals(completed(), 0)
+    lu.assertEquals(mismatches()[1].checkpoint, "natural-selection-order")
+
+    setActive({ occurrence = { overview = {} } })
+    local native = distribute(callbacks, { "NativeOne", "NativeTwo" }, {})
+    lu.assertEquals(native, { "NativeOne", "NativeTwo" })
+    lu.assertEquals(#mismatches(), 1)
+end
+
+function TestOrdinaryTraits.testNaturalSelectionSteersOnlyTheFirstShuffleInItsExactNativeDistribution()
+    local targets = { "Special", "Attack" }
+    local callbacks, _, completed, mismatches = attached(naturalOffer(targets))
+    local firstOrder, laterOrder = nil, nil
+    selectNatural(callbacks, function()
+        callbacks.DistributeLevels(nil, {}, function()
+            firstOrder = callbacks.FYShuffle(nil, {}, function(values) return values end, { "Attack", "Special" })
+            laterOrder = callbacks.FYShuffle(nil, {}, function(values) return values end, { "Attack", "Special" })
+            callbacks.IncreaseTraitLevel(nil, {}, function() end, { Name = "Special" })
+            callbacks.IncreaseTraitLevel(nil, {}, function() end, { Name = "Attack" })
+        end, { Slots = {} }, { Name = "GoodStuffBoon" })
+    end)
+    lu.assertEquals(firstOrder, { "Special", "Attack" })
+    lu.assertEquals(laterOrder, { "Attack", "Special" })
+    lu.assertEquals(completed(), 1)
+    lu.assertEquals(mismatches(), {})
+end
+
+function TestOrdinaryTraits.testNaturalSelectionOuterBaseErrorClearsScopeBeforeNativeReentry()
+    local callbacks, _, completed, mismatches = attached(naturalOffer({ "Special", "Attack" }))
+    local failed = pcall(function()
+        selectNatural(callbacks, function() error("native selection failure") end)
+    end)
+    lu.assertFalse(failed)
+
+    local nativeOrder = distribute(callbacks, { "Attack", "Special" }, {})
+    lu.assertEquals(nativeOrder, { "Attack", "Special" })
+    lu.assertEquals(completed(), 0)
+    lu.assertEquals(mismatches(), {})
+end

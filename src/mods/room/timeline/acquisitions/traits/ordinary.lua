@@ -99,6 +99,13 @@ function ordinary.allTogetherResult(payload)
     return option and option.allTogetherResult or nil
 end
 
+function ordinary.naturalSelectionTargets(payload)
+    local offer = ordinary.offer(payload)
+    local index = offer and optionIndex(offer.selected)
+    local option = index and offer.options and offer.options[index] or nil
+    return option and option.naturalSelectionTargets or nil
+end
+
 function ordinary.isNull(value)
     return json.isNull(value)
 end

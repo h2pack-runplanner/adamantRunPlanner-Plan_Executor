@@ -129,7 +129,7 @@ function rewards.traitOffer(value, label)
         local option, optionError = p.exact(
             optionValue,
             { "key" },
-            { "baseRarity", "rarity", "effectiveLevel", "allTogetherResult", "replacement" },
+            { "baseRarity", "rarity", "effectiveLevel", "allTogetherResult", "naturalSelectionTargets", "replacement" },
             label .. ".options[" .. index .. "]"
         )
         if not option then return nil, optionError end
@@ -148,6 +148,14 @@ function rewards.traitOffer(value, label)
             local _, resultError = allTogetherResult(option.allTogetherResult,
                 label .. ".allTogetherResult")
             if resultError then return nil, resultError end
+        end
+        if option.naturalSelectionTargets ~= nil then
+            local targets, targetsError = p.strings(option.naturalSelectionTargets,
+                label .. ".options[" .. index .. "].naturalSelectionTargets", 8)
+            if not targets then return nil, targetsError end
+            if #targets == 0 then
+                return p.fail(label .. ".options[" .. index .. "].naturalSelectionTargets must not be empty")
+            end
         end
     end
     return row

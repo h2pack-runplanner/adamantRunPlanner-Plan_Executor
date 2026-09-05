@@ -162,6 +162,32 @@ function TestProtocol.testArtificerRoleCarriesSourceOwnedReplacement()
     lu.assertNil(protocol.decode(value))
 end
 
+function TestProtocol.testNaturalSelectionTargetsDecodeAsOneBoundedNestedResult()
+    local offer = traitOffer()
+    offer.options[1].naturalSelectionTargets = { "one", "two", "one" }
+    local value = minimalPlan({ {
+        kind = "acquisition",
+        owner = "source",
+        sourceOwner = "source",
+        reward = reward(),
+        producerLifecycleKey = "pickup",
+        roles = { {
+            role = "self", disposition = "normal", lifecyclePoint = "pickup",
+            kind = "trait", gameName = "ZeusUpgrade", traitOffer = offer,
+        } },
+        window = window(),
+    } })
+    local plan, errorMessage = protocol.decode(value)
+    lu.assertNotNil(plan, errorMessage)
+    lu.assertEquals(plan.occurrences[1].timeline.transactions[1].roles[1].traitOffer.options[1]
+        .naturalSelectionTargets, { "one", "two", "one" })
+
+    value.occurrences[1].timeline.transactions[1].roles[1].traitOffer.options[1]
+        .naturalSelectionTargets = {}
+    refreshFingerprint(value)
+    lu.assertNil(protocol.decode(value))
+end
+
 function TestProtocol.testTimePieceDispositionIsNotPublished()
     local value = minimalPlan({ {
         kind = "acquisition",

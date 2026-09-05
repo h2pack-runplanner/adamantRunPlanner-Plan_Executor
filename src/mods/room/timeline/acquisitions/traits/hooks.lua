@@ -23,6 +23,8 @@ function hooks.attach(module, session, getState, report, room)
     chaos.attach(module, session, getState, report, room)
     local allTogetherPending = {}
     local activeAllTogether = nil
+    local activeNaturalSelection = nil
+    local activeNaturalDistribution = nil
 
     local function discardPending(pending)
         if pending == nil then return end
@@ -39,6 +41,19 @@ function hooks.attach(module, session, getState, report, room)
             end
         end
         return nil
+    end
+
+    local function discardNaturalSelection(pending)
+        if pending == nil then return end
+        if activeNaturalSelection == pending then activeNaturalSelection = nil end
+        if activeNaturalDistribution == pending then activeNaturalDistribution = nil end
+    end
+
+    local function completeNaturalSelection(state, pending)
+        if not pending.failed and pending.selectionReturned and pending.settled
+            and pending.cursor == #pending.targets then
+            session.complete(state, pending.handle)
+        end
     end
 
     local function setForCandidates(pending, candidates)
@@ -113,6 +128,89 @@ function hooks.attach(module, session, getState, report, room)
         return result
     end)
 
+    -- Natural Selection's one native shuffle determines every later round.
+    -- The published successful sequence supplies its first-appearance order;
+    -- entries absent from that sequence remain so native cap condemnation can
+    -- remove them at the same point as vanilla.
+    module.hooks.wrap("FYShuffle", "run-planner-steer-natural-selection-order", function(_, runtime, base,
+        candidates)
+        local pending = activeNaturalDistribution
+        if pending == nil then return base(candidates) end
+        if pending.shuffled then return base(candidates) end
+        local state = getState(runtime)
+        local available, ordered = {}, {}
+        for _, candidate in ipairs(candidates or {}) do available[candidate] = true end
+        local seen = {}
+        for _, target in ipairs(pending.targets) do
+            if not seen[target] then
+                if not available[target] then
+                    pending.failed = true
+                    discardNaturalSelection(pending)
+                    session.mismatch(state, "natural-selection-order", target, "native-ineligible")
+                    return base(candidates)
+                end
+                seen[target] = true
+                ordered[#ordered + 1] = target
+            end
+        end
+        for _, candidate in ipairs(candidates or {}) do
+            if not seen[candidate] then ordered[#ordered + 1] = candidate end
+        end
+        pending.shuffled = true
+        return ordered
+    end)
+
+    module.hooks.wrap("IncreaseTraitLevel", "run-planner-consume-natural-selection-target", function(_, runtime,
+        base, trait, ...)
+        local pending = activeNaturalDistribution
+        if pending ~= nil then
+            local state = getState(runtime)
+            local actual = type(trait) == "table" and trait.Name or nil
+            local expected = pending.targets[pending.cursor + 1]
+            if expected == nil then
+                pending.failed = true
+                discardNaturalSelection(pending)
+                session.mismatch(state, "natural-selection-target", "end-of-sequence", actual)
+            elseif actual ~= expected then
+                pending.failed = true
+                discardNaturalSelection(pending)
+                session.mismatch(state, "natural-selection-target", expected, actual)
+            else
+                pending.cursor = pending.cursor + 1
+            end
+        end
+        return base(trait, ...)
+    end)
+
+    module.hooks.wrap("DistributeLevels", "run-planner-complete-natural-selection", function(_, runtime, base,
+        args, originalTraitData)
+        local state = getState(runtime)
+        local pending = activeNaturalSelection
+        if pending == nil then return base(args, originalTraitData) end
+        pending.started = true
+        activeNaturalDistribution = pending
+        local ok, result = pcall(base, args, originalTraitData)
+        activeNaturalDistribution = nil
+        if not ok then
+            discardNaturalSelection(pending)
+            error(result, 0)
+        end
+        if not pending.failed and not pending.shuffled then
+            pending.failed = true
+            discardNaturalSelection(pending)
+            session.mismatch(state, "natural-selection-order", "FYShuffle", "missing")
+        end
+        if not pending.failed and pending.cursor < #pending.targets then
+            pending.failed = true
+            discardNaturalSelection(pending)
+            session.mismatch(state, "natural-selection-target", pending.targets[pending.cursor + 1], "missing")
+        end
+        pending.settled = true
+        completeNaturalSelection(state, pending)
+        report(runtime)
+        return result
+    end)
+
     module.hooks.wrap("HandleLootPickup", "run-planner-begin-ordinary-loot", function(_, runtime, base,
         currentRun, loot, args)
         if not ordinary.isNativeCarrier(loot) then return base(currentRun, loot, args) end
@@ -183,7 +281,9 @@ function hooks.attach(module, session, getState, report, room)
         local offer = ordinary.offer(payload)
         local selected = button and button.Data and button.Data.Name
         local allTogether = ordinary.allTogetherResult(payload)
+        local naturalSelectionTargets = ordinary.naturalSelectionTargets(payload)
         local pendingForSelection = nil
+        local naturalSelectionForSelection = nil
         if ordinary.isCarrier(loot, offer) and ordinary.selectedKey(payload) == selected
             and allTogether ~= nil then
             pendingForSelection = {
@@ -201,21 +301,54 @@ function hooks.attach(module, session, getState, report, room)
             }
             allTogetherPending[handle] = pendingForSelection
         end
-        local result = base(screen, button, args)
+        if ordinary.isCarrier(loot, offer) and ordinary.selectedKey(payload) == selected
+            and naturalSelectionTargets ~= nil then
+            naturalSelectionForSelection = {
+                handle = handle,
+                targets = naturalSelectionTargets,
+                cursor = 0,
+                selectionReturned = false,
+                settled = false,
+                shuffled = false,
+            }
+        end
+        local result
+        if naturalSelectionForSelection ~= nil then
+            activeNaturalSelection = naturalSelectionForSelection
+            local ok
+            ok, result = pcall(base, screen, button, args)
+            if activeNaturalSelection == naturalSelectionForSelection then
+                activeNaturalSelection = nil
+            end
+            if not ok then
+                discardNaturalSelection(naturalSelectionForSelection)
+                error(result, 0)
+            end
+            if not naturalSelectionForSelection.started then
+                naturalSelectionForSelection.failed = true
+                session.mismatch(state, "natural-selection-contact", "DistributeLevels", "missing")
+            end
+        else
+            result = base(screen, button, args)
+        end
         if ordinary.isCarrier(loot, offer) then
             if ordinary.selectedKey(payload) ~= selected then
                 session.mismatch(state, "trait-selection", ordinary.selectedKey(payload), selected)
             else
                 local pending = pendingForSelection
-                if pending == nil then
+                local naturalPending = naturalSelectionForSelection
+                if pending == nil and naturalPending == nil then
                     session.complete(state, handle)
-                else
+                elseif pending ~= nil then
                     pending.selectionReturned = true
                     if not pending.failed and pending.settled and pending.consumed.earth and pending.consumed.fire
                         and pending.consumed.air and pending.consumed.water then
                         allTogetherPending[handle] = nil
                         session.complete(state, handle)
                     end
+                else
+                    naturalPending.selectionReturned = true
+                    completeNaturalSelection(state, naturalPending)
                 end
             end
             report(runtime)
