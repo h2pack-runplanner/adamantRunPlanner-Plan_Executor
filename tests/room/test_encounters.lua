@@ -5,7 +5,6 @@ local bindings = require("mods.room.timeline.bindings")
 local lifecycle = require("mods.room.timeline.lifecycle")
 local phases = require("mods.room.timeline.encounters.phases")
 local encounterHooks = require("mods.room.timeline.encounters.hooks")
-local timelineHooks = require("mods/hooks_timeline")
 
 TestEncounters = {}
 
@@ -311,8 +310,6 @@ function TestEncounters.testGorgonAthenaHandsItsPublishedOfferToOrdinaryUseLoot(
     local session = {
     }
     encounterHooks.attach(module, session, function() return state end, function() end, room)
-    timelineHooks.attach(module, session, function() return state end, function() end, room)
-
     local result = callbacks.AthenaUse(nil, {}, function() return "native-use" end,
         athena, { value = 1 }, { id = 2 })
     _G.CurrentRun = priorRun

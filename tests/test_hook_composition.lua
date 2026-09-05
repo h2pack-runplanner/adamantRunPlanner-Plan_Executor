@@ -6,7 +6,6 @@ local roomCoordinatorModule = require("mods.room.coordinator")
 local encounterHooks = require("mods.room.timeline.encounters.hooks")
 local roomFeatureHooks = require("mods.room.features.hooks")
 local routeSession = require("mods.route.session")
-local timeline = require("mods/hooks_timeline")
 local transformations = require("mods.room.timeline.transformations.hooks")
 local acquisitions = require("mods.room.timeline.acquisitions.hooks")
 local directPickups = require("mods.room.timeline.acquisitions.pickups.hooks")
@@ -117,7 +116,6 @@ local navigationEntryStub = {
 }
 
 local function attachRewardHooks(module, session, getState, report)
-    timeline.attach(module, session, getState, report, session)
     navigation.attach(module, session, getState, report,
         { reportDestination = function() return true end }, session)
 end
@@ -796,7 +794,6 @@ function TestHookComposition.testMysteryBoonPurchaseWaitsForItsTraitResolution()
         UnwrapRandomLoot = callbacks.UnwrapRandomLoot,
         GiveLoot = callbacks.GiveLoot,
     }
-    timeline.attach(module, session, function() return state end, function() end, roomCoordinatorModule)
     for name, callback in pairs(mysteryCallbacks) do callbacks[name] = callback end
     traitAcquisitions.attach(module, session, function() return state end, function() end, roomCoordinatorModule)
 
@@ -1025,7 +1022,6 @@ function TestHookComposition.testChaosChoiceCompletesItsBoundOwner()
         completed[#completed + 1] = { row = row }
         return true
     end
-    timeline.attach(module, session, function() return {} end, function() end, session)
     local chaosLoot = {
         Name = "TrialUpgrade",
         UpgradeOptions = {
@@ -1127,7 +1123,6 @@ function TestHookComposition.testMysteryBoonBindsItsUnwrappedSourceTraitOffer()
         UnwrapRandomLoot = callbacks.UnwrapRandomLoot,
         GiveLoot = callbacks.GiveLoot,
     }
-    timeline.attach(module, session, function() return state end, function() end, roomCoordinatorModule)
     for name, callback in pairs(mysteryCallbacks) do callbacks[name] = callback end
     traitAcquisitions.attach(module, session, function() return state end, function() end, roomCoordinatorModule)
 
@@ -1210,10 +1205,7 @@ function TestHookComposition.testEachNativeNpcChoiceFunctionBindsItsPublishedTra
             completed = { row = actualRow }
             return true
         end
-        timeline.attach(module, session, function() return state end, function() end, session)
-        if giver == "Arachne" or giver == "Narcissus" then
-            npcAcquisitions.attach(module, session, function() return state end, function() end, session)
-        end
+        npcAcquisitions.attach(module, session, function() return state end, function() end, session)
         local priorRun = _G.CurrentRun
         _G.CurrentRun = {
             CurrentRoom = { Encounter = { Name = giver .. "Encounter" } },
@@ -1231,22 +1223,20 @@ function TestHookComposition.testEachNativeNpcChoiceFunctionBindsItsPublishedTra
                     { Source = source }, { Data = { Name = selected } }, {})
                 return true
             end
-            if giver == "Arachne" or giver == "Narcissus" then
-                return callbacks.OpenUpgradeChoiceMenu(nil, {}, function(nativeNpc)
-                    lu.assertEquals(nativeNpc.UpgradeOptions, {
-                        { ItemName = giver .. "First", Marker = 1 },
-                        { ItemName = selected, Marker = 2 },
-                        { ItemName = giver .. "Third", Marker = 3 },
-                    })
-                    return select()
-                end, nativeSource, prepared)
-            end
             lu.assertEquals(prepared.UpgradeOptions, {
-                { ItemName = giver .. "First", Marker = 1 },
-                { ItemName = selected, Marker = 2 },
+                { ItemName = giver .. "First", Marker = 1, GameStateRequirements = { "ignored" } },
+                { ItemName = selected, Marker = 2, PriorityRequirements = { "ignored" } },
                 { ItemName = giver .. "Third", Marker = 3 },
             })
-            return select()
+            nativeSource.UpgradeOptions = prepared.UpgradeOptions
+            return callbacks.OpenUpgradeChoiceMenu(nil, {}, function(nativeNpc)
+                lu.assertEquals(nativeNpc.UpgradeOptions, {
+                    { ItemName = giver .. "First", Marker = 1, GameStateRequirements = { "ignored" } },
+                    { ItemName = selected, Marker = 2, PriorityRequirements = { "ignored" } },
+                    { ItemName = giver .. "Third", Marker = 3 },
+                })
+                return select()
+            end, nativeSource, prepared)
         end, source, args, { Source = source })
         _G.CurrentRun = priorRun
         lu.assertEquals(fakePayload(completed.row), row, functionName)
@@ -1280,7 +1270,6 @@ function TestHookComposition.testIncidentalConsumableDoesNotClaimTheIncomingRewa
     session.complete = function(_, row)
         completed[#completed + 1] = { row = row }
     end
-    timeline.attach(module, session, function() return {} end, function() end, session)
     directPickups.attach(module, session, function() return {} end, function() end, session)
 
     local consolation = { Name = "RoomRewardConsolationPrize" }
@@ -1390,7 +1379,6 @@ function TestHookComposition.testExplicitGateBHookGroupsStayInstalled()
     local session = stub()
     local getState, report = function() end, function() end
     local route = { expected = function() end, reportDestination = function() return true end }
-    timeline.attach(module, session, getState, report, session)
     acquisitions.attach(module, session, getState, report, session)
     local transformationScope = transformations.attach(module, session, getState, report, session)
     local featureScope = roomFeatureHooks.attach(module, session, getState, report, session)

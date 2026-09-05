@@ -76,10 +76,6 @@ function timeline.applyNpcTraitOffer(row, args)
         if candidates[optionKey(offer, index)] == nil then return false end
     end
     if not timeline.applyTraitOffer(row, args) then return false end
-    for _, option in ipairs(args.UpgradeOptions) do
-        option.GameStateRequirements = nil
-        option.PriorityRequirements = nil
-    end
     return true
 end
 

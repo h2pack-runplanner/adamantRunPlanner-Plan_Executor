@@ -6,7 +6,6 @@ local features = require("mods.room.features.structure")
 local rewards = require("mods.navigation.rewards")
 local doors = require("mods.navigation.doors")
 local navigationHooks = require("mods.navigation.hooks")
-local timelineHooks = require("mods.hooks_timeline")
 local featureBindings = require("mods.room.features.native_bindings")
 local rewardBindings = require("mods.navigation.native_bindings")
 
@@ -161,7 +160,6 @@ function TestRoomNavigationStructure.testIntermediateRewardReturnWaitsForRoomEnt
     local session = {
         current = function() return { occurrence = item } end,
     }
-    timelineHooks.attach(module, session, function() return state end, function() end, session)
     navigationHooks.attach(module, session, function() return state end, function() end,
         { reportDestination = function() return true end }, session)
 

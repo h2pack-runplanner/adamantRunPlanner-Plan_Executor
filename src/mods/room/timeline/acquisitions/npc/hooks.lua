@@ -1,7 +1,7 @@
--- Focused execution boundary for the Arachne and Narcissus encounter
--- screens. Native menu construction, selection, and trait acquisition stay
--- native; this adapter installs the published offer and binds the exact
--- native selection. Native drop production remains pass-through.
+-- Focused execution boundary for NPC trait menus. Native menu construction,
+-- option-specific preparation, selection, and trait acquisition stay native;
+-- this adapter installs the published offer and binds the exact selection.
+-- Native drop production and other selected-trait effects remain pass-through.
 local adapter = type(import) == "function" and import("mods/native_timeline_adapters.lua")
     or require("mods.native_timeline_adapters")
 
@@ -10,6 +10,19 @@ local npc = {}
 local function copy(value)
     local result = {}
     for key, item in pairs(value or {}) do result[key] = item end
+    return result
+end
+
+local function copyInvocationArgs(args)
+    if type(args) ~= "table" then return args end
+    local result = copy(args)
+    if type(args.UpgradeOptions) == "table" then
+        result.UpgradeOptions = {}
+        for index, option in ipairs(args.UpgradeOptions) do
+            result.UpgradeOptions[index] = copy(option)
+        end
+    end
+    if type(args.PortraitShift) == "table" then result.PortraitShift = copy(args.PortraitShift) end
     return result
 end
 
@@ -57,20 +70,19 @@ end
 function npc.attach(module, session, getState, report, room)
     local choices = setmetatable({}, { __mode = "k" })
 
-    local function install(scope)
+    local function installInput(scope, args)
         if scope.nativeOptions == nil or scope.payload == nil then return false end
         local offer = traitOffer(scope.payload)
         if offer == nil or not nativeRowsAvailable(scope, offer) then return false end
-        -- Only replace the native menu after every published row has passed
-        -- its own native requirements. An unavailable exact row leaves the
-        -- native menu untouched after reporting the contact mismatch.
-        local prepared = { UpgradeOptions = {} }
-        for index, option in ipairs(scope.nativeOptions) do
-            prepared.UpgradeOptions[index] = copy(option)
-        end
-        if not adapter.applyNpcTraitOffer(scope.payload, prepared) then return false end
-        scope.source.UpgradeOptions = prepared.UpgradeOptions
-        return true
+        -- Install before the named NPC callback so native option-specific work
+        -- (for example Circe's familiar preparation) sees the authored rows.
+        return adapter.applyNpcTraitOffer(scope.payload, args)
+    end
+
+    local function reportUnavailable(scope)
+        session.mismatch(scope.state, "npc-trait-offer", "published " ..
+            tostring(scope.payload and scope.payload.transaction.resolution.offer.giver) ..
+            " trait offer", nil)
     end
 
     local function attachChoice(functionName, giver)
@@ -81,20 +93,25 @@ function npc.attach(module, session, getState, report, room)
             local handle = encounterHandle(room, state, source)
             local payload = handle and room.begin(state, handle) or nil
             local resolution = payload and payload.transaction.resolution
+            local invocationArgs = args
             if current ~= nil and resolution and resolution.kind == "traitOffer"
                 and resolution.offer.giver == giver then
+                invocationArgs = copyInvocationArgs(args)
                 local nativeOptions = {}
-                for _, option in ipairs(type(args) == "table" and args.UpgradeOptions or {}) do
+                for _, option in ipairs(type(invocationArgs) == "table" and invocationArgs.UpgradeOptions or {}) do
                     nativeOptions[#nativeOptions + 1] = copy(option)
                 end
                 local scope = {
                     state = state, current = current, handle = handle, payload = payload,
                     source = source, nativeOptions = nativeOptions,
                 }
-                choices[source] = scope
-                if payload == nil then scope.invalid = true end
+                if installInput(scope, invocationArgs) then
+                    choices[source] = scope
+                else
+                    reportUnavailable(scope)
+                end
             end
-            local result = base(source, args, screen)
+            local result = base(source, invocationArgs, screen)
             report(runtime)
             return result
         end)
@@ -102,15 +119,19 @@ function npc.attach(module, session, getState, report, room)
 
     attachChoice("ArachneCostumeChoice", "Arachne")
     attachChoice("NarcissusBenefitChoice", "Narcissus")
+    attachChoice("MedeaCurseChoice", "Medea")
+    attachChoice("CirceBlessingChoice", "Circe")
+    attachChoice("IcarusBenefitChoice", "Icarus")
+    attachChoice("EchoChoice", "Echo")
 
     module.hooks.wrap("OpenUpgradeChoiceMenu", "run-planner-npc-menu", function(_, runtime, base, source, args)
         local scope = choices[source]
-        if scope ~= nil and not scope.invalid then
-            if not install(scope) then
-                scope.invalid = true
-                session.mismatch(scope.state, "npc-trait-offer", "published " ..
-                    tostring(scope.payload and scope.payload.transaction.resolution.offer.giver) ..
-                    " trait offer", nil)
+        if scope ~= nil then
+            -- Native selection may reorder the three rows. Reapply the same
+            -- authored set at the shared menu contact after native preparation.
+            if not adapter.applyNpcTraitOffer(scope.payload, source) then
+                reportUnavailable(scope)
+                choices[source] = nil
             end
         end
         local result = base(source, args)
@@ -122,7 +143,7 @@ function npc.attach(module, session, getState, report, room)
         base, screen, button, args)
         local source = screen and screen.Source
         local scope = choices[source]
-        if scope == nil or scope.invalid then return base(screen, button, args) end
+        if scope == nil then return base(screen, button, args) end
 
         local selected = button and button.Data and button.Data.Name
         local result = base(screen, button, args)
