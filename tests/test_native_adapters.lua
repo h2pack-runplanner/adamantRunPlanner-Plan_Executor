@@ -164,6 +164,30 @@ function TestNativeAdapters.testReachableReadersProjectNativeState()
     lu.assertNil(readers.read("hermesShrineDeliveries", run))
 end
 
+function TestNativeAdapters.testPathReaderProjectsOnlyPublishedHighValueTalentsInCanonicalOrder()
+    local run = {
+        Hero = { SlottedSpell = {
+            Name = "Polymorph",
+            TraitName = "SpellPolymorphTrait",
+            Talents = { Name = "Lung", {
+                { Name = "CommonUnmodeledTalent", Rarity = "Common" },
+                { Name = "EpicExpected", Rarity = "Epic" },
+                { Name = "RareExpected", Rarity = "Rare" },
+            } },
+        } },
+        NumTalentPoints = 2,
+        InvestedTalentPoints = 4,
+        AllSpellInvestedCache = false,
+    }
+    lu.assertEquals(readers.read("pathOfStars", run, nil, {
+        talentKeys = { "RareExpected", "EpicExpected" },
+    }), {
+        spellTraitKey = "SpellPolymorphTrait", layoutKey = "Lung",
+        talentKeys = { "RareExpected", "EpicExpected" }, closed = false,
+        bankedPathPoints = 2, investedPathPoints = 4,
+    })
+end
+
 function TestNativeAdapters.testStygianWellReaderRetainsIxionAndDurationStateExactlyOnce()
     local run = { Hero = { Traits = {
         { Name = "TemporaryForcedSecretDoorTrait", RemainingUses = 2 },

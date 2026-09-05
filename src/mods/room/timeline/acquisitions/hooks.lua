@@ -15,6 +15,8 @@ local mystery = type(import) == "function" and import("mods/room/timeline/acquis
     or require("mods.room.timeline.acquisitions.mystery.hooks")
 local spell = type(import) == "function" and import("mods/room/timeline/acquisitions/spell/hooks.lua")
     or require("mods.room.timeline.acquisitions.spell.hooks")
+local path = type(import) == "function" and import("mods/room/timeline/acquisitions/path/hooks.lua")
+    or require("mods.room.timeline.acquisitions.path.hooks")
 
 local acquisitions = {}
 
@@ -23,6 +25,7 @@ function acquisitions.attach(module, session, getState, report, room)
     npc.attach(module, session, getState, report, room)
     mystery.attach(module, session, getState, report, room)
     spell.attach(module, session, getState, report, room)
+    path.attach(module, session, getState, report, room)
     traits.attach(module, session, getState, report, room)
     pickups.attach(module, session, getState, report, room)
     levels.attach(module, session, getState, report, room)

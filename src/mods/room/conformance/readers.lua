@@ -65,19 +65,45 @@ local function forfeit(run)
     return count >= rank and "consumed" or "available"
 end
 
-local function pathOfStars(run)
+local function pathOfStars(run, expected)
     local hero = type(run) == "table" and run.Hero or nil
     local spell = type(hero) == "table" and hero.SlottedSpell or nil
-    local talentKeys = {}
     local talents = type(spell) == "table" and spell.Talents or nil
+    local nativeTalentKeys = {}
+    local expectedKeys = type(expected) == "table" and expected.talentKeys or nil
+    local expectedSet = {}
+    for _, key in ipairs(expectedKeys or {}) do expectedSet[key] = true end
     local function collect(node)
         if type(node) ~= "table" then return end
-        if type(node.Name) == "string" and node.Name ~= talents.Name then talentKeys[#talentKeys + 1] = node.Name end
+        if type(node.Name) == "string" and node.Name ~= talents.Name
+            and (expectedSet[node.Name] or node.Rarity == "Rare" or node.Rarity == "Epic"
+                or node.Rarity == "Duo") then
+            nativeTalentKeys[node.Name] = true
+        end
         for _, child in ipairs(node) do collect(child) end
     end
     collect(talents)
+    -- The planner intentionally projects only frozen Rare/Epic/God Sent
+    -- identities. Reconstruct that canonical published order from native
+    -- presence, then retain unexpected high-value nodes as evidence instead
+    -- of leaking unmodeled common/repeatable talents into conformance.
+    local talentKeys, emitted = {}, {}
+    for _, key in ipairs(expectedKeys or {}) do
+        if nativeTalentKeys[key] then
+            talentKeys[#talentKeys + 1] = key
+            emitted[key] = true
+        end
+    end
+    local unexpected = {}
+    for key in pairs(nativeTalentKeys) do
+        if not emitted[key] and not expectedSet[key] then unexpected[#unexpected + 1] = key end
+    end
+    table.sort(unexpected)
+    for _, key in ipairs(unexpected) do talentKeys[#talentKeys + 1] = key end
     return {
-        spellTraitKey = type(spell) == "table" and spell.Name or nil,
+        -- SpellData.Name is the native spell-table key; planner conformance
+        -- publishes the installed trait identity carried by TraitName.
+        spellTraitKey = type(spell) == "table" and spell.TraitName or nil,
         layoutKey = type(talents) == "table" and talents.Name or nil,
         talentKeys = talentKeys,
         closed = type(run) == "table" and run.AllSpellInvestedCache or false,
@@ -220,7 +246,7 @@ function readers.read(kind, run, gameState, expected)
     if kind == "chaos" then return activeChaos(run) end
     if kind == "keepsakeEffects" then return keepsakeEffects(run, gameState, expected) end
     if kind == "rewardPriorities" then return type(run) == "table" and run.RewardPriorities or nil end
-    if kind == "pathOfStars" then return pathOfStars(run) end
+    if kind == "pathOfStars" then return pathOfStars(run, expected) end
     if kind == "forfeit" then return forfeit(run) end
     if kind == "stygianWell" then return stygianWell(run) end
     return nil

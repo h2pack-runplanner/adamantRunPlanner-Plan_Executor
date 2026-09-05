@@ -2792,7 +2792,7 @@
         ],
         "resolvedSharedRewardStoreKey": "RunProgress"
       },
-      "roomExitConformance": { "facts": [{ "kind": "chaos" }] },
+      "roomExitConformance": { "facts": [{ "kind": "chaos" }, { "kind": "pathOfStars" }] },
       "diagnostics": {
         "roomEntered": {
           "frame": 36,
@@ -3540,5 +3540,5 @@
       }
     }
   ],
-  "planFingerprint": "92423965"
+  "planFingerprint": "82a8a40a"
 }
