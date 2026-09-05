@@ -2,8 +2,9 @@
 -- is its sole correlation carrier; no global pending action or screen handle.
 local ordinary = type(import) == "function" and import("mods/room/timeline/acquisitions/traits/ordinary.lua")
     or require("mods.room.timeline.acquisitions.traits.ordinary")
-local chaos = type(import) == "function" and import("mods/room/timeline/acquisitions/traits/chaos.lua")
-    or require("mods.room.timeline.acquisitions.traits.chaos")
+local chaosOffer = type(import) == "function"
+        and import("mods/room/timeline/acquisitions/traits/chaos_offer.lua")
+    or require("mods.room.timeline.acquisitions.traits.chaos_offer")
 local seaStar = type(import) == "function" and import("mods/room/timeline/acquisitions/sea_star.lua")
     or require("mods.room.timeline.acquisitions.sea_star")
 local concaveStoneModule = type(import) == "function" and import("mods/keepsakes/concave_stone.lua")
@@ -24,7 +25,7 @@ local function boundNormal(room, state, current, native)
 end
 
 function hooks.attach(module, session, getState, report, room)
-    chaos.attach(module, session, getState, report, room)
+    chaosOffer.attach(module, session, getState, report, room)
     local allTogetherPending = {}
     local activeAllTogether = nil
     local naturalSelectionPending = {}

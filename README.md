@@ -1,59 +1,48 @@
-# Plan Executor
+# Run Planner Plan Executor
 
-Plan Executor is the thin Hades II consumer of the standalone Run Planner's
-execution-only JSON. It does not plan, simulate, or reinterpret a project.
+Plan Executor is the Hades II mod that carries out plans created by
+[Run Planner](https://github.com/maybe-adamant/RunPlanner).
 
-The module reads the fixed `active.runplanner.json` slot under the
-ReturnOfModding configuration, strictly decodes the current bounded Underworld F
-or F/G execution contract, and freezes it only when a new run starts. It
-follows the selected Room Occurrence cursor and reconciles Overview,
-consequential owners, lifecycle obligations, sparse room-exit state, and
-Doors. Diagnostic Run State frames are expanded once while decoding and remain
-nonblocking. The first mismatch records evidence and blocks the remaining
-configured prefix; it never searches for a replacement action.
+Run Planner owns authoring, simulation, and validation. Its desktop app
+publishes a game-ready execution plan; Plan Executor loads that plan when a new
+run begins and steers the corresponding rooms, rewards, offers, and other
+modeled outcomes in Hades II. If the game and plan diverge, the executor records
+the discrepancy and stops steering the remaining plan without blocking normal
+gameplay.
 
-The supported F/G surface includes ordinary and fixed room links, typed reward
-generation, selected trait offers and actions, objects, Anomaly, Arachne, Narcissus,
-Nemesis, Zagreus Contract, and Chaos/Ixion. A Chaos additional exit carries all
-three displayed curse options, the selected curse/blessing pair, its
-acquisition, and the compiled fixed return. Run State comparison is a bounded
-diagnostic at published lifecycle checkpoints, never a source of runtime route
-selection or repair. A player taking a different authored choice is recorded as
-player divergence; a mismatched realized fact is a conformance discrepancy.
+## How it connects to Run Planner
 
-The checked-in fixtures are compiler products and session-contract evidence.
-They do not replace live Hades II probes; until a host is available, native
-seam status is explicitly unexecuted rather than inferred from Lua tests.
+1. Create and validate a run in the Run Planner desktop app.
+2. Use **Publish to Game** to write the active execution plan to the
+   ReturnOfModding configuration.
+3. Start a new Hades II run. Plan Executor loads the published plan at run
+   startup.
 
-The checked-in execution fixtures mirror RunPlanner-main's compiler fixtures
-byte for byte.
+The browser version of Run Planner cannot publish directly to the game. Plan
+Executor consumes the published execution plan only; it does not read or
+reinterpret an editable Run Planner project.
 
-The strict wire decoder lives under `src/mods/protocol/`: `decoder.lua` owns
-the execution-plan envelope and derived indexes; the neighboring modules own
-the closed reward, overview, Timeline, occurrence, diagnostic, conformance,
-primitive, and loadout shapes. Diagnostic frame expansion and named
-conformance-fact resolution are separate products even though both are
-consumed while decoding occurrences.
+## Repository layout
 
-Host integration lives under `src/mods/host/`: `data.lua` declares the
-ModpackLib storage and status products, `inbox.lua` owns the fixed published
-plan slot, and `status_ui.lua` renders inspection state. Runtime composition
-and the route/room execution coordinator live under `src/mods/runtime/`;
-`composition.lua` wires the module and `session.lua` coordinates the active
-route and room sessions.
+- `src/` — the active Hades II module.
+- `fixtures/` — execution plans shared with Run Planner for compatibility
+  testing.
+- `tests/` — Lua unit and integration tests.
 
-The sole outer cursor lives in `src/mods/route/`; one volatile occurrence
-session lives in `src/mods/room/`. `src/mods/navigation/` is stateless and owns
-only destination Doors, their rewards, native Door bindings, and reporting the
-selected destination to the route session. Room identity, encounters, feature
-presence, lifecycle windows, and Timeline obligations remain inside the room
-envelope or their owning adapters. Within it, `room/features/` owns structural
-feature spawning and native inventories, `room/conformance/` owns room-exit
-readers and proof, and `room/timeline/` owns interactions with already-realized
-features. A `navigation/biomes/` subdirectory is added only when a biome
-contributes genuinely exceptional transition structure.
+Within `src/mods/`, code is grouped by its runtime responsibility: host and
+protocol integration, route navigation, room behavior, timeline interactions,
+and modeled traits or keepsakes.
 
-Use the desktop Run Planner's **Publish to Game** action. The browser build
-cannot publish directly. The archived `archive/phase9-prototype/` directory is
-historical evidence from the earlier bundle prototype and is not imported or
-executed by the active module.
+## Development
+
+Run the Lua test suite from the repository root:
+
+```sh
+lua tests/all.lua
+```
+
+Check the active module with Luacheck:
+
+```sh
+luacheck src/
+```

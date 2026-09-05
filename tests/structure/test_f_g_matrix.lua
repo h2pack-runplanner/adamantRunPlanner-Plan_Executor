@@ -13,7 +13,7 @@ local doors = require("mods.navigation.doors")
 
 TestFGStructureMatrix = {}
 
-local fixtureRoot = "test/fixtures/execution-plan/"
+local fixtureRoot = "fixtures/execution-plan/"
 
 local function fixture(name)
     local file = assert(io.open(fixtureRoot .. name .. ".execution.json", "rb"))
