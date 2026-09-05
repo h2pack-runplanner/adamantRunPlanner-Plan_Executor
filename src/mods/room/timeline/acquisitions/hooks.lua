@@ -17,10 +17,13 @@ local spell = type(import) == "function" and import("mods/room/timeline/acquisit
     or require("mods.room.timeline.acquisitions.spell.hooks")
 local path = type(import) == "function" and import("mods/room/timeline/acquisitions/path/hooks.lua")
     or require("mods.room.timeline.acquisitions.path.hooks")
+local seaStar = type(import) == "function" and import("mods/room/timeline/acquisitions/sea_star.lua")
+    or require("mods.room.timeline.acquisitions.sea_star")
 
 local acquisitions = {}
 
 function acquisitions.attach(module, session, getState, report, room)
+    seaStar.attach(module)
     binding.attach(module, session, getState, report, room)
     npc.attach(module, session, getState, report, room)
     mystery.attach(module, session, getState, report, room)

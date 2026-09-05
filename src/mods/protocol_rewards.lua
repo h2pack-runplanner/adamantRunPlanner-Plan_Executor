@@ -237,7 +237,7 @@ function rewards.acquisitionRole(value, label)
     local record, errorMessage = p.exact(
         value,
         { "role", "disposition", "lifecyclePoint", "kind", "gameName" },
-        { "producer", "replacement", "settlement", "traitOffer", "levelResolution" },
+        { "producer", "replacement", "settlement", "traitOffer", "levelResolution", "seaStarResult" },
         label
     )
     if not record then return nil, errorMessage end
@@ -282,6 +282,19 @@ function rewards.acquisitionRole(value, label)
         if rewardError then return nil, rewardError end
         if not p.str(replacementRow.gameName, label .. ".replacement.gameName") then
             return p.fail(label .. ".replacement has invalid gameName")
+        end
+    end
+    if record.seaStarResult ~= nil then
+        if record.disposition ~= "normal" then
+            return p.fail(label .. ".seaStarResult is only valid for normal roles")
+        end
+        if record.producer ~= nil and record.producer.kind == "seaStarDuplicate" then
+            return p.fail(label .. ".seaStarResult is invalid on a Sea Star duplicate")
+        end
+        local result, resultError = p.exact(record.seaStarResult, { "kind" }, {}, label .. ".seaStarResult")
+        if not result then return nil, resultError end
+        if not p.one(result.kind, { proc = true, noProc = true }, label .. ".seaStarResult.kind") then
+            return p.fail(label .. " has invalid Sea Star result")
         end
     end
     if record.settlement ~= nil then

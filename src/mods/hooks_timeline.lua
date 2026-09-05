@@ -88,24 +88,6 @@ function hooks.attach(module, session, getState, report, room)
     -- their existing screen-local handoff. Arachne/Narcissus are owned by the
     -- focused acquisition adapter.
     local pendingLegacyTrait
-    local pendingSeaStar
-
-    -- Sea Star remains outside C4. Its existing duplicate-carrier path still
-    -- binds the native duplicate while the source interaction is in flight.
-    local function seaStarChildFor(state, source)
-        local current = roomCoordinator.current(state)
-        local sourceHandle = roomCoordinator.bound(state, current, source)
-            or incomingHandle(roomCoordinator, session, state, source)
-        local sourceRole = roomCoordinator.sourceRole(state, current, sourceHandle, source and source.Name)
-        local child = roomCoordinator.resolve(state, current,
-            { kind = "produced", source = sourceHandle, role = sourceRole })
-        local payload = child and roomCoordinator.begin(state, child) or nil
-        if payload and payload.detail and payload.detail.producer
-            and payload.detail.producer.kind == "seaStarDuplicate" then
-            return sourceHandle, child, payload
-        end
-        return sourceHandle, nil
-    end
 
     local function attachNpcTraitChoice(functionName, giver)
         module.hooks.wrap(functionName, "run-planner-npc-trait-offer", function(_, runtime, base, source,
@@ -146,45 +128,13 @@ function hooks.attach(module, session, getState, report, room)
         if payload == nil then return base(usee, args, user) end
         if payload == nil then report(runtime); return base(usee, args, user) end
         usee.__runPlannerTimelineHandle = handle
-        local _, seaStarChild = seaStarChildFor(state, usee)
-        if seaStarChild then pendingSeaStar = { source = usee, child = seaStarChild } end
         local expected = adapter.expectedTrait(payload)
         if expected ~= nil then
             adapter.applyTraitOffer(payload, usee)
             pendingLegacyTrait = { handle = handle, payload = payload, source = usee }
         end
         local result = base(usee, args, user)
-        pendingSeaStar = nil
         report(runtime)
-        return result
-    end)
-
-    module.hooks.wrap("GetTotalHeroTraitValue", "run-planner-sea-star-gate", function(_, _runtime, base,
-        propertyName, args)
-        if propertyName == "DoubleRewardChance" and pendingSeaStar ~= nil then return 1 end
-        return base(propertyName, args)
-    end)
-
-    module.hooks.wrap("RandomChance", "run-planner-sea-star-duplicate", function(_, _, base, chance, args)
-        if pendingSeaStar ~= nil then return true end
-        return base(chance, args)
-    end)
-
-    local function bindSeaStar(state, result)
-        if pendingSeaStar == nil or result == nil then return end
-        local current = roomCoordinator.current(state)
-        roomCoordinator.bind(state, current, pendingSeaStar.child, result)
-    end
-
-    module.hooks.wrap("CreateLoot", "run-planner-created-loot", function(_, runtime, base, args)
-        local result = base(args)
-        bindSeaStar(getState(runtime), result)
-        return result
-    end)
-
-    module.hooks.wrap("CreateConsumableItem", "run-planner-created-consumable", function(_, runtime, base, ...)
-        local result = base(...)
-        bindSeaStar(getState(runtime), result)
         return result
     end)
 

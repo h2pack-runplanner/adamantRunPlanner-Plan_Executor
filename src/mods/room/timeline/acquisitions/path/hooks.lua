@@ -1,6 +1,8 @@
 -- Path of Stars accepts only its exact native consumable, then leaves all
 -- point accounting, node choice, and closure to the writable Talent screen.
 local path = {}
+local seaStar = type(import) == "function" and import("mods/room/timeline/acquisitions/sea_star.lua")
+    or require("mods.room.timeline.acquisitions.sea_star")
 
 local pathNames = {
     MinorTalentDrop = true,
@@ -50,7 +52,13 @@ function path.attach(module, session, getState, report, room)
         if payload == nil then return base(args, item, context) end
         local ok, result = pcall(base, args, item, context)
         if not ok then error(result, 0) end
-        session.complete(scope.state, scope.handle)
+        if seaStar.requireConsumed(scope.seaStar, session.mismatch) then
+            session.complete(scope.state, scope.handle)
+            scope.completed = true
+        end
+        if scope.completed and scope.seaStar and scope.seaStar.result and scope.seaStar.result.kind == "proc" then
+            room.releaseCompletedBinding(scope.state, scope.current, scope.handle, item)
+        end
         acceptedUses[item], routedSpellDrops[item] = nil, nil
         report(runtime)
         return result
@@ -65,7 +73,10 @@ function path.attach(module, session, getState, report, room)
             scope = { state = getState(runtime), current = room.current(getState(runtime)), item = item }
         end
         acceptedUses[item] = scope
-        local ok, result = pcall(base, item, args, user)
+        scope.seaStar = seaStar.scope(scope.state, scope.handle and room.peek(scope.state, scope.handle) or nil)
+        local ok, result = pcall(function()
+            return seaStar.call(scope.seaStar, function() return base(item, args, user) end, session.mismatch)
+        end)
         if acceptedUses[item] == scope then
             acceptedUses[item] = nil
             if scope.accepted and not scope.screenOpened then
@@ -84,11 +95,16 @@ function path.attach(module, session, getState, report, room)
         if scope ~= nil and result == false then
             acceptedUses[item] = nil
         elseif scope ~= nil then
-            if scope.handle == nil then scope = boundScope(room, scope.state, item, true) end
-            if scope == nil then
+            local claimed = scope.handle == nil and boundScope(room, scope.state, item, true) or scope
+            if claimed == nil then
                 acceptedUses[item] = nil
             else
+                -- Keep the enclosing Sea Star scope alive: generated Talent
+                -- claims occur here, but the native chance follows later in
+                -- this same UseConsumableItem call.
+                scope.handle, scope.current = claimed.handle, claimed.current
                 scope.accepted = true
+                seaStar.activate(scope.seaStar, room.peek(scope.state, scope.handle))
                 acceptedUses[item] = scope
             end
         end

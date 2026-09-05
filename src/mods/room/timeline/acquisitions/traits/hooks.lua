@@ -4,6 +4,8 @@ local ordinary = type(import) == "function" and import("mods/room/timeline/acqui
     or require("mods.room.timeline.acquisitions.traits.ordinary")
 local chaos = type(import) == "function" and import("mods/room/timeline/acquisitions/traits/chaos.lua")
     or require("mods.room.timeline.acquisitions.traits.chaos")
+local seaStar = type(import) == "function" and import("mods/room/timeline/acquisitions/sea_star.lua")
+    or require("mods.room.timeline.acquisitions.sea_star")
 
 local hooks = {}
 
@@ -448,6 +450,7 @@ function hooks.attach(module, session, getState, report, room)
         local handle, payload = boundNormal(room, state, current, loot)
         local offer = ordinary.offer(payload)
         local selected = button and button.Data and button.Data.Name
+        local seaStarScope = seaStar.scope(state, payload)
         local nested = type(args) == "table" and args.DoubleBoonChance == true
         if nested then
             local stone = activeConcaveStone
@@ -468,15 +471,8 @@ function hooks.attach(module, session, getState, report, room)
             end
             local pendingForSelection, naturalSelectionForSelection = consequenceScopes(
                 payload, loot, offer, selected, handle, current)
-            local ok, result = pcall(
-                callSelectionBase,
-                state,
-                base,
-                screen,
-                button,
-                args,
-                naturalSelectionForSelection
-            )
+            local ok, result = pcall(callSelectionBase, state, base, screen, button, args,
+                naturalSelectionForSelection)
             if not ok then
                 stone.failed = true
                 discardConcaveStone(stone)
@@ -526,15 +522,11 @@ function hooks.attach(module, session, getState, report, room)
             failedConcaveStoneHandles[handle] = nil
             activeConcaveStone = stone
         end
-        local ok, result = pcall(
-            callSelectionBase,
-            state,
-            base,
-            screen,
-            button,
-            args,
-            naturalSelectionForSelection
-        )
+        local ok, result = pcall(function()
+            return seaStar.call(seaStarScope, function()
+                return callSelectionBase(state, base, screen, button, args, naturalSelectionForSelection)
+            end, session.mismatch)
+        end)
         if activeConcaveStone == stone then activeConcaveStone = nil end
         if not ok then
             if stone ~= nil then

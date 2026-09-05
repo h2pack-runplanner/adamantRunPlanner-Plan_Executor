@@ -232,6 +232,11 @@ local function shopPurchase(value, label)
     if rewardError then return nil, rewardError end
     local _, rolesError = rewards.roles(record.roles, label .. ".roles")
     if rolesError then return nil, rolesError end
+    for _, role in ipairs(record.roles) do
+        if role.seaStarResult ~= nil then
+            return p.fail(label .. ".roles may not publish Sea Star results for purchases")
+        end
+    end
     return record
 end
 

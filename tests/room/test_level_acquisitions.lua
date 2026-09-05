@@ -2,6 +2,7 @@
 local lu = require("luaunit")
 local levels = require("mods.room.timeline.acquisitions.levels.hooks")
 local binding = require("mods.room.timeline.acquisitions.binding")
+local seaStar = require("mods.room.timeline.acquisitions.sea_star")
 
 TestLevelAcquisitions = {}
 
@@ -11,10 +12,10 @@ local function capture()
     return module, callbacks
 end
 
-local function harness(row, native, isBound)
+local function harness(row, native, isBound, installSeaStar)
     local module, callbacks = capture()
     local state = { state = "synchronized" }
-    local begins, completions = 0, {}
+    local begins, completions, mismatches, releases = 0, {}, {}, 0
     local handle = {}
     local active = { occurrence = { overview = {} } }
     local bound = isBound == false and {} or { [native] = handle }
@@ -32,15 +33,23 @@ local function harness(row, native, isBound)
             begins = begins + 1
             return row
         end,
+        releaseCompletedBinding = function()
+            releases = releases + 1
+            return true
+        end,
     }
     local session = {
-        mismatch = function() end,
+        mismatch = function(_, checkpoint, expected, observed)
+            mismatches[#mismatches + 1] = { checkpoint, expected, observed }
+        end,
         complete = function(_, value)
             completions[#completions + 1] = { handle = value }
         end,
     }
     levels.attach(module, session, function() return state end, function() end, room)
-    return callbacks, room, state, handle, function() return begins end, completions
+    if installSeaStar then seaStar.attach(module) end
+    return callbacks, room, state, handle, function() return begins end, completions, mismatches,
+        function() return releases end
 end
 
 local function levelRow(name, count, target)
@@ -122,6 +131,26 @@ function TestLevelAcquisitions.testVisibleSelectionUsesNativeSortedIdentityAndNo
     _G.CurrentRun = priorRun
 end
 
+function TestLevelAcquisitions.testVisibleFreshPomForcesSeaStarBeforeItsSelectionCompletion()
+    local row = levelRow("StackUpgrade", 1, "Target")
+    row.detail.levelResolution.offeredTargets = { "Target" }
+    row.detail.seaStarResult = { kind = "proc" }
+    local loot = { Name = "StackUpgrade", UpgradeOptions = {} }
+    local callbacks, _, _, _, _, completions = harness(row, loot, nil, true)
+    callbacks.HandleLootPickup(nil, {}, function() end, {}, loot, {})
+    callbacks.CreateBoonLootButtons(nil, {}, function() end, {}, loot, false, {})
+    local chance = {}
+    callbacks.HandleUpgradeChoiceSelection(nil, {}, function(_, button)
+        chance.value = callbacks.GetTotalHeroTraitValue(nil, {}, function() return 0 end,
+            "DoubleRewardChance", {})
+        chance.result = callbacks.RandomChance(nil, {}, function() return nil end, 0.25, {})
+        return button
+    end, {}, { LootData = loot, Data = { Name = "Target" } }, {})
+    lu.assertEquals(chance.value, 1)
+    lu.assertTrue(chance.result)
+    lu.assertEquals(#completions, 1)
+end
+
 function TestLevelAcquisitions.testUnboundVisiblePomClaimsAtAcceptedPickup()
     local row = levelRow("StackUpgrade", 1, "Target")
     local loot = { Name = "StackUpgrade", UpgradeOptions = {} }
@@ -130,11 +159,12 @@ function TestLevelAcquisitions.testUnboundVisiblePomClaimsAtAcceptedPickup()
     lu.assertEquals(begins(), 1)
 end
 
-local function directFixture(selected, count, isBound)
+local function directFixture(selected, count, isBound, installSeaStar)
     local item = { Name = "GiftDrop", UseFunctionArgs = { Thread = false, NumTraits = 1, NumStacks = 9 } }
     local row = levelRow("GiftDrop", count or 1, selected)
-    local callbacks, room, state, handle, begins, completions = harness(row, item, isBound)
-    return item, row, callbacks, room, state, handle, begins, completions
+    local callbacks, room, state, handle, begins, completions, mismatches, releases = harness(row, item, isBound,
+        installSeaStar)
+    return item, row, callbacks, room, state, handle, begins, completions, mismatches, releases
 end
 
 local function copy(value)
@@ -143,9 +173,14 @@ local function copy(value)
     return result
 end
 
-local function useDirect(callbacks, item, terminal, nativeFatedBonus)
+local function useDirect(callbacks, item, terminal, nativeFatedBonus, seaStarChance)
     callbacks.UseConsumableItem(nil, {}, function(nativeItem)
         callbacks.ConsumableUsedPresentation(nil, {}, function() return true end, {}, nativeItem, {})
+        if seaStarChance then
+            seaStarChance.value = callbacks.GetTotalHeroTraitValue(nil, {}, function() return 0 end,
+                "DoubleRewardChance", {})
+            seaStarChance.result = callbacks.RandomChance(nil, {}, function() return nil end, 0.25, {})
+        end
         callbacks.UseStoreRewardRandomStack(nil, {}, function(directArgs)
             if nativeFatedBonus then directArgs.NumStacks = directArgs.NumStacks + nativeFatedBonus end
             callbacks.AddStackToTraits(nil, {}, function(nativeSource, nativeArgs)
@@ -163,6 +198,52 @@ local function useDirect(callbacks, item, terminal, nativeFatedBonus)
     end, item, {}, {})
 end
 
+function TestLevelAcquisitions.testUnboundDirectLevelSourceActivatesSeaStarDuringAcceptedUse()
+    local item, row, callbacks, _, _, _, _, completions = directFixture("Target", nil, false, true)
+    row.detail.seaStarResult = { kind = "proc" }
+    local chance = {}
+    local priorRun = _G.CurrentRun
+    _G.CurrentRun = { Hero = { Traits = { { Name = "Target", StackNum = 1 } } } }
+    useDirect(callbacks, item, function() end, nil, chance)
+    lu.assertEquals(chance.value, 1)
+    lu.assertTrue(chance.result)
+    lu.assertEquals(#completions, 1)
+    _G.CurrentRun = priorRun
+end
+
+function TestLevelAcquisitions.testDeferredDirectLevelTerminalKeepsSeaStarScopeUntilItsActualCompletion()
+    local item, row, callbacks, _, _, _, _, completions, _, releases = directFixture("Target", nil, true, true)
+    item.UseFunctionArgs.Thread = true
+    row.detail.seaStarResult = { kind = "proc" }
+    local chance = {}
+    local queuedTerminal
+    local priorRun = _G.CurrentRun
+    _G.CurrentRun = { Hero = { Traits = { { Name = "Target", StackNum = 1 } } } }
+    callbacks.UseConsumableItem(nil, {}, function(nativeItem)
+        callbacks.ConsumableUsedPresentation(nil, {}, function() return true end, {}, nativeItem, {})
+        chance.value = callbacks.GetTotalHeroTraitValue(nil, {}, function() return 0 end,
+            "DoubleRewardChance", {})
+        chance.result = callbacks.RandomChance(nil, {}, function() return nil end, 0.25, {})
+        callbacks.UseStoreRewardRandomStack(nil, {}, function(directArgs)
+            callbacks.AddStackToTraits(nil, {}, function(nativeSource, nativeArgs)
+                local actual = nativeArgs or nativeSource
+                queuedTerminal = function()
+                    actual.Thread = false
+                    callbacks.AddStackToTraits(nil, {}, function() end, actual)
+                end
+            end, directArgs)
+        end, nativeItem.UseFunctionArgs, nativeItem)
+    end, item, {}, {})
+    lu.assertTrue(chance.result)
+    lu.assertNotNil(queuedTerminal)
+    lu.assertEquals(#completions, 0)
+    lu.assertEquals(releases(), 0)
+    queuedTerminal()
+    lu.assertEquals(#completions, 1)
+    lu.assertEquals(releases(), 1)
+    _G.CurrentRun = priorRun
+end
+
 function TestLevelAcquisitions.testRejectedConsumableDoesNotBeginDirectNectar()
     local item, _, callbacks, _, _, _, begins, completions = directFixture("Target")
     callbacks.UseConsumableItem(nil, {}, function() return false end, item, {}, {})
@@ -171,6 +252,17 @@ function TestLevelAcquisitions.testRejectedConsumableDoesNotBeginDirectNectar()
     callbacks.UseConsumableItem(nil, {}, function() return false end, item, {}, {})
     lu.assertEquals(begins(), 0)
     lu.assertEquals(#completions, 0)
+end
+
+function TestLevelAcquisitions.testDirectLevelTerminalCannotCompleteBeforeItsSeaStarChanceContact()
+    local item, row, callbacks, _, _, _, _, completions, mismatches = directFixture("Target")
+    row.detail.seaStarResult = { kind = "proc" }
+    local priorRun = _G.CurrentRun
+    _G.CurrentRun = { Hero = { Traits = { { Name = "Target", StackNum = 1 } } } }
+    useDirect(callbacks, item, function() end)
+    lu.assertEquals(#completions, 0)
+    lu.assertEquals(mismatches, { { "sea-star-chance", "proc", "missing" } })
+    _G.CurrentRun = priorRun
 end
 
 function TestLevelAcquisitions.testRoomRewardNectarSteersTargetAndCompletesThreadedTerminalOnce()

@@ -1,10 +1,11 @@
 -- luacheck: globals TestPathAcquisitions
 local lu = require("luaunit")
 local path = require("mods.room.timeline.acquisitions.path.hooks")
+local seaStar = require("mods.room.timeline.acquisitions.sea_star")
 
 TestPathAcquisitions = {}
 
-local function capture(payload, bound)
+local function capture(payload, bound, installSeaStar)
     local callbacks = {}
     local module = { hooks = { wrap = function(name, _, callback) callbacks[name] = callback end } }
     local item = { Name = payload.detail.gameName, UseFunctionName = "OpenTalentScreen" }
@@ -25,6 +26,7 @@ local function capture(payload, bound)
             began = began + 1
             return payload
         end,
+        releaseCompletedBinding = function() return true end,
     }
     local session = {
         complete = function(_, value) completed[#completed + 1] = value end,
@@ -33,6 +35,7 @@ local function capture(payload, bound)
         end,
     }
     path.attach(module, session, function() return state end, function() reports = reports + 1 end, room)
+    if installSeaStar then seaStar.attach(module) end
     return callbacks, item, function() return began end, completed, mismatches, function() return reports end
 end
 
@@ -75,6 +78,24 @@ function TestPathAcquisitions.testUnboundPathPickupClaimsOnlyAfterNativeAcceptan
     local result = use(callbacks, item, function() return "native-screen-return" end)
     lu.assertEquals(result, "native-screen-return")
     lu.assertEquals(began(), 1)
+    lu.assertEquals(#completed, 1)
+end
+
+function TestPathAcquisitions.testUnboundTalentKeepsItsSeaStarScopeThroughAcceptedClaim()
+    local row = payload("TalentDrop")
+    row.detail.seaStarResult = { kind = "proc" }
+    local callbacks, item, _, completed = capture(row, false, true)
+    local chance = {}
+    local result = callbacks.UseConsumableItem(nil, {}, function(source)
+        callbacks.ConsumableUsedPresentation(nil, {}, function() return true end, {}, source, {})
+        chance.value = callbacks.GetTotalHeroTraitValue(nil, {}, function() return 0 end,
+            "DoubleRewardChance", {})
+        chance.result = callbacks.RandomChance(nil, {}, function() return false end, 0.25, {})
+        return callbacks.OpenTalentScreen(nil, {}, function() return "native-screen-return" end, {}, source, {})
+    end, item, {}, {})
+    lu.assertEquals(result, "native-screen-return")
+    lu.assertEquals(chance.value, 1)
+    lu.assertTrue(chance.result)
     lu.assertEquals(#completed, 1)
 end
 

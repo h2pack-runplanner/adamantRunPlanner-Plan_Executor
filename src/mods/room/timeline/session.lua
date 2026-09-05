@@ -121,6 +121,21 @@ function timeline.bound(session, native)
     return session.nativeHandles[native]
 end
 
+-- A retained Sea Star consumable is the same native object after its source
+-- owner completes.  Releasing only that completed binding lets the ordinary
+-- ready-action claim attach the later duplicate on its next accepted use.
+function timeline.releaseCompletedBinding(session, handle, native)
+    local row, errorValue = rowFor(session, handle)
+    if row == nil then return nil, errorValue end
+    if not session.completedOwners[row.transaction.owner] then
+        return mismatch(session, "timeline-binding", "completed owner", "active owner")
+    end
+    if session.nativeHandles[native] ~= handle then return nil end
+    session.nativeHandles[native] = nil
+    if session.handleNatives[handle] ~= nil then session.handleNatives[handle][native] = nil end
+    return true
+end
+
 function timeline.sourceRole(session, handle, gameName)
     local row = rowFor(session, handle)
     return row and bindings.sourceRole(row, gameName) or nil

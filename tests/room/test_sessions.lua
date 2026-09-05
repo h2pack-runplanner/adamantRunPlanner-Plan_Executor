@@ -57,6 +57,37 @@ function TestRouteRoomSessions.testOptionalOwnerDoesNotBlockClosureButBlocksItsD
     lu.assertTrue(room.close(closeable, function() return true end))
 end
 
+function TestRouteRoomSessions.testCompletedNativeBindingCanYieldToAReadySeaStarDuplicate()
+    local entry = occurrence()
+    entry.transactionsByOwner = {
+        source = {
+            owner = "source", generationKey = "test:source", gameName = "RoomMoneyDrop",
+            window = { kind = "standard", phase = "beforeCombat" },
+        },
+        duplicate = {
+            owner = "duplicate", generationKey = "test:duplicate", gameName = "RoomMoneyDrop",
+            window = { kind = "standard", phase = "beforeCombat" },
+        },
+    }
+    entry.timeline = {
+        transactions = { entry.transactionsByOwner.source, entry.transactionsByOwner.duplicate },
+        dependencies = { { owner = "duplicate", afterOwner = "source" } }, obligations = {},
+    }
+    local port = timeline.new(entry, assert(bindings.index(entry)))
+    local source = assert(timeline.resolve(port, bindings.resolve, { kind = "generation", generationKey = "test:source" }))
+    local native = { Name = "RoomMoneyDrop" }
+    lu.assertTrue(timeline.open(port, "roomEntered"))
+    lu.assertNotNil(timeline.bind(port, source, native))
+    lu.assertTrue(timeline.complete(port, source))
+    lu.assertTrue(timeline.releaseCompletedBinding(port, source, native))
+    local duplicate = assert(timeline.claimReady(
+        port, { kind = "directPickup", gameName = "RoomMoneyDrop" }, native,
+        function(transaction, contact)
+            return transaction.owner == "duplicate" and contact.gameName == transaction.gameName
+        end))
+    lu.assertNotNil(duplicate)
+end
+
 function TestRouteRoomSessions.testConformanceMismatchIsAtomicAndBlocking()
     local session = newSession(occurrence())
     lu.assertTrue(complete(session, "required"))

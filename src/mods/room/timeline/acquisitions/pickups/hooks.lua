@@ -2,6 +2,8 @@
 -- Native UseConsumableItem owns every effect; this adapter only recognizes an
 -- accepted interaction and closes the published owner after native settlement.
 local pickups = {}
+local seaStar = type(import) == "function" and import("mods/room/timeline/acquisitions/sea_star.lua")
+    or require("mods.room.timeline.acquisitions.sea_star")
 
 local function detail(payload)
     return type(payload) == "table" and type(payload.detail) == "table" and payload.detail or nil
@@ -54,9 +56,15 @@ function pickups.attach(module, session, getState, report, room)
             return base(item, args, user)
         end
 
-        local scope = { state = state, current = current, handle = handle, item = item, accepted = false }
+        local scope = {
+            state = state, current = current, handle = handle, item = item, accepted = false,
+            seaStar = seaStar.scope(state, payload),
+        }
         activeUses[item] = scope
-        local ok, result = pcall(base, item, args, user)
+        local ok, result = pcall(function()
+            return seaStar.call(scope.seaStar, function() return base(item, args, user) end,
+                session.mismatch)
+        end)
         if activeUses[item] == scope then activeUses[item] = nil end
         if not ok then error(result, 0) end
 
@@ -67,7 +75,13 @@ function pickups.attach(module, session, getState, report, room)
                 if expected ~= observed then
                     session.mismatch(state, "direct-pickup", expected, observed)
                 else
-                    session.complete(state, scope.handle)
+                    if seaStar.requireConsumed(scope.seaStar, session.mismatch) then
+                        session.complete(state, scope.handle)
+                        scope.completed = true
+                    end
+                    if scope.completed and scope.seaStar.result and scope.seaStar.result.kind == "proc" then
+                        room.releaseCompletedBinding(state, scope.current, scope.handle, item)
+                    end
                 end
             end
             report(runtime)
@@ -90,6 +104,7 @@ function pickups.attach(module, session, getState, report, room)
                 if scope.handle == nil then return result end
                 scope.accepted = true
                 scope.payload = room.begin(scope.state, scope.handle)
+                seaStar.activate(scope.seaStar, scope.payload)
             end
             return result
         end)

@@ -2,6 +2,8 @@
 -- steers the native Pom menu and direct room-reward Nectar effect; it never
 -- mutates a trait itself.
 local levels = {}
+local seaStar = type(import) == "function" and import("mods/room/timeline/acquisitions/sea_star.lua")
+    or require("mods.room.timeline.acquisitions.sea_star")
 
 local visibleNames = {
     StackUpgrade = true,
@@ -117,6 +119,7 @@ function levels.attach(module, session, getState, report, room)
     local suppressFatedPomBonus = 0
     local begunVisible = setmetatable({}, { __mode = "k" })
     local activeDirectUses = setmetatable({}, { __mode = "k" })
+    local activeDirectTerminals = {}
 
     local function forwardDirect(scope)
         if scope.forwarded or scope.handle == nil then return end
@@ -221,14 +224,17 @@ function levels.attach(module, session, getState, report, room)
         if effect == nil then return base(screen, button, args) end
         if not begunVisible[handle] then return base(screen, button, args) end
         local selected = button and button.Data and button.Data.Name
+        local seaStarScope = seaStar.scope(state, payload)
         local prior = loot.__runPlannerLevelCarrier
         loot.__runPlannerLevelCarrier = true
-        local ok, result = pcall(base, screen, button, args)
+        local ok, result = pcall(function()
+            return seaStar.call(seaStarScope, function() return base(screen, button, args) end, session.mismatch)
+        end)
         loot.__runPlannerLevelCarrier = prior
         if not ok then error(result, 0) end
         if effect.selectedTarget ~= selected then
             session.mismatch(state, "level-selection", effect.selectedTarget, selected)
-        else
+        elseif seaStar.requireConsumed(seaStarScope, session.mismatch) then
             session.complete(state, handle)
         end
         report(runtime)
@@ -248,16 +254,29 @@ function levels.attach(module, session, getState, report, room)
         local scope = {
             state = state, current = room.current(state), handle = handle, payload = payload,
             item = item, originalArgs = item.UseFunctionArgs, accepted = false,
+            deferred = type(item.UseFunctionArgs) == "table" and item.UseFunctionArgs.Thread == true,
+            seaStar = seaStar.scope(state, payload),
         }
         activeDirectUses[item] = scope
+        if scope.handle ~= nil then activeDirectTerminals[scope.handle] = scope end
         local prior = item.__runPlannerLevelCarrier
         item.__runPlannerLevelCarrier = true
         if resolution(payload) ~= nil then forwardDirect(scope) end
-        local ok, result = pcall(base, item, args, user)
+        local ok, result = pcall(function()
+            return seaStar.call(scope.seaStar, function() return base(item, args, user) end, session.mismatch)
+        end)
         if scope.forwarded then item.UseFunctionArgs = scope.originalArgs end
         item.__runPlannerLevelCarrier = prior
         if activeDirectUses[item] == scope then activeDirectUses[item] = nil end
+        if scope.handle ~= nil and activeDirectTerminals[scope.handle] == scope
+            and (scope.completed or not scope.deferred) then
+            activeDirectTerminals[scope.handle] = nil
+        end
         if not ok then error(result, 0) end
+        if scope.completed and not scope.deferred and scope.handle ~= nil and scope.seaStar.result
+            and scope.seaStar.result.kind == "proc" then
+            roomCoordinator.releaseCompletedBinding(state, scope.current, scope.handle, item)
+        end
         if scope.accepted then report(runtime) end
         return result
     end)
@@ -273,8 +292,10 @@ function levels.attach(module, session, getState, report, room)
                 }, item, directLevelRole)
             end
             if scope.handle == nil or resolution(scope.payload) == nil then return result end
+            activeDirectTerminals[scope.handle] = scope
             scope.accepted = true
             forwardDirect(scope)
+            seaStar.activate(scope.seaStar, scope.payload)
         end
         report(runtime)
         return result
@@ -353,9 +374,17 @@ function levels.attach(module, session, getState, report, room)
 
         local threadedDispatch = directArgs.Thread == true
         local result = base(source, args)
-        if not threadedDispatch then
+        local scope = activeDirectTerminals[handle]
+        if not threadedDispatch and seaStar.requireConsumed(scope and scope.seaStar, session.mismatch) then
             session.complete(state, handle)
+            if scope ~= nil then scope.completed = true end
             report(runtime)
+        end
+        if not threadedDispatch and scope ~= nil then
+            if scope.completed and scope.seaStar.result and scope.seaStar.result.kind == "proc" then
+                roomCoordinator.releaseCompletedBinding(state, scope.current, scope.handle, scope.item)
+            end
+            if activeDirectTerminals[handle] == scope then activeDirectTerminals[handle] = nil end
         end
         return result
     end)

@@ -174,6 +174,38 @@ function TestProtocol.testArtificerRoleCarriesSourceOwnedReplacement()
     lu.assertNil(protocol.decode(value))
 end
 
+function TestProtocol.testSeaStarResultIsAClosedNormalSourceField()
+    local value = minimalPlan({ {
+        kind = "acquisition", owner = "source", sourceOwner = "source", reward = reward(),
+        producerLifecycleKey = "pickup", roles = { role() }, window = window(),
+    } })
+    local source = value.occurrences[1].timeline.transactions[1].roles[1]
+    source.seaStarResult = { kind = "noProc" }
+    tagged(source.seaStarResult, "seaStarResult", false)
+    refreshFingerprint(value)
+    lu.assertNotNil(protocol.decode(value))
+    source.seaStarResult = { kind = "random" }
+    refreshFingerprint(value)
+    lu.assertNil(protocol.decode(value))
+    source.seaStarResult = { kind = "proc" }
+    tagged(source.seaStarResult, "seaStarResult", false)
+    source.disposition = "artificer"
+    refreshFingerprint(value)
+    lu.assertNil(protocol.decode(value))
+    source.disposition = "normal"
+    source.producer = { kind = "seaStarDuplicate", sourceOwner = "source", sourceRole = "self" }
+    tagged(source.producer, "producer", false)
+    refreshFingerprint(value)
+    lu.assertNil(protocol.decode(value))
+    source.producer = nil
+    local transaction = value.occurrences[1].timeline.transactions[1]
+    transaction.kind = "shopPurchase"
+    transaction.offerKey = "offer"
+    transaction.rewardType = "boon"
+    refreshFingerprint(value)
+    lu.assertNil(protocol.decode(value))
+end
+
 function TestProtocol.testNaturalSelectionTargetsDecodeAsOneBoundedNestedResult()
     local offer = traitOffer()
     offer.options[1].naturalSelectionTargets = { "one", "two", "one" }

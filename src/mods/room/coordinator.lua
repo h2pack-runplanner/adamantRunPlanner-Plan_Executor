@@ -240,6 +240,14 @@ function coordinator.bound(state, context, nativeObject)
     return owner and timelineSession.bound(portFor(owner), nativeObject) or nil
 end
 
+function coordinator.releaseCompletedBinding(state, context, handle, nativeObject)
+    local owner = bindingContext(state, context)
+    if owner == nil then return nil end
+    local ok, errorValue = timelineSession.releaseCompletedBinding(portFor(owner), handle, nativeObject)
+    if ok == nil and errorValue ~= nil then return fail(state, errorValue) end
+    return ok
+end
+
 function coordinator.sourceRole(state, context, handle, gameName)
     local owner = bindingContext(state, context)
     return owner and timelineSession.sourceRole(portFor(owner), handle, gameName) or nil
