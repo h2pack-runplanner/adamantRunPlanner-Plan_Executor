@@ -5,7 +5,7 @@ local logic = {}
 function logic.bind(data, root)
     if type(root) ~= "string" or root == "" then error("executor config path is required", 2) end
     local json = import("mods/json.lua")
-    local protocol = import("mods/protocol.lua")
+    local protocol = import("mods/protocol/decoder.lua")
     data.inbox = import("mods/inbox.lua").create(root, function(raw)
         local value, errorMessage = json.decode(raw)
         if value == nil then return nil, "malformed-json: " .. tostring(errorMessage) end

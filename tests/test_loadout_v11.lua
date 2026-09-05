@@ -4,7 +4,7 @@ local session = require("mods/loadout/session")
 local roomHooks = require("mods.room.hooks")
 local loadoutHooks = require("mods/loadout/hooks")
 local hexTree = require("mods.hex.tree")
-local loadoutProtocol = require("mods/loadout/protocol")
+local loadoutProtocol = require("mods.protocol.loadout")
 local json = require("mods/json")
 
 TestLoadoutV11 = {}

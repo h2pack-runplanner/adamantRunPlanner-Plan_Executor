@@ -5,8 +5,8 @@ local route = require("mods.route.session")
 local room = require("mods.room.coordinator")
 local timeline = require("mods.room.timeline.bindings")
 local timelineSession = require("mods.room.timeline.session")
-local protocol = require("mods.protocol")
-local occurrenceProtocol = require("mods.protocol_occurrences")
+local protocol = require("mods.protocol.decoder")
+local occurrenceProtocol = require("mods.protocol.occurrences")
 local json = require("mods.json")
 
 TestRuntimeSession = {}

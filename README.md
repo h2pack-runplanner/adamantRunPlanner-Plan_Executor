@@ -28,6 +28,13 @@ seam status is explicitly unexecuted rather than inferred from Lua tests.
 The checked-in execution fixtures mirror RunPlanner-main's compiler fixtures
 byte for byte.
 
+The strict wire decoder lives under `src/mods/protocol/`: `decoder.lua` owns
+the execution-plan envelope and derived indexes; the neighboring modules own
+the closed reward, overview, Timeline, occurrence, diagnostic, conformance,
+primitive, and loadout shapes. Diagnostic frame expansion and named
+conformance-fact resolution are separate products even though both are
+consumed while decoding occurrences.
+
 The sole outer cursor lives in `src/mods/route/`; one volatile occurrence
 session lives in `src/mods/room/`. `src/mods/navigation/` is stateless and owns
 only destination Doors, their rewards, native Door bindings, and reporting the

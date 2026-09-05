@@ -1,11 +1,54 @@
 -- luacheck: globals TestProtocol
 local lu = require("luaunit")
 local json = require("mods/json")
-local protocol = require("mods/protocol")
-local rewards = require("mods/protocol_rewards")
+local protocol = require("mods.protocol.decoder")
+local rewards = require("mods.protocol.rewards")
+local conformance = require("mods.protocol.conformance")
 
 TestProtocol = {}
 local root = "test/fixtures/execution-plan/"
+
+function TestProtocol.testConformanceResolverProjectsNamedFactsAndRejectsUnknownOrDuplicateKinds()
+    local state = assert(json.decode([[{
+        "retainedEffects": {
+            "steadyGrowth": [{"traitKey":"Trait"}],
+            "keepsakes": {"currentKey":"Keepsake"},
+            "stygianWell": {"sparkUses":1}
+        },
+        "chaos": {"active":[]},
+        "rewardPriorities": ["boon"],
+        "hexProgress": {"investedPathPoints":2},
+        "forfeit": "inactive"
+    }]]))
+    local expected, errorMessage = conformance.resolve(assert(json.decode([[{
+        "facts": [
+            {"kind":"steadyGrowth"},
+            {"kind":"chaos"},
+            {"kind":"keepsakeEffects"},
+            {"kind":"rewardPriorities"},
+            {"kind":"pathOfStars"},
+            {"kind":"forfeit"},
+            {"kind":"stygianWell"}
+        ]
+    }]])), state, "roomExitConformance")
+    lu.assertNotNil(expected, errorMessage)
+    lu.assertEquals(expected.steadyGrowth, state.retainedEffects.steadyGrowth)
+    lu.assertEquals(expected.chaos, state.chaos)
+    lu.assertEquals(expected.keepsakeEffects, state.retainedEffects.keepsakes)
+    lu.assertEquals(expected.rewardPriorities, state.rewardPriorities)
+    lu.assertEquals(expected.pathOfStars, state.hexProgress)
+    lu.assertEquals(expected.forfeit, state.forfeit)
+    lu.assertEquals(expected.stygianWell, state.retainedEffects.stygianWell)
+
+    local unknown = conformance.resolve(assert(json.decode([[{
+        "facts": [{"kind":"unknown"}]
+    }]])), state, "roomExitConformance")
+    lu.assertNil(unknown)
+    local duplicate = conformance.resolve(assert(json.decode([[{
+        "facts": [{"kind":"chaos"},{"kind":"chaos"}]
+    }]])), state, "roomExitConformance")
+    lu.assertNil(duplicate)
+end
 
 function TestProtocol.testSpellOfferWireRequiresCompleteTreeAndThreeOptions()
     local offer = assert(json.decode('{"kind":"traits","giver":"SpellDrop","selected":"option1","options":[{"key":"one"},{"key":"two"},{"key":"three"}],"hexTree":{"layoutKey":"Lung","rareTalentKeys":["rare"],"epicTalentKeys":["epic"]}}'))

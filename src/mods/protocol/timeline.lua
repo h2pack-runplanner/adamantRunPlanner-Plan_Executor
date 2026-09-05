@@ -1,7 +1,7 @@
-local p = type(import) == "function" and import("mods/protocol_primitives.lua")
-    or require("mods/protocol_primitives")
-local rewards = type(import) == "function" and import("mods/protocol_rewards.lua")
-    or require("mods/protocol_rewards")
+local p = type(import) == "function" and import("mods/protocol/primitives.lua")
+    or require("mods.protocol.primitives")
+local rewards = type(import) == "function" and import("mods/protocol/rewards.lua")
+    or require("mods.protocol.rewards")
 
 local timeline = {}
 local generationKeys = {

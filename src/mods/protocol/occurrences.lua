@@ -1,13 +1,15 @@
-local p = type(import) == "function" and import("mods/protocol_primitives.lua")
-    or require("mods/protocol_primitives")
-local rewards = type(import) == "function" and import("mods/protocol_rewards.lua")
-    or require("mods/protocol_rewards")
-local overview = type(import) == "function" and import("mods/protocol_overview.lua")
-    or require("mods/protocol_overview")
-local timeline = type(import) == "function" and import("mods/protocol_timeline.lua")
-    or require("mods/protocol_timeline")
-local diagnostics = type(import) == "function" and import("mods/protocol_diagnostics.lua")
-    or require("mods/protocol_diagnostics")
+local p = type(import) == "function" and import("mods/protocol/primitives.lua")
+    or require("mods.protocol.primitives")
+local rewards = type(import) == "function" and import("mods/protocol/rewards.lua")
+    or require("mods.protocol.rewards")
+local overview = type(import) == "function" and import("mods/protocol/overview.lua")
+    or require("mods.protocol.overview")
+local timeline = type(import) == "function" and import("mods/protocol/timeline.lua")
+    or require("mods.protocol.timeline")
+local diagnostics = type(import) == "function" and import("mods/protocol/diagnostics.lua")
+    or require("mods.protocol.diagnostics")
+local conformance = type(import) == "function" and import("mods/protocol/conformance.lua")
+    or require("mods.protocol.conformance")
 
 local occurrences = {}
 
@@ -151,7 +153,7 @@ function occurrences.decode(value, selected, label)
             if expanded.beforeRoomExit == nil then
                 return p.fail(label .. " conformance requires beforeRoomExit diagnostic")
             end
-            local expected, conformanceError = diagnostics.conformance(
+            local expected, conformanceError = conformance.resolve(
                 row.roomExitConformance,
                 expanded.beforeRoomExit,
                 label .. ".roomExitConformance"

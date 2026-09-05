@@ -1,5 +1,5 @@
-local p = type(import) == "function" and import("mods/protocol_primitives.lua")
-    or require("mods/protocol_primitives")
+local p = type(import) == "function" and import("mods/protocol/primitives.lua")
+    or require("mods.protocol.primitives")
 
 local rewards = {}
 

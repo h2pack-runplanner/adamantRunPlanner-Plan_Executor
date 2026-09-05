@@ -1,13 +1,13 @@
 -- Strict execution-protocol composition. Fact-family modules validate closed wire
 -- shapes; this root owns only the execution-plan envelope and derived indexes.
-local p = type(import) == "function" and import("mods/protocol_primitives.lua")
-    or require("mods/protocol_primitives")
-local rewards = type(import) == "function" and import("mods/protocol_rewards.lua")
-    or require("mods/protocol_rewards")
-local occurrences = type(import) == "function" and import("mods/protocol_occurrences.lua")
-    or require("mods/protocol_occurrences")
-local loadout = type(import) == "function" and import("mods/loadout/protocol.lua")
-    or require("mods.loadout.protocol")
+local p = type(import) == "function" and import("mods/protocol/primitives.lua")
+    or require("mods.protocol.primitives")
+local rewards = type(import) == "function" and import("mods/protocol/rewards.lua")
+    or require("mods.protocol.rewards")
+local occurrences = type(import) == "function" and import("mods/protocol/occurrences.lua")
+    or require("mods.protocol.occurrences")
+local loadout = type(import) == "function" and import("mods/protocol/loadout.lua")
+    or require("mods.protocol.loadout")
 
 local protocol = {
     FORMAT = "run-planner-execution",
