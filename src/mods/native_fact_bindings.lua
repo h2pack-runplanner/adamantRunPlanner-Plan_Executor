@@ -18,6 +18,10 @@ return {
         keepsakeTraits = {
             timePiece = "GoldifyKeepsake",
             callingCard = "RarifyKeepsake",
+            jeweledPom = "HadesAndPersephoneKeepsake",
+            phial = "FountainRarityKeepsake",
+            stone = "UnpickedBoonKeepsake",
+            transcendentEmbryo = "RandomBlessingKeepsake",
             figurine = "BossMetaUpgradeKeepsake",
             figLeaf = "PersistentDionysusSkipKeepsake",
             gorgon = "AthenaEncounterKeepsake",

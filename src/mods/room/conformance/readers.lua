@@ -155,7 +155,7 @@ end
 function readers.read(kind, run, gameState, expected)
     if kind == "steadyGrowth" then return steadyGrowth(run, expected) end
     if kind == "chaos" then return activeChaos(run) end
-    if kind == "keepsakeEffects" then return keepsakeConformance.read(run, expected) end
+    if kind == "keepsakeEffects" then return keepsakeConformance.read(run, gameState, expected) end
     if kind == "rewardPriorities" then return type(run) == "table" and run.RewardPriorities or nil end
     if kind == "pathOfStars" then return pathOfStars(run, expected) end
     if kind == "forfeit" then return forfeit(run) end

@@ -3,6 +3,10 @@
 -- item bindings; this module owns purchases, sales, uses, and acquired effects.
 local carriers = type(import) == "function" and import("mods/room/features/store_carriers.lua")
     or require("mods.room.features.store_carriers")
+local nativeFacts = type(import) == "function" and import("mods/native_fact_bindings.lua")
+    or require("mods.native_fact_bindings")
+local aromaticPhial = type(import) == "function" and import("mods/keepsakes/aromatic_phial.lua")
+    or require("mods.keepsakes.aromatic_phial")
 local hooks = {}
 
 local function current(state, room)
@@ -37,6 +41,13 @@ end
 
 function hooks.attach(module, session, getState, report, room, inventoryBindings)
     local pendingTwist
+    local phial = aromaticPhial.attach(module, {
+        session = session,
+        getState = getState,
+        report = report,
+        room = room,
+        phialTraitKey = nativeFacts.conformance.keepsakeTraits.phial,
+    })
 
     module.hooks.wrap("HandleStorePurchase", "run-planner-store-purchase", function(_, runtime, base, screen,
         button, args)
@@ -143,8 +154,13 @@ function hooks.attach(module, session, getState, report, room, inventoryBindings
             { kind = "interaction", interactionKey = "fountain" })
         handle = room.bind(state, active, handle, source)
         local payload = handle and room.begin(state, handle) or nil
-        local result = base(source, args)
-        if payload ~= nil then
+        local phialScope = phial.begin(state, active, handle, payload)
+        local ok, result = pcall(base, source, args)
+        if not ok then
+            phial.cancel(phialScope)
+            error(result, 0)
+        end
+        if payload ~= nil and phialScope == nil then
             session.complete(state, handle)
         end
         report(runtime)
