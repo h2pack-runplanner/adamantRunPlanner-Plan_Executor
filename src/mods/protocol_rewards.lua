@@ -127,6 +127,43 @@ local function hexTree(value, label)
     return tree
 end
 
+local function echoLastRunBoon(value, label)
+    local record, errorMessage = p.exact(value, { "options", "selected" }, {}, label)
+    if not record then return nil, errorMessage end
+    local options, optionsError = p.arr(record.options, label .. ".options", 3)
+    if not options then return nil, optionsError end
+    if #options == 0 then return p.fail(label .. ".options must contain one to three options") end
+    local selectedIndex = { option1 = 1, option2 = 2, option3 = 3 }
+    if selectedIndex[record.selected] == nil or selectedIndex[record.selected] > #options then
+        return p.fail(label .. " selects a missing option")
+    end
+    for index, optionValue in ipairs(options) do
+        local rowLabel = label .. ".options[" .. index .. "]"
+        local row, rowError = p.exact(optionValue, { "giver", "key", "rarity" },
+            { "lootHistorySource", "targetTraitKey", "naturalSelectionTargets" }, rowLabel)
+        if not row then return nil, rowError end
+        if not p.str(row.giver, rowLabel .. ".giver") or not p.str(row.key, rowLabel .. ".key")
+            or not p.str(row.rarity, rowLabel .. ".rarity") then
+            return p.fail(rowLabel .. " has malformed trait identity")
+        end
+        if row.lootHistorySource ~= nil and not p.str(row.lootHistorySource,
+            rowLabel .. ".lootHistorySource") then
+            return p.fail(rowLabel .. " has invalid loot-history source")
+        end
+        if row.targetTraitKey ~= nil and not p.str(row.targetTraitKey,
+            rowLabel .. ".targetTraitKey") then
+            return p.fail(rowLabel .. " has invalid acquisition target")
+        end
+        if row.naturalSelectionTargets ~= nil then
+            local targets, targetsError = p.strings(row.naturalSelectionTargets,
+                rowLabel .. ".naturalSelectionTargets", 8)
+            if not targets then return nil, targetsError end
+            if #targets == 0 then return p.fail(rowLabel .. ".naturalSelectionTargets must not be empty") end
+        end
+    end
+    return record
+end
+
 function rewards.traitOffer(value, label)
     local record, errorMessage = p.obj(value, label)
     if not record then return nil, errorMessage end
@@ -214,7 +251,7 @@ function rewards.traitOffer(value, label)
             {
                 "baseRarity", "rarity", "effectiveLevel", "allTogetherResult",
                 "naturalSelectionTargets", "concaveStoneResult", "circeResolution",
-                "icarusHammerTarget", "replacement",
+                "icarusHammerTarget", "echoPomTarget", "echoLastRunBoon", "replacement",
             },
             label .. ".options[" .. index .. "]"
         )
@@ -278,6 +315,29 @@ function rewards.traitOffer(value, label)
             end
             if index ~= optionIndex[row.selected] then
                 return p.fail(label .. ".options[" .. index .. "].icarusHammerTarget must belong to selected option")
+            end
+        end
+        if option.echoPomTarget ~= nil then
+            if not p.json.isNull(option.echoPomTarget) and not p.str(option.echoPomTarget,
+                label .. ".options[" .. index .. "].echoPomTarget") then
+                return p.fail(label .. ".options[" .. index .. "] has invalid Echo Pom target")
+            end
+            if row.giver ~= "Echo" or option.key ~= "EchoDoubleLevelBoon" then
+                return p.fail(label .. ".options[" .. index .. "].echoPomTarget requires Echo Pom Pom Pom")
+            end
+            if index ~= optionIndex[row.selected] then
+                return p.fail(label .. ".options[" .. index .. "].echoPomTarget must belong to selected option")
+            end
+        end
+        if option.echoLastRunBoon ~= nil then
+            local _, nestedError = echoLastRunBoon(option.echoLastRunBoon,
+                label .. ".options[" .. index .. "].echoLastRunBoon")
+            if nestedError then return nil, nestedError end
+            if row.giver ~= "Echo" or option.key ~= "EchoLastRunBoon" then
+                return p.fail(label .. ".options[" .. index .. "].echoLastRunBoon requires Echo Boon Boon Boon")
+            end
+            if index ~= optionIndex[row.selected] then
+                return p.fail(label .. ".options[" .. index .. "].echoLastRunBoon must belong to selected option")
             end
         end
     end

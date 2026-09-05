@@ -11,7 +11,7 @@ local loadout = type(import) == "function" and import("mods/loadout/protocol.lua
 
 local protocol = {
     FORMAT = "run-planner-execution",
-    VERSION = 19,
+    VERSION = 20,
     CATALOG_VERSION = "0.54.0-required-boss-rewards",
     MAX_ITEMS = p.MAX_ITEMS,
     MAX_STRING = p.MAX_STRING,

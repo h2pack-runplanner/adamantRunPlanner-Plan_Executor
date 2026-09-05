@@ -25,8 +25,11 @@ function hooks.attach(module, session, getState, report, room)
     chaos.attach(module, session, getState, report, room)
     local allTogetherPending = {}
     local activeAllTogether = nil
-    local activeNaturalSelection = nil
+    local naturalSelectionPending = {}
     local activeNaturalDistribution = nil
+    local targetedAcquisitionPending = {}
+    local activeTargetedAcquisition = nil
+    local activeTargetedRarity = nil
     local concaveStonePending = {}
     local failedConcaveStoneHandles = {}
     local activeConcaveStone = nil
@@ -75,13 +78,36 @@ function hooks.attach(module, session, getState, report, room)
 
     local function discardNaturalSelection(pending)
         if pending == nil then return end
-        if activeNaturalSelection == pending then activeNaturalSelection = nil end
+        naturalSelectionPending[pending.handle] = nil
         if activeNaturalDistribution == pending then activeNaturalDistribution = nil end
     end
 
     local function completeNaturalSelection(state, pending)
         if not pending.failed and pending.selectionReturned and pending.settled
             and pending.cursor == #pending.targets then
+            naturalSelectionPending[pending.handle] = nil
+            completeOuter(state, pending.handle)
+        end
+    end
+
+    local function pendingForNative(state, pendingByHandle, originalTraitData)
+        local traitKey = type(originalTraitData) == "table" and originalTraitData.Name or nil
+        for _, pending in pairs(pendingByHandle) do
+            if pending.outerKey == traitKey and scopeIsCurrent(state, pending) then return pending end
+        end
+        return nil
+    end
+
+    local function discardTargetedAcquisition(pending)
+        if pending == nil then return end
+        targetedAcquisitionPending[pending.handle] = nil
+        if activeTargetedAcquisition == pending then activeTargetedAcquisition = nil end
+        if activeTargetedRarity == pending then activeTargetedRarity = nil end
+    end
+
+    local function completeTargetedAcquisition(state, pending)
+        if not pending.failed and pending.selectionReturned and pending.settled and pending.contacted then
+            targetedAcquisitionPending[pending.handle] = nil
             completeOuter(state, pending.handle)
         end
     end
@@ -120,6 +146,8 @@ function hooks.attach(module, session, getState, report, room)
         if ordinary.isCarrier(loot, offer) and naturalSelectionTargets ~= nil then
             naturalSelectionForSelection = {
                 handle = handle,
+                outerKey = selected,
+                context = current,
                 targets = naturalSelectionTargets,
                 cursor = 0,
                 selectionReturned = false,
@@ -127,40 +155,58 @@ function hooks.attach(module, session, getState, report, room)
                 shuffled = false,
             }
         end
-        return allTogetherForSelection, naturalSelectionForSelection
+        local targetTraitKey = ordinary.targetTraitKeyForKey(payload, selected)
+        local targetedAcquisitionForSelection = nil
+        if ordinary.isCarrier(loot, offer) and targetTraitKey ~= nil then
+            targetedAcquisitionForSelection = {
+                handle = handle,
+                outerKey = selected,
+                context = current,
+                target = targetTraitKey,
+                contacted = false,
+            }
+        end
+        return allTogetherForSelection, naturalSelectionForSelection, targetedAcquisitionForSelection
     end
 
-    local function callSelectionBase(state, base, screen, button, args, naturalSelectionForSelection)
+    local function runSelectionCallback(_, callback, naturalSelectionForSelection,
+        targetedAcquisitionForSelection)
         local result
-        if naturalSelectionForSelection ~= nil then
-            activeNaturalSelection = naturalSelectionForSelection
-            local ok
-            ok, result = pcall(base, screen, button, args)
-            if activeNaturalSelection == naturalSelectionForSelection then
-                activeNaturalSelection = nil
+        if naturalSelectionForSelection ~= nil or targetedAcquisitionForSelection ~= nil then
+            if naturalSelectionForSelection ~= nil then
+                naturalSelectionPending[naturalSelectionForSelection.handle] = naturalSelectionForSelection
             end
+            if targetedAcquisitionForSelection ~= nil then
+                targetedAcquisitionPending[targetedAcquisitionForSelection.handle] = targetedAcquisitionForSelection
+            end
+            local ok
+            ok, result = pcall(callback)
             if not ok then
                 discardNaturalSelection(naturalSelectionForSelection)
+                discardTargetedAcquisition(targetedAcquisitionForSelection)
                 error(result, 0)
             end
-            if not naturalSelectionForSelection.started then
-                naturalSelectionForSelection.failed = true
-                session.mismatch(state, "natural-selection-contact", "DistributeLevels", "missing")
-            end
         else
-            result = base(screen, button, args)
+            result = callback()
         end
         return result
     end
 
+    local function callSelectionBase(state, base, screen, button, args, naturalSelectionForSelection,
+        targetedAcquisitionForSelection)
+        return runSelectionCallback(state, function() return base(screen, button, args) end,
+            naturalSelectionForSelection, targetedAcquisitionForSelection)
+    end
+
     local function settleSelection(state, payload, loot, offer, selected, handle, allTogetherForSelection,
-        naturalSelectionForSelection, residual)
+        naturalSelectionForSelection, targetedAcquisitionForSelection, residual)
         if not ordinary.isCarrier(loot, offer) then return end
         if not residual and ordinary.selectedKey(payload) ~= selected then
             session.mismatch(state, "trait-selection", ordinary.selectedKey(payload), selected)
             return
         end
-        if allTogetherForSelection == nil and naturalSelectionForSelection == nil then
+        if allTogetherForSelection == nil and naturalSelectionForSelection == nil
+            and targetedAcquisitionForSelection == nil then
             completeOuter(state, handle)
         elseif allTogetherForSelection ~= nil then
             allTogetherForSelection.selectionReturned = true
@@ -170,9 +216,12 @@ function hooks.attach(module, session, getState, report, room)
                 allTogetherPending[handle] = nil
                 completeOuter(state, handle)
             end
-        else
+        elseif naturalSelectionForSelection ~= nil then
             naturalSelectionForSelection.selectionReturned = true
             completeNaturalSelection(state, naturalSelectionForSelection)
+        elseif targetedAcquisitionForSelection ~= nil then
+            targetedAcquisitionForSelection.selectionReturned = true
+            completeTargetedAcquisition(state, targetedAcquisitionForSelection)
         end
     end
 
@@ -358,7 +407,7 @@ function hooks.attach(module, session, getState, report, room)
     module.hooks.wrap("DistributeLevels", "run-planner-complete-natural-selection", function(_, runtime, base,
         args, originalTraitData)
         local state = getState(runtime)
-        local pending = activeNaturalSelection
+        local pending = pendingForNative(state, naturalSelectionPending, originalTraitData)
         if pending == nil then return base(args, originalTraitData) end
         pending.started = true
         activeNaturalDistribution = pending
@@ -382,6 +431,71 @@ function hooks.attach(module, session, getState, report, room)
         completeNaturalSelection(state, pending)
         report(runtime)
         return result
+    end)
+
+    -- Bridal Glow's acquire function runs on the native AddTraitToHero thread.
+    -- Keep the exact selected outer trait's scope pending until that terminal
+    -- function returns; only its AddRarityToTraits choice may consume the
+    -- published target.
+    module.hooks.wrap("HeraSuperchargeBoon", "run-planner-complete-targeted-acquisition", function(_, runtime,
+        base, args, originalTraitData, contextArgs)
+        local state = getState(runtime)
+        local pending = pendingForNative(state, targetedAcquisitionPending, originalTraitData)
+        if pending == nil then return base(args, originalTraitData, contextArgs) end
+        pending.started = true
+        local prior = activeTargetedAcquisition
+        activeTargetedAcquisition = pending
+        local ok, result = pcall(base, args, originalTraitData, contextArgs)
+        activeTargetedAcquisition = prior
+        if not ok then
+            discardTargetedAcquisition(pending)
+            error(result, 0)
+        end
+        if not pending.contacted then
+            session.mismatch(state, "targeted-acquisition-target", pending.target, "missing native selection")
+            discardTargetedAcquisition(pending)
+        else
+            pending.settled = true
+            completeTargetedAcquisition(state, pending)
+        end
+        report(runtime)
+        return result
+    end)
+
+    module.hooks.wrap("AddRarityToTraits", "run-planner-scope-targeted-acquisition-rarity", function(_, runtime,
+        base, source, args)
+        local pending = activeTargetedAcquisition
+        if pending == nil then return base(source, args) end
+        local state = getState(runtime)
+        if not scopeIsCurrent(state, pending) then
+            discardTargetedAcquisition(pending)
+            return base(source, args)
+        end
+        local prior = activeTargetedRarity
+        activeTargetedRarity = pending
+        local ok, result = pcall(base, source, args)
+        activeTargetedRarity = prior
+        if not ok then error(result, 0) end
+        return result
+    end)
+
+    module.hooks.wrap("RemoveRandomValue", "run-planner-steer-targeted-acquisition", function(_, runtime, base,
+        values, ...)
+        local pending = activeTargetedRarity
+        if pending == nil then return base(values, ...) end
+        local state = getState(runtime)
+        if not scopeIsCurrent(state, pending) then
+            discardTargetedAcquisition(pending)
+            return base(values, ...)
+        end
+        for index, value in ipairs(values or {}) do
+            if type(value) == "table" and value.Name == pending.target then
+                pending.contacted = true
+                table.remove(values, index)
+                return value
+            end
+        end
+        return base(values, ...)
     end)
 
     module.hooks.wrap("HandleLootPickup", "run-planner-begin-ordinary-loot", function(_, runtime, base,
@@ -469,10 +583,11 @@ function hooks.attach(module, session, getState, report, room)
                 session.mismatch(state, "concave-stone-residual", expected and expected.key or nil, selected)
                 return base(screen, button, args)
             end
-            local pendingForSelection, naturalSelectionForSelection = consequenceScopes(
+            local pendingForSelection, naturalSelectionForSelection,
+                targetedAcquisitionForSelection = consequenceScopes(
                 payload, loot, offer, selected, handle, current)
             local ok, result = pcall(callSelectionBase, state, base, screen, button, args,
-                naturalSelectionForSelection)
+                naturalSelectionForSelection, targetedAcquisitionForSelection)
             if not ok then
                 stone.failed = true
                 discardConcaveStone(stone)
@@ -488,6 +603,7 @@ function hooks.attach(module, session, getState, report, room)
                 handle,
                 pendingForSelection,
                 naturalSelectionForSelection,
+                targetedAcquisitionForSelection,
                 true
             )
             report(runtime)
@@ -503,7 +619,7 @@ function hooks.attach(module, session, getState, report, room)
             return result
         end
 
-        local pendingForSelection, naturalSelectionForSelection = consequenceScopes(
+        local pendingForSelection, naturalSelectionForSelection, targetedAcquisitionForSelection = consequenceScopes(
             payload, loot, offer, selected, handle, current)
         local concaveResult = ordinary.concaveStoneResult(payload)
         local stone = nil
@@ -524,7 +640,8 @@ function hooks.attach(module, session, getState, report, room)
         end
         local ok, result = pcall(function()
             return seaStar.call(seaStarScope, function()
-                return callSelectionBase(state, base, screen, button, args, naturalSelectionForSelection)
+                return callSelectionBase(state, base, screen, button, args, naturalSelectionForSelection,
+                    targetedAcquisitionForSelection)
             end, session.mismatch)
         end)
         if activeConcaveStone == stone then activeConcaveStone = nil end
@@ -557,11 +674,31 @@ function hooks.attach(module, session, getState, report, room)
             handle,
             pendingForSelection,
             naturalSelectionForSelection,
+            targetedAcquisitionForSelection,
             false
         )
         report(runtime)
         return result
     end)
+
+    return {
+        -- Echo's native nested Boon menu is not an ordinary loot carrier, but
+        -- its selected trait still uses the same bounded consequence path.
+        runExternalSelection = function(runtime, payload, selected, handle, current, callback)
+            local state = getState(runtime)
+            local offer = ordinary.offer(payload)
+            local carrier = { GodLoot = true }
+            local allTogetherForSelection, naturalSelectionForSelection,
+                targetedAcquisitionForSelection = consequenceScopes(
+                payload, carrier, offer, selected, handle, current)
+            local result = runSelectionCallback(state, callback, naturalSelectionForSelection,
+                targetedAcquisitionForSelection)
+            settleSelection(state, payload, carrier, offer, selected, handle,
+                allTogetherForSelection, naturalSelectionForSelection, targetedAcquisitionForSelection, false)
+            report(runtime)
+            return result
+        end,
+    }
 end
 
 return hooks

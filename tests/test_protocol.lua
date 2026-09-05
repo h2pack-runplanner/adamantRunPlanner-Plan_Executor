@@ -121,7 +121,7 @@ local function minimalPlan(transactions)
     end
     local plan = tagged({
         format = "run-planner-execution",
-        protocolVersion = 19,
+        protocolVersion = 20,
         catalogVersion = "0.54.0-required-boss-rewards",
         projectId = "test-project",
         planFingerprint = "00000000",
@@ -308,6 +308,36 @@ function TestProtocol.testIcarusHammerTargetBelongsOnlyToSelectedLatestModel()
     lu.assertNil(rewards.traitOffer(tagged(offer), "offer"))
 end
 
+function TestProtocol.testEchoVolatileResultsBelongOnlyToTheirSelectedOuterRows()
+    local offer = traitOffer()
+    offer.giver = "Echo"
+    offer.options[1].key = "EchoLastRunBoon"
+    offer.options[1].echoLastRunBoon = {
+        options = {
+            {
+                giver = "Hera", key = "HeraWeaponBoon", rarity = "Rare",
+                lootHistorySource = "HeraUpgrade",
+            },
+            { giver = "Zeus", key = "ZeusSpecialBoon", rarity = "Epic" },
+        },
+        selected = "option2",
+    }
+    lu.assertNotNil(rewards.traitOffer(tagged(offer), "offer"))
+    offer.options[1].echoLastRunBoon.options[1].lootHistorySource = 7
+    lu.assertNil(rewards.traitOffer(tagged(offer), "offer"))
+    offer.options[1].echoLastRunBoon.options[1].lootHistorySource = "HeraUpgrade"
+    offer.selected = "option2"
+    lu.assertNil(rewards.traitOffer(tagged(offer), "offer"))
+
+    offer.selected = "option1"
+    offer.options[1].echoLastRunBoon = nil
+    offer.options[1].key = "EchoDoubleLevelBoon"
+    offer.options[1].echoPomTarget = "ZeusWeaponBoon"
+    lu.assertNotNil(rewards.traitOffer(tagged(offer), "offer"))
+    offer.giver = "Icarus"
+    lu.assertNil(rewards.traitOffer(tagged(offer), "offer"))
+end
+
 function TestProtocol.testTimePieceDispositionIsNotPublished()
     local value = minimalPlan({ {
         kind = "acquisition",
@@ -352,7 +382,7 @@ function TestProtocol.testAllGateA2VectorsDecodeAndExpandDiagnostics()
     for _, name in ipairs({ "f-opening", "fg", "fg-ixion-chaos", "fg-anomaly", "automatic-boss" }) do
         local plan, errorMessage = protocol.decode(decode(name))
         lu.assertNotNil(plan, errorMessage)
-        lu.assertEquals(plan.protocolVersion, 19)
+        lu.assertEquals(plan.protocolVersion, 20)
         lu.assertNotNil(plan.occurrences[1].diagnostics.roomEntered)
     end
 end

@@ -1,8 +1,10 @@
 -- luacheck: globals TestNpcAcquisitions
 local lu = require("luaunit")
 local npc = require("mods.room.timeline.acquisitions.npc.hooks")
+local traits = require("mods.room.timeline.acquisitions.traits.hooks")
 local circe = require("mods.room.timeline.acquisitions.npc.circe")
 local icarus = require("mods.room.timeline.acquisitions.npc.icarus")
+local echo = require("mods.room.timeline.acquisitions.npc.echo")
 
 TestNpcAcquisitions = {}
 
@@ -39,7 +41,7 @@ end
 
 local function harness(giver, _, options)
     local module, callbacks = capture()
-    local state = {}
+    local state = { state = "synchronized" }
     local source = { Name = giver }
     local handle = {}
     local row = {
@@ -75,12 +77,28 @@ local function harness(giver, _, options)
             bound[native] = currentHandle
             return currentHandle
         end,
+        bound = function(_, _, _, native)
+            return native and bound[native] or nil
+        end,
         begin = function(_, currentHandle) return payloads[currentHandle] end,
         peek = function(_, currentHandle) return payloads[currentHandle] end,
     }
     local npcScope = npc.attach(module, session, function() return state end, function() end, room)
     circe.attach(module, session, function() end, npcScope)
     icarus.attach(module, session, function() end, npcScope)
+    local traitScopes
+    if options.realTraitScopes then
+        traitScopes = traits.attach(module, session, function() return state end, function() end, room)
+    else
+        traitScopes = {
+            runExternalSelection = function(_, _, _, currentHandle, _, callback)
+                local result = callback()
+                session.complete(state, currentHandle)
+                return result
+            end,
+        }
+    end
+    echo.attach(module, session, function() end, npcScope, traitScopes)
     local priorRun = _G.CurrentRun
     _G.CurrentRun = {
         CurrentRoom = { Encounter = { Name = giver .. "Encounter" } },
@@ -439,6 +457,316 @@ function TestNpcAcquisitions.testOrdinaryIcarusTraitKeepsItsNativeSelectedEffect
     lu.assertTrue(nativeEffect)
     lu.assertEquals(#mismatches, 0)
     lu.assertEquals(#completions, 1)
+end
+
+function TestNpcAcquisitions.testEchoBoonReplayInstallsMixedProviderRowsAndSelectsExactTrait()
+    local selected = "EchoLastRunBoon"
+    local outer = offer("Echo", selected)
+    outer.options[2].echoLastRunBoon = {
+        options = {
+            { giver = "Hera", key = "HeraWeaponBoon", rarity = "Rare" },
+            { giver = "Zeus", key = "ZeusSpecialBoon", rarity = "Epic" },
+            { giver = "Hermes", key = "SprintBoon", rarity = "Common" },
+        },
+        selected = "option2",
+    }
+    local callbacks, source, _, _, _, _, _, _, _, completions, finish = harness(
+        "Echo", selected, { offer = outer })
+    local args = { UpgradeOptions = {
+        { ItemName = "EchoOne" }, { ItemName = selected }, { ItemName = "EchoThree" },
+    } }
+    local nestedRows
+    runMenu(callbacks, "EchoChoice", source, args, selected, nil, function()
+        callbacks.EchoLastRunBoon(nil, {}, function()
+            local nestedSource = { UpgradeOptions = {} }
+            return callbacks.OpenUpgradeChoiceMenu(nil, {}, function(openSource)
+                nestedRows = openSource.UpgradeOptions
+                return callbacks.SelectEchoBoon(nil, {}, function() return true end,
+                    { Source = openSource }, { Data = { Name = "ZeusSpecialBoon" } }, {})
+            end, nestedSource, {})
+        end, {}, {})
+    end)
+    finish()
+    lu.assertEquals(nestedRows, {
+        { Type = "Trait", ItemName = "HeraWeaponBoon", Rarity = "Rare" },
+        { Type = "Trait", ItemName = "ZeusSpecialBoon", Rarity = "Epic" },
+        { Type = "Trait", ItemName = "SprintBoon", Rarity = "Common" },
+    })
+    lu.assertEquals(#completions, 1)
+end
+
+function TestNpcAcquisitions.testEchoBoonReplayKeepsNaturalSelectionScopedUntilItsAsyncAcquireTerminal()
+    local selected = "EchoLastRunBoon"
+    local outer = offer("Echo", selected)
+    outer.options[2].echoLastRunBoon = {
+        options = {
+            {
+                giver = "Demeter", key = "GoodStuffBoon", rarity = "Duo",
+                naturalSelectionTargets = { "Attack", "Special" },
+            },
+        },
+        selected = "option1",
+    }
+    local callbacks, source, _, _, _, _, _, _, mismatches, completions, finish = harness(
+        "Echo", selected, { offer = outer, realTraitScopes = true })
+    local args = { UpgradeOptions = {
+        { ItemName = "EchoOne" }, { ItemName = selected }, { ItemName = "EchoThree" },
+    } }
+    local queued, shuffled, applied
+    runMenu(callbacks, "EchoChoice", source, args, selected, nil, function()
+        callbacks.EchoLastRunBoon(nil, {}, function()
+            local nestedSource = { UpgradeOptions = {} }
+            return callbacks.OpenUpgradeChoiceMenu(nil, {}, function(openSource)
+                return callbacks.SelectEchoBoon(nil, {}, function()
+                    queued = function()
+                        callbacks.DistributeLevels(nil, {}, function()
+                            shuffled = callbacks.FYShuffle(nil, {}, function(values) return values end,
+                                { "Special", "Attack", "Cast" })
+                            applied = {}
+                            for _, key in ipairs({ "Attack", "Special" }) do
+                                callbacks.IncreaseTraitLevel(nil, {}, function(trait)
+                                    applied[#applied + 1] = trait.Name
+                                end, { Name = key })
+                            end
+                        end, { Slots = {} }, { Name = "GoodStuffBoon" })
+                    end
+                    return true
+                end, { Source = openSource }, { Data = { Name = "GoodStuffBoon" } }, {})
+            end, nestedSource, {})
+        end, {}, {})
+    end)
+    lu.assertNotNil(queued)
+    lu.assertEquals(#completions, 0)
+    queued()
+    finish()
+    lu.assertEquals(shuffled, { "Attack", "Special", "Cast" })
+    lu.assertEquals(applied, { "Attack", "Special" })
+    lu.assertEquals(#mismatches, 0)
+    lu.assertEquals(#completions, 1)
+end
+
+function TestNpcAcquisitions.testEchoBoonReplayKeepsBridalGlowTargetScopedUntilItsAsyncAcquireTerminal()
+    local selected = "EchoLastRunBoon"
+    local target = "ZeusWeaponBoon"
+    local outer = offer("Echo", selected)
+    outer.options[2].echoLastRunBoon = {
+        options = {
+            { giver = "Hera", key = "HeraSuperchargeBoon", rarity = "Rare", targetTraitKey = target },
+        },
+        selected = "option1",
+    }
+    local callbacks, source, _, _, _, _, _, _, mismatches, completions, finish = harness(
+        "Echo", selected, { offer = outer, realTraitScopes = true })
+    local args = { UpgradeOptions = {
+        { ItemName = "EchoOne" }, { ItemName = selected }, { ItemName = "EchoThree" },
+    } }
+    local queued, upgraded
+    runMenu(callbacks, "EchoChoice", source, args, selected, nil, function()
+        callbacks.EchoLastRunBoon(nil, {}, function()
+            local nestedSource = { UpgradeOptions = {} }
+            return callbacks.OpenUpgradeChoiceMenu(nil, {}, function(openSource)
+                return callbacks.SelectEchoBoon(nil, {}, function()
+                    queued = function()
+                        callbacks.HeraSuperchargeBoon(nil, {}, function()
+                            callbacks.AddRarityToTraits(nil, {}, function()
+                                upgraded = callbacks.RemoveRandomValue(nil, {}, function(values)
+                                    return table.remove(values, 1)
+                                end, { { Name = "ApolloWeaponBoon" }, { Name = target } }).Name
+                            end, {}, {})
+                        end, {}, { Name = "HeraSuperchargeBoon" }, {})
+                    end
+                    return true
+                end, { Source = openSource }, { Data = { Name = "HeraSuperchargeBoon" } }, {})
+            end, nestedSource, {})
+        end, {}, {})
+    end)
+    lu.assertNotNil(queued)
+    lu.assertEquals(#completions, 0)
+    queued()
+    finish()
+    lu.assertEquals(upgraded, target)
+    lu.assertEquals(#mismatches, 0)
+    lu.assertEquals(#completions, 1)
+end
+
+function TestNpcAcquisitions.testBridalGlowTerminalWaitsForItsOuterSelectionToReturn()
+    local selected = "EchoLastRunBoon"
+    local target = "ZeusWeaponBoon"
+    local outer = offer("Echo", selected)
+    outer.options[2].echoLastRunBoon = {
+        options = {
+            { giver = "Hera", key = "HeraSuperchargeBoon", rarity = "Rare", targetTraitKey = target },
+        },
+        selected = "option1",
+    }
+    local callbacks, source, _, _, _, _, _, _, mismatches, completions, finish = harness(
+        "Echo", selected, { offer = outer, realTraitScopes = true })
+    local args = { UpgradeOptions = {
+        { ItemName = "EchoOne" }, { ItemName = selected }, { ItemName = "EchoThree" },
+    } }
+    runMenu(callbacks, "EchoChoice", source, args, selected, nil, function()
+        callbacks.EchoLastRunBoon(nil, {}, function()
+            local nestedSource = { UpgradeOptions = {} }
+            return callbacks.OpenUpgradeChoiceMenu(nil, {}, function(openSource)
+                return callbacks.SelectEchoBoon(nil, {}, function()
+                    callbacks.HeraSuperchargeBoon(nil, {}, function()
+                        callbacks.AddRarityToTraits(nil, {}, function()
+                            callbacks.RemoveRandomValue(nil, {}, function(values)
+                                return table.remove(values, 1)
+                            end, { { Name = target } })
+                        end, {}, {})
+                    end, {}, { Name = "HeraSuperchargeBoon" }, {})
+                    -- A scheduler may run the acquire terminal before this
+                    -- selected native callback returns.
+                    lu.assertEquals(#completions, 0)
+                    return true
+                end, { Source = openSource }, { Data = { Name = "HeraSuperchargeBoon" } }, {})
+            end, nestedSource, {})
+        end, {}, {})
+    end)
+    finish()
+    lu.assertEquals(#mismatches, 0)
+    lu.assertEquals(#completions, 1)
+end
+
+function TestNpcAcquisitions.testEchoBoonReplayUsesPublishedProviderForNativeLootHistory()
+    local selected = "EchoLastRunBoon"
+    local outer = offer("Echo", selected)
+    outer.options[2].echoLastRunBoon = {
+        options = {
+            {
+                giver = "Aphrodite", key = "SprintEchoBoon", rarity = "Duo",
+                lootHistorySource = "AphroditeUpgrade",
+            },
+            { giver = "Artemis", key = "SupportingFireBoon", rarity = "Rare" },
+        },
+        selected = "option1",
+    }
+    local callbacks, source, _, _, _, _, _, _, mismatches, _, finish = harness(
+        "Echo", selected, { offer = outer })
+    local args = { UpgradeOptions = {
+        { ItemName = "EchoOne" }, { ItemName = selected }, { ItemName = "EchoThree" },
+    } }
+    local published, native
+    runMenu(callbacks, "EchoChoice", source, args, selected, nil, function()
+        callbacks.EchoLastRunBoon(nil, {}, function()
+            local nestedSource = { UpgradeOptions = {} }
+            return callbacks.OpenUpgradeChoiceMenu(nil, {}, function(openSource)
+                return callbacks.SelectEchoBoon(nil, {}, function()
+                    published = callbacks.GetLootSourceName(nil, {}, function() return "NativeSource" end,
+                        "SprintEchoBoon", {})
+                    native = callbacks.GetLootSourceName(nil, {}, function() return "NativeSource" end,
+                        "SupportingFireBoon", {})
+                    return true
+                end, { Source = openSource }, { Data = { Name = "SprintEchoBoon" } }, {})
+            end, nestedSource, {})
+        end, {}, {})
+    end)
+    finish()
+    lu.assertEquals(published, "AphroditeUpgrade")
+    lu.assertEquals(native, "NativeSource")
+    lu.assertEquals(#mismatches, 0)
+end
+
+function TestNpcAcquisitions.testEchoBoonReplayLeavesNativeLootHistoryLookupWhenSourceIsAbsent()
+    local selected = "EchoLastRunBoon"
+    local outer = offer("Echo", selected)
+    outer.options[2].echoLastRunBoon = {
+        options = {
+            { giver = "Artemis", key = "SupportingFireBoon", rarity = "Rare" },
+        },
+        selected = "option1",
+    }
+    local callbacks, source, _, _, _, _, _, _, mismatches, _, finish = harness(
+        "Echo", selected, { offer = outer })
+    local args = { UpgradeOptions = {
+        { ItemName = "EchoOne" }, { ItemName = selected }, { ItemName = "EchoThree" },
+    } }
+    local observed
+    runMenu(callbacks, "EchoChoice", source, args, selected, nil, function()
+        callbacks.EchoLastRunBoon(nil, {}, function()
+            local nestedSource = { UpgradeOptions = {} }
+            return callbacks.OpenUpgradeChoiceMenu(nil, {}, function(openSource)
+                return callbacks.SelectEchoBoon(nil, {}, function()
+                    observed = callbacks.GetLootSourceName(nil, {}, function() return "NativeArtemis" end,
+                        "SupportingFireBoon", {})
+                    return true
+                end, { Source = openSource }, { Data = { Name = "SupportingFireBoon" } }, {})
+            end, nestedSource, {})
+        end, {}, {})
+    end)
+    finish()
+    lu.assertEquals(observed, "NativeArtemis")
+    lu.assertEquals(#mismatches, 0)
+end
+
+function TestNpcAcquisitions.testEchoPomSteersNativeGreatestLevelSelection()
+    local selected = "EchoDoubleLevelBoon"
+    local outer = offer("Echo", selected)
+    outer.options[2].echoPomTarget = "ZeusWeaponBoon"
+    local callbacks, source, _, _, _, _, _, _, _, completions, finish = harness(
+        "Echo", selected, { offer = outer })
+    local args = { UpgradeOptions = {
+        { ItemName = "EchoOne" }, { ItemName = selected }, { ItemName = "EchoThree" },
+    } }
+    local observed
+    runMenu(callbacks, "EchoChoice", source, args, selected, nil, function()
+        callbacks.EchoDoubleLevelBoon(nil, {}, function()
+            observed = callbacks.GetRandomKey(nil, {}, function() return "ApolloWeaponBoon" end,
+                { ZeusWeaponBoon = true, ApolloWeaponBoon = true })
+        end)
+    end)
+    finish()
+    lu.assertEquals(observed, "ZeusWeaponBoon")
+    lu.assertEquals(#completions, 1)
+end
+
+function TestNpcAcquisitions.testEchoPomJsonNullCompletesWithoutSteeringNativeSelection()
+    local selected = "EchoDoubleLevelBoon"
+    local outer = offer("Echo", selected)
+    outer.options[2].echoPomTarget = require("mods/json").null
+    local callbacks, source, _, _, _, _, _, _, mismatches, completions, finish = harness(
+        "Echo", selected, { offer = outer })
+    local args = { UpgradeOptions = {
+        { ItemName = "EchoOne" }, { ItemName = selected }, { ItemName = "EchoThree" },
+    } }
+    local queued, observed
+    runMenu(callbacks, "EchoChoice", source, args, selected, nil, function()
+        queued = function()
+            callbacks.EchoDoubleLevelBoon(nil, {}, function()
+                observed = callbacks.GetRandomKey(nil, {}, function() return "ApolloWeaponBoon" end,
+                    { ZeusWeaponBoon = true, ApolloWeaponBoon = true })
+            end)
+        end
+    end)
+    lu.assertNotNil(queued)
+    lu.assertEquals(#completions, 0)
+    queued()
+    finish()
+    lu.assertEquals(observed, "ApolloWeaponBoon")
+    lu.assertEquals(#mismatches, 0)
+    lu.assertEquals(#completions, 1)
+end
+
+function TestNpcAcquisitions.testOtherEchoChoicesRemainNativeAuthoritative()
+    for _, selected in ipairs({
+        "EchoLastReward", "EchoDeathDefianceRefill", "DiminishingDodgeBoon",
+        "DiminishingHealthAndManaBoon", "EchoDoubleShop", "EchoRepeatKeepsakeBoon",
+    }) do
+        local callbacks, source, _, _, _, _, _, _, mismatches, completions, finish = harness(
+            "Echo", selected, { offer = offer("Echo", selected) })
+        local args = { UpgradeOptions = {
+            { ItemName = "EchoOne" }, { ItemName = selected }, { ItemName = "EchoThree" },
+        } }
+        local nativeEffect = false
+        runMenu(callbacks, "EchoChoice", source, args, selected, nil, function()
+            nativeEffect = true
+        end)
+        finish()
+        lu.assertTrue(nativeEffect, selected)
+        lu.assertEquals(#mismatches, 0, selected)
+        lu.assertEquals(#completions, 1, selected)
+    end
 end
 
 function TestNpcAcquisitions.testUnavailablePublishedNpcRowLeavesNativeMenuIntact()

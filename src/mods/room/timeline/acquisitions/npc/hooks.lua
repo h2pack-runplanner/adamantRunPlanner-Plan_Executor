@@ -70,6 +70,7 @@ end
 function npc.attach(module, session, getState, report, room)
     local choices = setmetatable({}, { __mode = "k" })
     local activeSelection
+    local selectionObservers = {}
 
     local function installInput(scope, args)
         if scope.nativeOptions == nil or scope.payload == nil then return false end
@@ -150,16 +151,19 @@ function npc.attach(module, session, getState, report, room)
         local expected = adapter.expectedTrait(scope.payload)
         local exact = expected ~= nil and expected.key == selected
         local prior = activeSelection
+        local deferCompletion = false
         if exact then
             scope.selectedOption = expected
             activeSelection = scope
+            local observer = selectionObservers[expected.key]
+            if observer ~= nil then deferCompletion = observer(scope) == true end
         end
         local ok, result = pcall(base, screen, button, args)
         activeSelection = prior
         if not ok then error(result, 0) end
         if not exact then
             session.mismatch(scope.state, "npc-trait-selection", expected and expected.key, selected)
-        else
+        elseif not deferCompletion then
             session.complete(scope.state, scope.handle)
         end
         choices[source] = nil
@@ -174,6 +178,9 @@ function npc.attach(module, session, getState, report, room)
             local offer = resolution and resolution.kind == "traitOffer" and resolution.offer
             if offer == nil or offer.giver ~= giver then return nil end
             return activeSelection
+        end,
+        observeSelection = function(traitKey, observer)
+            selectionObservers[traitKey] = observer
         end,
     }
 end

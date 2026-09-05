@@ -130,6 +130,11 @@ function ordinary.naturalSelectionTargetsForKey(payload, key)
     return option and option.naturalSelectionTargets or nil
 end
 
+function ordinary.targetTraitKeyForKey(payload, key)
+    local option = ordinary.optionForKey(payload, key)
+    return option and option.targetTraitKey or nil
+end
+
 function ordinary.concaveStoneResult(payload)
     local offer = ordinary.offer(payload)
     local index = offer and optionIndex(offer.selected)
