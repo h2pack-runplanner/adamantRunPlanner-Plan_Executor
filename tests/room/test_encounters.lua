@@ -5,6 +5,7 @@ local bindings = require("mods.room.timeline.bindings")
 local lifecycle = require("mods.room.timeline.lifecycle")
 local phases = require("mods.room.timeline.encounters.phases")
 local encounterHooks = require("mods.room.timeline.encounters.hooks")
+local boss = require("mods.room.timeline.encounters.boss")
 
 TestEncounters = {}
 
@@ -31,6 +32,56 @@ function TestEncounters.testNativeEncounterObjectsBindDuplicateNamesToDifferentP
     lu.assertEquals(phases.forNative(first).phase.slotKey, "first")
     lu.assertEquals(phases.forNative(second).phase.slotKey, "second")
     lu.assertNotEquals(phases.forNative(first).phase, phases.forNative(second).phase)
+end
+
+function TestEncounters.testBossArcanaAdmitsAnExactEternityOutcome()
+    local module, callbacks = capture()
+    local state = { state = "synchronized" }
+    local phase = { slotKey = "phase", encounterKey = "BossEncounter" }
+    local active = { occurrence = { overview = { encounterPhases = { phase } } } }
+    local handle = {}
+    local completed = 0
+    local room = {
+        current = function() return active end,
+        encounterPhase = function() return phase end,
+        window = function() return true end,
+        resolve = function(_, _, contact)
+            if contact.kind == "automatic" and contact.effect == "judgment" then return handle end
+        end,
+        begin = function()
+            return { transaction = { arcanaKeys = { "CastCount" } } }
+        end,
+    }
+    local session = {
+        mismatch = function() error("unexpected mismatch") end,
+        complete = function(_, observed)
+            lu.assertEquals(observed, handle)
+            completed = completed + 1
+        end,
+    }
+    boss.attach(module, session, function() return state end, function() end, room)
+    local priorRun = _G.CurrentRun
+    _G.CurrentRun = { CurrentRoom = { Encounter = {} } }
+    local selected
+    local nativeChanceCalls = 0
+    callbacks.Kill(nil, {}, function()
+        callbacks.AddRandomMetaUpgrades(nil, {}, function()
+            local candidates = { "ChanneledCast" }
+            if callbacks.RandomChance(nil, {}, function()
+                nativeChanceCalls = nativeChanceCalls + 1
+                return false
+            end, 0.1) then
+                candidates[#candidates + 1] = "CastCount"
+            end
+            selected = callbacks.RemoveRandomValue(nil, {}, function(values)
+                return table.remove(values, 1)
+            end, candidates)
+        end, 5, {})
+    end, { IsBoss = true }, {})
+    _G.CurrentRun = priorRun
+    lu.assertEquals(selected, "CastCount")
+    lu.assertEquals(nativeChanceCalls, 0)
+    lu.assertEquals(completed, 1)
 end
 
 function TestEncounters.testPhaseIsNotAStandaloneTimelineContactNamespace()

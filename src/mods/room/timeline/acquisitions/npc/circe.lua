@@ -19,18 +19,6 @@ local function contains(values, expected)
     return false
 end
 
-local function equipped(cardName)
-    local gameState = _G.GameState
-    local metaUpgradeState = gameState and gameState.MetaUpgradeState
-    local cardState = metaUpgradeState and metaUpgradeState[cardName]
-    return cardState ~= nil and cardState.Equipped == true
-end
-
-local function companionlessTradeOff(scope)
-    return scope.kind == "activateArcana" and scope.targets[1] == "TradeOff" and
-        not equipped("ScreenReroll") and not equipped("DoorReroll")
-end
-
 function circe.attach(module, session, report, npcScope)
     local pendingArcana
     local selectorScope
@@ -97,19 +85,14 @@ function circe.attach(module, session, report, npcScope)
         if scope == nil or scope.castCountAdmissionConsumed or scope.selectionStarted then
             return base(chance, ...)
         end
-        -- CastCount is the sole source-declared RandomDrawChance card.  These
-        -- are native positive-support branches: admit an exact CastCount, or
-        -- defer it when a companion-less TradeOff must be the sole primary.
-        local result
+        -- CastCount is the sole source-declared RandomDrawChance card.  The
+        -- planner models it as a supported outcome; admit that positive branch
+        -- only when it is the exact published target.
         if scope.admitCastCount then
-            result = true
-        elseif companionlessTradeOff(scope) then
-            result = false
-        else
-            return base(chance, ...)
+            scope.castCountAdmissionConsumed = true
+            return true
         end
-        scope.castCountAdmissionConsumed = true
-        return result
+        return base(chance, ...)
     end)
 
     module.hooks.wrap("CirceMetaUpgradeRarity", "run-planner-circe-arcana-rarity", function(_, runtime,
