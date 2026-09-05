@@ -270,6 +270,30 @@ function TestProtocol.testForcedShortageTraitOfferSelectsAnExistingOption()
     lu.assertNil(protocol.decode(value))
 end
 
+function TestProtocol.testAllTogetherRequiresFourExplicitDirectGrantOutcomes()
+    local offer = traitOffer()
+    offer.options[1].allTogetherResult = {
+        earth = "ElementalDamageBoon", fire = "ElementalBaseDamageBoon",
+        air = "ElementalDamageFloorBoon", water = json.null,
+    }
+    local value = minimalPlan({ {
+        kind = "acquisition", owner = "acquisition", sourceOwner = "source",
+        reward = reward(), producerLifecycleKey = "pickup",
+        roles = { {
+            role = "self", disposition = "normal", lifecyclePoint = "pickup",
+            kind = "trait", gameName = "HeraUpgrade", traitOffer = offer,
+        } }, window = window(),
+    } })
+    local plan, errorMessage = protocol.decode(value)
+    lu.assertNotNil(plan, errorMessage)
+    lu.assertTrue(json.isNull(plan.occurrences[1].timeline.transactions[1].roles[1]
+        .traitOffer.options[1].allTogetherResult.water))
+
+    offer.options[1].allTogetherResult.water = nil
+    refreshFingerprint(value)
+    lu.assertNil(protocol.decode(value))
+end
+
 function TestProtocol.testRecomputedFingerprintCannotHideClosedUnionViolations()
     local value = decode("automatic-boss")
     local transaction = automatic(value)

@@ -45,6 +45,17 @@ local function replacement(value, label)
     return record
 end
 
+local function allTogetherResult(value, label)
+    local record, errorMessage = p.exact(value, { "earth", "fire", "air", "water" }, {}, label)
+    if not record then return nil, errorMessage end
+    for _, key in ipairs({ "earth", "fire", "air", "water" }) do
+        if not p.json.isNull(record[key]) and not p.str(record[key], label .. "." .. key) then
+            return p.fail(label .. " has an invalid " .. key .. " outcome")
+        end
+    end
+    return record
+end
+
 function rewards.traitOffer(value, label)
     local record, errorMessage = p.obj(value, label)
     if not record then return nil, errorMessage end
@@ -118,7 +129,7 @@ function rewards.traitOffer(value, label)
         local option, optionError = p.exact(
             optionValue,
             { "key" },
-            { "baseRarity", "rarity", "effectiveLevel", "replacement" },
+            { "baseRarity", "rarity", "effectiveLevel", "allTogetherResult", "replacement" },
             label .. ".options[" .. index .. "]"
         )
         if not option then return nil, optionError end
@@ -132,6 +143,11 @@ function rewards.traitOffer(value, label)
         if option.replacement ~= nil then
             local _, replacementError = replacement(option.replacement, label .. ".replacement")
             if replacementError then return nil, replacementError end
+        end
+        if option.allTogetherResult ~= nil then
+            local _, resultError = allTogetherResult(option.allTogetherResult,
+                label .. ".allTogetherResult")
+            if resultError then return nil, resultError end
         end
     end
     return row

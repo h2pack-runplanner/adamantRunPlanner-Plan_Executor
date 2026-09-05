@@ -1,5 +1,6 @@
 -- luacheck: globals TestOrdinaryTraits
 local lu = require("luaunit")
+local json = require("mods.json")
 local ordinary = require("mods.room.timeline.acquisitions.traits.ordinary")
 local hooks = require("mods.room.timeline.acquisitions.traits.hooks")
 local binding = require("mods.room.timeline.acquisitions.binding")
@@ -115,7 +116,7 @@ local function attached(offer, disposition)
     binding.attach(module, session, function() return state end, function() end, room)
     hooks.attach(module, session, function() return state end, function() end, room)
     return callbacks, function() return begins end, function() return completed end,
-        function() return mismatches end
+        function() return mismatches end, function(value) active = value end
 end
 
 function TestOrdinaryTraits.testFailedUseLootHasNoC1BeginAndPickupBeginsTheBoundOwner()
@@ -253,4 +254,138 @@ function TestOrdinaryTraits.testConcaveNestedSelectionDoesNotCompletePrimary()
     local button = { LootData = loot, Data = { Name = "ApolloAttack" } }
     callbacks.HandleUpgradeChoiceSelection(nil, {}, function() return true end, {}, button, { DoubleBoonChance = true })
     lu.assertEquals(completed(), 0)
+end
+
+local function beginAllTogether(callbacks)
+    local loot = { GodLoot = true, Name = "ApolloUpgrade" }
+    callbacks.SpawnRoomReward(nil, {}, function()
+        return callbacks.CreateLoot(nil, {}, function() return loot end, {})
+    end, {}, {})
+    callbacks.HandleLootPickup(nil, {}, function() return true end, {}, loot, {})
+    callbacks.HandleUpgradeChoiceSelection(nil, {}, function() return true end, {}, {
+        LootData = loot, Data = { Name = "AllElementalBoon" },
+    }, {})
+end
+
+local function grant(callbacks, sets, eligible)
+    local granted = {}
+    callbacks.GrantBoons(nil, {}, function(args)
+        for index, _ in ipairs(args.BoonSets) do
+            local candidates = eligible[index]
+            if #candidates > 0 then
+                granted[#granted + 1] = callbacks.GetRandomValue(nil, {}, function(values)
+                    return values[1]
+                end, candidates)
+            end
+        end
+    end, { BoonSets = sets }, { Name = "AllElementalBoon" })
+    return granted
+end
+
+function TestOrdinaryTraits.testAllTogetherSteersEachEligibleNativePairToItsFourExactGrants()
+    local offer = { kind = "traits", selected = "option1", options = {
+        { key = "AllElementalBoon", allTogetherResult = {
+            earth = "ElementalDamageBoon", fire = "ElementalBaseDamageBoon",
+            air = "ElementalDamageFloorBoon", water = "ElementalHealthBoon",
+        } },
+    } }
+    local callbacks, _, completed, mismatches = attached(offer)
+    beginAllTogether(callbacks)
+    lu.assertEquals(completed(), 0)
+    local granted = grant(callbacks, {
+        { "ElementalDamageBoon", "ElementalOlympianDamageBoon" },
+        { "ElementalBaseDamageBoon", "ElementalRallyBoon" },
+        { "ElementalDamageFloorBoon", "ElementalDodgeBoon" },
+        { "ElementalHealthBoon", "ElementalDamageCapBoon" },
+    }, {
+        { "ElementalDamageBoon", "ElementalOlympianDamageBoon" },
+        { "ElementalBaseDamageBoon", "ElementalRallyBoon" },
+        { "ElementalDamageFloorBoon", "ElementalDodgeBoon" },
+        { "ElementalHealthBoon", "ElementalDamageCapBoon" },
+    })
+    lu.assertEquals(granted, {
+        "ElementalDamageBoon", "ElementalBaseDamageBoon",
+        "ElementalDamageFloorBoon", "ElementalHealthBoon",
+    })
+    lu.assertEquals(completed(), 1)
+    lu.assertEquals(mismatches(), {})
+end
+
+function TestOrdinaryTraits.testAllTogetherAcceptsForcedRemainingMemberAndExplicitExhaustedSet()
+    local offer = { kind = "traits", selected = "option1", options = {
+        { key = "AllElementalBoon", allTogetherResult = {
+            earth = "ElementalOlympianDamageBoon", fire = "ElementalBaseDamageBoon",
+            air = "ElementalDamageFloorBoon", water = json.null,
+        } },
+    } }
+    local callbacks, _, completed, mismatches = attached(offer)
+    beginAllTogether(callbacks)
+    local granted = grant(callbacks, {
+        { "ElementalDamageBoon", "ElementalOlympianDamageBoon" },
+        { "ElementalBaseDamageBoon", "ElementalRallyBoon" },
+        { "ElementalDamageFloorBoon", "ElementalDodgeBoon" },
+        { "ElementalHealthBoon", "ElementalDamageCapBoon" },
+    }, {
+        { "ElementalOlympianDamageBoon" },
+        { "ElementalBaseDamageBoon", "ElementalRallyBoon" },
+        { "ElementalDamageFloorBoon", "ElementalDodgeBoon" },
+        {},
+    })
+    lu.assertEquals(granted, {
+        "ElementalOlympianDamageBoon", "ElementalBaseDamageBoon", "ElementalDamageFloorBoon",
+    })
+    lu.assertEquals(completed(), 1)
+    lu.assertEquals(mismatches(), {})
+end
+
+function TestOrdinaryTraits.testAllTogetherUnavailableExactGrantLeavesOuterIncompleteAndRunsNativeChoice()
+    local offer = { kind = "traits", selected = "option1", options = {
+        { key = "AllElementalBoon", allTogetherResult = {
+            earth = "ElementalDamageBoon", fire = json.null, air = json.null, water = json.null,
+        } },
+    } }
+    local callbacks, _, completed, mismatches, setActive = attached(offer)
+    beginAllTogether(callbacks)
+    local granted = grant(callbacks, {
+        { "ElementalDamageBoon", "ElementalOlympianDamageBoon" }, {}, {}, {},
+    }, {
+        { "ElementalOlympianDamageBoon" }, {}, {}, {},
+    })
+    lu.assertEquals(granted, { "ElementalOlympianDamageBoon" })
+    lu.assertEquals(completed(), 0)
+    lu.assertEquals(mismatches()[1].checkpoint, "all-together-grant")
+
+    setActive({ occurrence = { overview = {} } })
+    local native = grant(callbacks, {
+        { "ElementalOlympianDamageBoon", "ElementalDamageBoon" }, {}, {}, {},
+    }, {
+        { "ElementalOlympianDamageBoon", "ElementalDamageBoon" }, {}, {}, {},
+    })
+    lu.assertEquals(native, { "ElementalOlympianDamageBoon" })
+    lu.assertEquals(#mismatches(), 1)
+end
+
+function TestOrdinaryTraits.testAllTogetherBaseErrorAndLaterRoomCannotReuseStaleGrantScope()
+    local offer = { kind = "traits", selected = "option1", options = {
+        { key = "AllElementalBoon", allTogetherResult = {
+            earth = "ElementalDamageBoon", fire = json.null, air = json.null, water = json.null,
+        } },
+    } }
+    local callbacks, _, completed, mismatches, setActive = attached(offer)
+    beginAllTogether(callbacks)
+    local ok = pcall(function()
+        callbacks.GrantBoons(nil, {}, function() error("native GrantBoons failure") end,
+            { BoonSets = { { "ElementalDamageBoon", "ElementalOlympianDamageBoon" }, {}, {}, {} } },
+            { Name = "AllElementalBoon" })
+    end)
+    lu.assertFalse(ok)
+    setActive({ occurrence = { overview = {} } })
+    local native = grant(callbacks, {
+        { "ElementalDamageBoon", "ElementalOlympianDamageBoon" }, {}, {}, {},
+    }, {
+        { "ElementalOlympianDamageBoon", "ElementalDamageBoon" }, {}, {}, {},
+    })
+    lu.assertEquals(native, { "ElementalOlympianDamageBoon" })
+    lu.assertEquals(completed(), 0)
+    lu.assertEquals(mismatches(), {})
 end

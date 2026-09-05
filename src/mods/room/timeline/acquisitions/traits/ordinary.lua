@@ -2,6 +2,7 @@
 -- This module owns only the frozen offer result; native code owns generation,
 -- menu behavior, trait application, replacement, and rarification clicks.
 local ordinary = {}
+local json = type(import) == "function" and import("mods/json.lua") or require("mods.json")
 
 local function normalRole(transaction, contact)
     if type(transaction) ~= "table" or transaction.kind ~= "acquisition" then return nil end
@@ -89,6 +90,17 @@ function ordinary.selectedKey(payload)
     if offer and offer.kind == "fallbackGold" then return "FallbackGold" end
     local index = offer and optionIndex(offer.selected)
     return index and ordinary.optionKey(payload, index) or nil
+end
+
+function ordinary.allTogetherResult(payload)
+    local offer = ordinary.offer(payload)
+    local index = offer and optionIndex(offer.selected)
+    local option = index and offer.options and offer.options[index] or nil
+    return option and option.allTogetherResult or nil
+end
+
+function ordinary.isNull(value)
+    return json.isNull(value)
 end
 
 function ordinary.install(payload, loot)
