@@ -56,6 +56,23 @@ local function allTogetherResult(value, label)
     return record
 end
 
+local function concaveStoneResult(value, label)
+    local record, errorMessage = p.obj(value, label)
+    if not record then return nil, errorMessage end
+    if record.kind == "noProc" then
+        return p.exact(record, { "kind" }, {}, label)
+    end
+    if record.kind == "proc" then
+        local row, rowError = p.exact(record, { "kind", "optionKey" }, {}, label)
+        if not row then return nil, rowError end
+        if not p.one(row.optionKey, optionKeys, label .. ".optionKey") then
+            return p.fail(label .. " has invalid residual option")
+        end
+        return row
+    end
+    return p.fail(label .. ".kind is unsupported")
+end
+
 function rewards.traitOffer(value, label)
     local record, errorMessage = p.obj(value, label)
     if not record then return nil, errorMessage end
@@ -129,7 +146,10 @@ function rewards.traitOffer(value, label)
         local option, optionError = p.exact(
             optionValue,
             { "key" },
-            { "baseRarity", "rarity", "effectiveLevel", "allTogetherResult", "naturalSelectionTargets", "replacement" },
+            {
+                "baseRarity", "rarity", "effectiveLevel", "allTogetherResult",
+                "naturalSelectionTargets", "concaveStoneResult", "replacement",
+            },
             label .. ".options[" .. index .. "]"
         )
         if not option then return nil, optionError end
@@ -155,6 +175,20 @@ function rewards.traitOffer(value, label)
             if not targets then return nil, targetsError end
             if #targets == 0 then
                 return p.fail(label .. ".options[" .. index .. "].naturalSelectionTargets must not be empty")
+            end
+        end
+        if option.concaveStoneResult ~= nil then
+            local _, resultError = concaveStoneResult(option.concaveStoneResult,
+                label .. ".options[" .. index .. "].concaveStoneResult")
+            if resultError then return nil, resultError end
+            if index ~= optionIndex[row.selected] then
+                return p.fail(label .. ".options[" .. index .. "].concaveStoneResult must belong to selected option")
+            end
+            if option.concaveStoneResult.kind == "proc" then
+                local residualIndex = optionIndex[option.concaveStoneResult.optionKey]
+                if residualIndex == nil or residualIndex > #options or residualIndex == index then
+                    return p.fail(label .. ".options[" .. index .. "].concaveStoneResult is not a residual option")
+                end
             end
         end
     end

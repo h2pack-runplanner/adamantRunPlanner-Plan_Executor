@@ -92,10 +92,29 @@ function ordinary.selectedKey(payload)
     return index and ordinary.optionKey(payload, index) or nil
 end
 
+function ordinary.optionForKey(payload, key)
+    local offer = ordinary.offer(payload)
+    for _, option in ipairs(offer and offer.options or {}) do
+        if option.key == key then return option end
+    end
+    return nil
+end
+
+function ordinary.optionForOptionKey(payload, optionKey)
+    local offer = ordinary.offer(payload)
+    local index = offer and optionIndex(optionKey)
+    return index and offer.options and offer.options[index] or nil
+end
+
 function ordinary.allTogetherResult(payload)
     local offer = ordinary.offer(payload)
     local index = offer and optionIndex(offer.selected)
     local option = index and offer.options and offer.options[index] or nil
+    return option and option.allTogetherResult or nil
+end
+
+function ordinary.allTogetherResultForKey(payload, key)
+    local option = ordinary.optionForKey(payload, key)
     return option and option.allTogetherResult or nil
 end
 
@@ -104,6 +123,18 @@ function ordinary.naturalSelectionTargets(payload)
     local index = offer and optionIndex(offer.selected)
     local option = index and offer.options and offer.options[index] or nil
     return option and option.naturalSelectionTargets or nil
+end
+
+function ordinary.naturalSelectionTargetsForKey(payload, key)
+    local option = ordinary.optionForKey(payload, key)
+    return option and option.naturalSelectionTargets or nil
+end
+
+function ordinary.concaveStoneResult(payload)
+    local offer = ordinary.offer(payload)
+    local index = offer and optionIndex(offer.selected)
+    local option = index and offer.options and offer.options[index] or nil
+    return option and option.concaveStoneResult or nil
 end
 
 function ordinary.isNull(value)

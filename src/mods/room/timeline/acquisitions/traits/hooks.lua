@@ -25,6 +25,34 @@ function hooks.attach(module, session, getState, report, room)
     local activeAllTogether = nil
     local activeNaturalSelection = nil
     local activeNaturalDistribution = nil
+    local concaveStonePending = {}
+    local failedConcaveStoneHandles = {}
+    local activeConcaveStone = nil
+
+    local function discardConcaveStone(pending)
+        if pending == nil then return end
+        concaveStonePending[pending.handle] = nil
+        if pending.failed then failedConcaveStoneHandles[pending.handle] = true end
+        if activeConcaveStone == pending then activeConcaveStone = nil end
+    end
+
+    local function scopeIsCurrent(state, pending)
+        return pending ~= nil and pending.context == room.current(state) and state.state == "synchronized"
+    end
+
+    -- C1 remains the only terminal. D3/D4 and Concave Stone merely delay it
+    -- while their bounded native callbacks are still in flight.
+    local function completeOuter(state, handle)
+        if failedConcaveStoneHandles[handle] then return end
+        local stone = concaveStonePending[handle]
+        if stone ~= nil then
+            if stone.failed or not stone.outerReturned or not stone.rollConsumed then return end
+            if stone.result.kind == "proc" and not stone.residualReturned then return end
+            failedConcaveStoneHandles[handle] = nil
+            discardConcaveStone(stone)
+        end
+        session.complete(state, handle)
+    end
 
     local function discardPending(pending)
         if pending == nil then return end
@@ -52,7 +80,7 @@ function hooks.attach(module, session, getState, report, room)
     local function completeNaturalSelection(state, pending)
         if not pending.failed and pending.selectionReturned and pending.settled
             and pending.cursor == #pending.targets then
-            session.complete(state, pending.handle)
+            completeOuter(state, pending.handle)
         end
     end
 
@@ -66,11 +94,154 @@ function hooks.attach(module, session, getState, report, room)
         return nil
     end
 
+    local function consequenceScopes(payload, loot, offer, selected, handle, current)
+        local allTogether = ordinary.allTogetherResultForKey(payload, selected)
+        local naturalSelectionTargets = ordinary.naturalSelectionTargetsForKey(payload, selected)
+        local allTogetherForSelection = nil
+        local naturalSelectionForSelection = nil
+        if ordinary.isCarrier(loot, offer) and allTogether ~= nil then
+            allTogetherForSelection = {
+                outerKey = selected,
+                handle = handle,
+                context = current,
+                result = allTogether,
+                consumed = {
+                    earth = ordinary.isNull(allTogether.earth),
+                    fire = ordinary.isNull(allTogether.fire),
+                    air = ordinary.isNull(allTogether.air),
+                    water = ordinary.isNull(allTogether.water),
+                },
+                selectionReturned = false,
+            }
+            allTogetherPending[handle] = allTogetherForSelection
+        end
+        if ordinary.isCarrier(loot, offer) and naturalSelectionTargets ~= nil then
+            naturalSelectionForSelection = {
+                handle = handle,
+                targets = naturalSelectionTargets,
+                cursor = 0,
+                selectionReturned = false,
+                settled = false,
+                shuffled = false,
+            }
+        end
+        return allTogetherForSelection, naturalSelectionForSelection
+    end
+
+    local function callSelectionBase(state, base, screen, button, args, naturalSelectionForSelection)
+        local result
+        if naturalSelectionForSelection ~= nil then
+            activeNaturalSelection = naturalSelectionForSelection
+            local ok
+            ok, result = pcall(base, screen, button, args)
+            if activeNaturalSelection == naturalSelectionForSelection then
+                activeNaturalSelection = nil
+            end
+            if not ok then
+                discardNaturalSelection(naturalSelectionForSelection)
+                error(result, 0)
+            end
+            if not naturalSelectionForSelection.started then
+                naturalSelectionForSelection.failed = true
+                session.mismatch(state, "natural-selection-contact", "DistributeLevels", "missing")
+            end
+        else
+            result = base(screen, button, args)
+        end
+        return result
+    end
+
+    local function settleSelection(state, payload, loot, offer, selected, handle, allTogetherForSelection,
+        naturalSelectionForSelection, residual)
+        if not ordinary.isCarrier(loot, offer) then return end
+        if not residual and ordinary.selectedKey(payload) ~= selected then
+            session.mismatch(state, "trait-selection", ordinary.selectedKey(payload), selected)
+            return
+        end
+        if allTogetherForSelection == nil and naturalSelectionForSelection == nil then
+            completeOuter(state, handle)
+        elseif allTogetherForSelection ~= nil then
+            allTogetherForSelection.selectionReturned = true
+            if not allTogetherForSelection.failed and allTogetherForSelection.settled
+                and allTogetherForSelection.consumed.earth and allTogetherForSelection.consumed.fire
+                and allTogetherForSelection.consumed.air and allTogetherForSelection.consumed.water then
+                allTogetherPending[handle] = nil
+                completeOuter(state, handle)
+            end
+        else
+            naturalSelectionForSelection.selectionReturned = true
+            completeNaturalSelection(state, naturalSelectionForSelection)
+        end
+    end
+
+    local function steerConcaveStoneResidual(runtime, base, candidates, rng)
+        local pending = activeConcaveStone
+        if pending == nil or pending.result.kind ~= "proc" or not pending.rollConsumed
+            or pending.residualButton ~= nil then
+            return base(candidates, rng)
+        end
+        local state = getState(runtime)
+        if not scopeIsCurrent(state, pending) then
+            pending.failed = true
+            discardConcaveStone(pending)
+            return base(candidates, rng)
+        end
+        local expected = ordinary.optionForOptionKey(pending.payload, pending.result.optionKey)
+        local expectedKey = expected and expected.key or nil
+        local sawButton, selected = false, nil
+        for _, candidate in pairs(candidates or {}) do
+            if type(candidate) == "table" and type(candidate.Data) == "table" then
+                sawButton = true
+                if candidate.Data.Name == expectedKey then selected = candidate end
+            end
+        end
+        if not sawButton then return base(candidates, rng) end
+        if selected == nil then
+            pending.failed = true
+            discardConcaveStone(pending)
+            session.mismatch(state, "concave-stone-residual", expectedKey, "native-ineligible")
+            return base(candidates, rng)
+        end
+        pending.residualButton = selected
+        return selected
+    end
+
+    module.hooks.wrap("HasHeroTraitValue", "run-planner-scope-concave-stone-roll", function(_, runtime, base,
+        traitName, ...)
+        local result = base(traitName, ...)
+        local pending = activeConcaveStone
+        if pending == nil or traitName ~= "DoubleBoonChance" then return result end
+        local state = getState(runtime)
+        if not scopeIsCurrent(state, pending) then
+            pending.failed = true
+            discardConcaveStone(pending)
+        else
+            pending.rollTraitObserved = true
+        end
+        return result
+    end)
+
+    module.hooks.wrap("RandomChance", "run-planner-steer-concave-stone-roll", function(_, runtime, base,
+        chance, args)
+        local pending = activeConcaveStone
+        if pending == nil or not pending.rollTraitObserved or pending.rollConsumed then
+            return base(chance, args)
+        end
+        local state = getState(runtime)
+        if not scopeIsCurrent(state, pending) then
+            pending.failed = true
+            discardConcaveStone(pending)
+            return base(chance, args)
+        end
+        pending.rollConsumed = true
+        return pending.result.kind == "proc"
+    end)
+
     module.hooks.wrap("GetRandomValue", "run-planner-steer-all-together", function(_, runtime, base,
         candidates, rng)
         local active = activeAllTogether
         local setKey = active and setForCandidates(active, candidates) or nil
-        if setKey == nil then return base(candidates, rng) end
+        if setKey == nil then return steerConcaveStoneResidual(runtime, base, candidates, rng) end
         local state = getState(runtime)
         local expected = active.result[setKey]
         if ordinary.isNull(expected) then
@@ -122,7 +293,7 @@ function hooks.attach(module, session, getState, report, room)
         if not pending.failed and pending.selectionReturned and pending.consumed.earth and pending.consumed.fire
             and pending.consumed.air and pending.consumed.water then
             allTogetherPending[handle] = nil
-            session.complete(state, handle)
+            completeOuter(state, handle)
         end
         report(runtime)
         return result
@@ -271,88 +442,132 @@ function hooks.attach(module, session, getState, report, room)
 
     module.hooks.wrap("HandleUpgradeChoiceSelection", "run-planner-complete-ordinary-offer", function(_, runtime,
         base, screen, button, args)
-        -- Concave Stone's second native selection is a consequential residual,
-        -- not another terminal for this outer acquisition.
-        if type(args) == "table" and args.DoubleBoonChance then return base(screen, button, args) end
         local state = getState(runtime)
         local loot = button and button.LootData
         local current = room.current(state)
         local handle, payload = boundNormal(room, state, current, loot)
         local offer = ordinary.offer(payload)
         local selected = button and button.Data and button.Data.Name
-        local allTogether = ordinary.allTogetherResult(payload)
-        local naturalSelectionTargets = ordinary.naturalSelectionTargets(payload)
-        local pendingForSelection = nil
-        local naturalSelectionForSelection = nil
-        if ordinary.isCarrier(loot, offer) and ordinary.selectedKey(payload) == selected
-            and allTogether ~= nil then
-            pendingForSelection = {
-                outerKey = selected,
-                handle = handle,
-                context = current,
-                result = allTogether,
-                consumed = {
-                    earth = ordinary.isNull(allTogether.earth),
-                    fire = ordinary.isNull(allTogether.fire),
-                    air = ordinary.isNull(allTogether.air),
-                    water = ordinary.isNull(allTogether.water),
-                },
-                selectionReturned = false,
-            }
-            allTogetherPending[handle] = pendingForSelection
-        end
-        if ordinary.isCarrier(loot, offer) and ordinary.selectedKey(payload) == selected
-            and naturalSelectionTargets ~= nil then
-            naturalSelectionForSelection = {
-                handle = handle,
-                targets = naturalSelectionTargets,
-                cursor = 0,
-                selectionReturned = false,
-                settled = false,
-                shuffled = false,
-            }
-        end
-        local result
-        if naturalSelectionForSelection ~= nil then
-            activeNaturalSelection = naturalSelectionForSelection
-            local ok
-            ok, result = pcall(base, screen, button, args)
-            if activeNaturalSelection == naturalSelectionForSelection then
-                activeNaturalSelection = nil
+        local nested = type(args) == "table" and args.DoubleBoonChance == true
+        if nested then
+            local stone = activeConcaveStone
+            if stone == nil then return base(screen, button, args) end
+            if not scopeIsCurrent(state, stone) then
+                stone.failed = true
+                discardConcaveStone(stone)
+                return base(screen, button, args)
             end
+            local expected = stone.result.kind == "proc"
+                and ordinary.optionForOptionKey(stone.payload, stone.result.optionKey) or nil
+            if stone.failed or not stone.rollConsumed or expected == nil or button ~= stone.residualButton
+                or selected ~= expected.key then
+                stone.failed = true
+                discardConcaveStone(stone)
+                session.mismatch(state, "concave-stone-residual", expected and expected.key or nil, selected)
+                return base(screen, button, args)
+            end
+            local pendingForSelection, naturalSelectionForSelection = consequenceScopes(
+                payload, loot, offer, selected, handle, current)
+            local ok, result = pcall(
+                callSelectionBase,
+                state,
+                base,
+                screen,
+                button,
+                args,
+                naturalSelectionForSelection
+            )
             if not ok then
-                discardNaturalSelection(naturalSelectionForSelection)
+                stone.failed = true
+                discardConcaveStone(stone)
                 error(result, 0)
             end
-            if not naturalSelectionForSelection.started then
-                naturalSelectionForSelection.failed = true
-                session.mismatch(state, "natural-selection-contact", "DistributeLevels", "missing")
-            end
-        else
-            result = base(screen, button, args)
-        end
-        if ordinary.isCarrier(loot, offer) then
-            if ordinary.selectedKey(payload) ~= selected then
-                session.mismatch(state, "trait-selection", ordinary.selectedKey(payload), selected)
-            else
-                local pending = pendingForSelection
-                local naturalPending = naturalSelectionForSelection
-                if pending == nil and naturalPending == nil then
-                    session.complete(state, handle)
-                elseif pending ~= nil then
-                    pending.selectionReturned = true
-                    if not pending.failed and pending.settled and pending.consumed.earth and pending.consumed.fire
-                        and pending.consumed.air and pending.consumed.water then
-                        allTogetherPending[handle] = nil
-                        session.complete(state, handle)
-                    end
-                else
-                    naturalPending.selectionReturned = true
-                    completeNaturalSelection(state, naturalPending)
-                end
-            end
+            stone.residualReturned = true
+            settleSelection(
+                state,
+                payload,
+                loot,
+                offer,
+                selected,
+                handle,
+                pendingForSelection,
+                naturalSelectionForSelection,
+                true
+            )
             report(runtime)
+            return result
         end
+
+        if not ordinary.isCarrier(loot, offer) or ordinary.selectedKey(payload) ~= selected then
+            local result = base(screen, button, args)
+            if ordinary.isCarrier(loot, offer) then
+                session.mismatch(state, "trait-selection", ordinary.selectedKey(payload), selected)
+                report(runtime)
+            end
+            return result
+        end
+
+        local pendingForSelection, naturalSelectionForSelection = consequenceScopes(
+            payload, loot, offer, selected, handle, current)
+        local concaveResult = ordinary.concaveStoneResult(payload)
+        local stone = nil
+        if concaveResult ~= nil then
+            stone = {
+                handle = handle,
+                context = current,
+                payload = payload,
+                result = concaveResult,
+                outerReturned = false,
+                rollTraitObserved = false,
+                rollConsumed = false,
+                residualReturned = concaveResult.kind == "noProc",
+            }
+            concaveStonePending[handle] = stone
+            failedConcaveStoneHandles[handle] = nil
+            activeConcaveStone = stone
+        end
+        local ok, result = pcall(
+            callSelectionBase,
+            state,
+            base,
+            screen,
+            button,
+            args,
+            naturalSelectionForSelection
+        )
+        if activeConcaveStone == stone then activeConcaveStone = nil end
+        if not ok then
+            if stone ~= nil then
+                stone.failed = true
+                discardConcaveStone(stone)
+            end
+            error(result, 0)
+        end
+        if stone ~= nil then
+            stone.outerReturned = true
+            if not stone.rollConsumed then
+                stone.failed = true
+                discardConcaveStone(stone)
+                session.mismatch(state, "concave-stone-roll", stone.result.kind, "missing")
+            elseif stone.result.kind == "proc" and not stone.residualReturned then
+                stone.failed = true
+                discardConcaveStone(stone)
+                local expected = ordinary.optionForOptionKey(payload, stone.result.optionKey)
+                session.mismatch(state, "concave-stone-residual", expected and expected.key or nil, "missing")
+            end
+        end
+        settleSelection(
+            state,
+            payload,
+            loot,
+            offer,
+            selected,
+            handle,
+            pendingForSelection,
+            naturalSelectionForSelection,
+            false
+        )
+        report(runtime)
         return result
     end)
 end
