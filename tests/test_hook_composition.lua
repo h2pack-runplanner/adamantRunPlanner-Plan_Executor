@@ -1394,7 +1394,9 @@ function TestHookComposition.testExplicitGateBHookGroupsStayInstalled()
         "ArachneCostumeChoice", "NarcissusBenefitChoice", "MedeaCurseChoice", "CirceBlessingChoice",
         "IcarusBenefitChoice", "EchoChoice", "SpawnNemesisForRandomEvents", "CheckAvailableTextLines",
         "NemesisTradeChoice", "NPCRewardDropPreProcess", "NPCRewardDropPreProcessArgs", "NemesisDamageContestTimer",
-        "AddRandomMetaUpgrades", "FillInShopOptions", "CreateStoreButtons", "RestockWorldItem",
+        "CirceRandomMetaUpgrade", "AddRandomMetaUpgrades", "CirceMetaUpgradeRarity",
+        "CirceRemoveShrineUpgrades", "RandomChance", "GetRandomKey",
+        "FillInShopOptions", "CreateStoreButtons", "RestockWorldItem",
         "SpawnStoreItemInWorld", "RemoveStoreItem", "HandleStorePurchase",
     }) do
         lu.assertNotNil(names[name], name)

@@ -1,6 +1,7 @@
 -- luacheck: globals TestNpcAcquisitions
 local lu = require("luaunit")
 local npc = require("mods.room.timeline.acquisitions.npc.hooks")
+local circe = require("mods.room.timeline.acquisitions.npc.circe")
 
 TestNpcAcquisitions = {}
 
@@ -10,13 +11,14 @@ local function capture()
     return module, callbacks
 end
 
-local function offer(giver, selected)
+local function offer(giver, selected, circeResolution)
     local value = {
         kind = "traits", giver = giver, selected = "option2",
         options = {
             { key = giver .. "One" }, { key = selected }, { key = giver .. "Three" },
         },
     }
+    if circeResolution ~= nil then value.options[2].circeResolution = circeResolution end
     return value
 end
 
@@ -61,7 +63,8 @@ local function harness(giver, _, options)
         begin = function(_, currentHandle) return payloads[currentHandle] end,
         peek = function(_, currentHandle) return payloads[currentHandle] end,
     }
-    npc.attach(module, session, function() return state end, function() end, room)
+    local npcScope = npc.attach(module, session, function() return state end, function() end, room)
+    circe.attach(module, session, function() end, npcScope)
     local priorRun = _G.CurrentRun
     _G.CurrentRun = {
         CurrentRoom = { Encounter = { Name = giver .. "Encounter" } },
@@ -183,6 +186,252 @@ function TestNpcAcquisitions.testNativeNpcPostSelectionSideEffectRunsWithOuterCo
     end)
     finish()
     lu.assertTrue(nativeSideEffect)
+    lu.assertEquals(#completions, 1)
+end
+
+function TestNpcAcquisitions.testCirceActivationUsesExactPublishedArcanaThroughNativeMutation()
+    local selected = "RandomArcanaTrait"
+    local callbacks, source, _, _, _, _, _, _, mismatches, completions, finish = harness(
+        "Circe", selected, { offer = offer("Circe", selected,
+            { kind = "activateArcana", arcanaKeys = { "ChanneledCast" } }) })
+    local args = { UpgradeOptions = {
+        { ItemName = "CirceOne" }, { ItemName = selected }, { ItemName = "CirceThree" },
+    } }
+    local activated = {}
+    local nativeChanceCalls = 0
+    runMenu(callbacks, "CirceBlessingChoice", source, args, selected, nil, function()
+        callbacks.CirceRandomMetaUpgrade(nil, {}, function(acquireArgs)
+            return callbacks.AddRandomMetaUpgrades(nil, {}, function()
+                lu.assertFalse(callbacks.RandomChance(nil, {}, function()
+                    nativeChanceCalls = nativeChanceCalls + 1
+                    return false
+                end, 0.1))
+                local candidates = { "CardDraw", "ChanneledCast" }
+                local target = callbacks.RemoveRandomValue(nil, {}, function(values)
+                    return table.remove(values, 1)
+                end, candidates)
+                activated[target] = true
+            end, acquireArgs.Count, {})
+        end, { Count = 1 })
+    end)
+    finish()
+    lu.assertEquals(activated, { ChanneledCast = true })
+    lu.assertEquals(nativeChanceCalls, 1)
+    lu.assertEquals(#mismatches, 0)
+    lu.assertEquals(#completions, 1)
+end
+
+function TestNpcAcquisitions.testCirceCastCountActivationAdmitsTheNativePositiveChanceBranch()
+    local selected = "RandomArcanaTrait"
+    local callbacks, source, _, _, _, _, _, _, mismatches, completions, finish = harness(
+        "Circe", selected, { offer = offer("Circe", selected,
+            { kind = "activateArcana", arcanaKeys = { "CastCount" } }) })
+    local args = { UpgradeOptions = {
+        { ItemName = "CirceOne" }, { ItemName = selected }, { ItemName = "CirceThree" },
+    } }
+    local activated
+    local nativeChanceCalls = 0
+    runMenu(callbacks, "CirceBlessingChoice", source, args, selected, nil, function()
+        callbacks.CirceRandomMetaUpgrade(nil, {}, function(acquireArgs)
+            return callbacks.AddRandomMetaUpgrades(nil, {}, function()
+                local primary = { "ChanneledCast" }
+                if callbacks.RandomChance(nil, {}, function()
+                    nativeChanceCalls = nativeChanceCalls + 1
+                    return false
+                end, 0.1) then
+                    primary[#primary + 1] = "CastCount"
+                end
+                activated = callbacks.RemoveRandomValue(nil, {}, function(values)
+                    return table.remove(values, 1)
+                end, primary)
+            end, acquireArgs.Count, {})
+        end, { Count = 1 })
+    end)
+    finish()
+    lu.assertEquals(activated, "CastCount")
+    lu.assertEquals(nativeChanceCalls, 0)
+    lu.assertEquals(#mismatches, 0)
+    lu.assertEquals(#completions, 1)
+end
+
+function TestNpcAcquisitions.testCirceTradeOffWithoutCompanionIsNativelySubstituted()
+    local selected = "RandomArcanaTrait"
+    local callbacks, source, _, _, _, _, _, _, mismatches, _, finish = harness(
+        "Circe", selected, { offer = offer("Circe", selected,
+            { kind = "activateArcana", arcanaKeys = { "TradeOff" } }) })
+    local args = { UpgradeOptions = {
+        { ItemName = "CirceOne" }, { ItemName = selected }, { ItemName = "CirceThree" },
+    } }
+    local activated
+    runMenu(callbacks, "CirceBlessingChoice", source, args, selected, nil, function()
+        callbacks.CirceRandomMetaUpgrade(nil, {}, function(acquireArgs)
+            callbacks.AddRandomMetaUpgrades(nil, {}, function()
+                local primary = { "TradeOff", "ChanneledCast" }
+                local first = callbacks.RemoveRandomValue(nil, {}, function(values)
+                    return table.remove(values, 1)
+                end, primary)
+                -- Native RequiredCardNames handling moves TradeOff to fallback
+                -- and substitutes another primary when neither reroll is active.
+                lu.assertEquals(first, "TradeOff")
+                activated = callbacks.RemoveRandomValue(nil, {}, function(values)
+                    return table.remove(values, 1)
+                end, primary)
+            end, acquireArgs.Count, {})
+        end, { Count = 1 })
+    end)
+    finish()
+    lu.assertEquals(activated, "ChanneledCast")
+    lu.assertEquals(mismatches[1], {
+        checkpoint = "circe-consequence-selection",
+        expected = "no additional Circe target",
+        observed = "additional native selection",
+    })
+end
+
+function TestNpcAcquisitions.testCirceCompanionlessTradeOffDefersItsSoleCastCountCompetitor()
+    local selected = "RandomArcanaTrait"
+    local callbacks, source, _, _, _, _, _, _, mismatches, _, finish = harness(
+        "Circe", selected, { offer = offer("Circe", selected,
+            { kind = "activateArcana", arcanaKeys = { "TradeOff" } }) })
+    local args = { UpgradeOptions = {
+        { ItemName = "CirceOne" }, { ItemName = selected }, { ItemName = "CirceThree" },
+    } }
+    local priorGameState = _G.GameState
+    _G.GameState = { MetaUpgradeState = {
+        ScreenReroll = { Equipped = false }, DoorReroll = { Equipped = false },
+    } }
+    local activated
+    local deferred = {}
+    local nativeChanceCalls = 0
+    runMenu(callbacks, "CirceBlessingChoice", source, args, selected, nil, function()
+        callbacks.CirceRandomMetaUpgrade(nil, {}, function(acquireArgs)
+            callbacks.AddRandomMetaUpgrades(nil, {}, function()
+                local primary = { "TradeOff" }
+                if callbacks.RandomChance(nil, {}, function()
+                    nativeChanceCalls = nativeChanceCalls + 1
+                    return true
+                end, 0.1) then
+                    primary[#primary + 1] = "CastCount"
+                else
+                    deferred[#deferred + 1] = "CastCount"
+                end
+                activated = callbacks.RemoveRandomValue(nil, {}, function(values)
+                    return table.remove(values, 1)
+                end, primary)
+                -- Native RequiredCardNames handling retains TradeOff because
+                -- no other primary candidate remains after its selection.
+                lu.assertEquals(#primary, 0)
+            end, acquireArgs.Count, {})
+        end, { Count = 1 })
+    end)
+    _G.GameState = priorGameState
+    finish()
+    lu.assertEquals(activated, "TradeOff")
+    lu.assertEquals(deferred, { "CastCount" })
+    lu.assertEquals(nativeChanceCalls, 0)
+    lu.assertEquals(#mismatches, 0)
+end
+
+function TestNpcAcquisitions.testUnavailableCirceTargetReportsMismatchAndLeavesNativeMutationRunning()
+    local selected = "RandomArcanaTrait"
+    local callbacks, source, _, _, _, _, _, _, mismatches, _, finish = harness(
+        "Circe", selected, { offer = offer("Circe", selected,
+            { kind = "activateArcana", arcanaKeys = { "ChanneledCast" } }) })
+    local args = { UpgradeOptions = {
+        { ItemName = "CirceOne" }, { ItemName = selected }, { ItemName = "CirceThree" },
+    } }
+    local nativeTarget
+    runMenu(callbacks, "CirceBlessingChoice", source, args, selected, nil, function()
+        callbacks.CirceRandomMetaUpgrade(nil, {}, function(acquireArgs)
+            callbacks.AddRandomMetaUpgrades(nil, {}, function()
+                nativeTarget = callbacks.RemoveRandomValue(nil, {}, function(values)
+                    return table.remove(values, 1)
+                end, { "CardDraw" })
+            end, acquireArgs.Count, {})
+        end, { Count = 1 })
+    end)
+    finish()
+    lu.assertEquals(nativeTarget, "CardDraw")
+    lu.assertEquals(mismatches[1], {
+        checkpoint = "circe-consequence-selection",
+        expected = "ChanneledCast",
+        observed = "missing native candidate",
+    })
+end
+
+function TestNpcAcquisitions.testCircePromotionUsesExactPublishedArcanaThroughNativeMutation()
+    local selected = "ArcanaRarityTrait"
+    local callbacks, source, _, _, _, _, _, _, mismatches, _, finish = harness(
+        "Circe", selected, { offer = offer("Circe", selected,
+            { kind = "promoteArcana", arcanaKeys = { "CastCount", "CardDraw" } }) })
+    local args = { UpgradeOptions = {
+        { ItemName = "CirceOne" }, { ItemName = selected }, { ItemName = "CirceThree" },
+    } }
+    local promoted = {}
+    runMenu(callbacks, "CirceBlessingChoice", source, args, selected, nil, function()
+        callbacks.CirceMetaUpgradeRarity(nil, {}, function()
+            local candidates = {
+                { MetaUpgradeName = "CardDraw" },
+                { MetaUpgradeName = "CastCount" },
+                { MetaUpgradeName = "ChanneledCast" },
+            }
+            for _ = 1, 2 do
+                local target = callbacks.RemoveRandomValue(nil, {}, function(values)
+                    return table.remove(values, 1)
+                end, candidates)
+                promoted[#promoted + 1] = target.MetaUpgradeName
+            end
+        end, { Count = 2 })
+    end)
+    finish()
+    lu.assertEquals(promoted, { "CastCount", "CardDraw" })
+    lu.assertEquals(#mismatches, 0)
+end
+
+function TestNpcAcquisitions.testCirceFearRemovalUsesExactPublishedVowThroughNativeMutation()
+    local selected = "RemoveShrineTrait"
+    local callbacks, source, _, _, _, _, _, _, mismatches, _, finish = harness(
+        "Circe", selected, { offer = offer("Circe", selected,
+            { kind = "disableFear", vowKey = "EnemyDamageShrineUpgrade" }) })
+    local args = { UpgradeOptions = {
+        { ItemName = "CirceOne" }, { ItemName = selected }, { ItemName = "CirceThree" },
+    } }
+    local disabled = {}
+    runMenu(callbacks, "CirceBlessingChoice", source, args, selected, nil, function()
+        callbacks.CirceRemoveShrineUpgrades(nil, {}, function()
+            local candidates = {
+                EnemyHealthShrineUpgrade = true,
+                EnemyDamageShrineUpgrade = true,
+            }
+            local target = callbacks.GetRandomKey(nil, {}, function()
+                return "EnemyHealthShrineUpgrade"
+            end, candidates)
+            disabled[target] = true
+        end, { Count = 1 })
+    end)
+    finish()
+    lu.assertEquals(disabled, { EnemyDamageShrineUpgrade = true })
+    lu.assertEquals(#mismatches, 0)
+end
+
+function TestNpcAcquisitions.testOrdinaryCirceChoiceRunsNoConsequenceActuator()
+    local selected = "CirceShrinkTrait"
+    local callbacks, source, _, _, _, _, _, _, mismatches, completions, finish = harness(
+        "Circe", selected, { offer = offer("Circe", selected) })
+    local args = { UpgradeOptions = {
+        { ItemName = "CirceOne" }, { ItemName = selected }, { ItemName = "CirceThree" },
+    } }
+    local nativeTarget
+    runMenu(callbacks, "CirceBlessingChoice", source, args, selected, nil, function()
+        callbacks.CirceMetaUpgradeRarity(nil, {}, function()
+            nativeTarget = callbacks.RemoveRandomValue(nil, {}, function(values)
+                return table.remove(values, 1)
+            end, { { MetaUpgradeName = "CardDraw" } }).MetaUpgradeName
+        end, { Count = 1 })
+    end)
+    finish()
+    lu.assertEquals(nativeTarget, "CardDraw")
+    lu.assertEquals(#mismatches, 0)
     lu.assertEquals(#completions, 1)
 end
 

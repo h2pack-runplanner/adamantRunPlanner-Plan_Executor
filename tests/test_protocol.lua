@@ -121,7 +121,7 @@ local function minimalPlan(transactions)
     end
     local plan = tagged({
         format = "run-planner-execution",
-        protocolVersion = 17,
+        protocolVersion = 18,
         catalogVersion = "0.54.0-required-boss-rewards",
         projectId = "test-project",
         planFingerprint = "00000000",
@@ -262,6 +262,31 @@ function TestProtocol.testConcaveStoneDispositionDecodesOnlyOnItsSelectedSourceO
     lu.assertNil(protocol.decode(value))
 end
 
+function TestProtocol.testCirceResolutionIsClosedAndBelongsOnlyToTheSelectedCirceOption()
+    local offer = traitOffer()
+    offer.giver = "Circe"
+    offer.options[1].circeResolution = {
+        kind = "promoteArcana", arcanaKeys = { "CastCount", "CardDraw" },
+    }
+    lu.assertNotNil(rewards.traitOffer(tagged(offer), "offer"))
+
+    offer.options[1].circeResolution.arcanaKeys = { "CastCount", "CardDraw", "ChanneledCast" }
+    lu.assertNil(rewards.traitOffer(tagged(offer), "offer"))
+    offer.options[1].circeResolution.arcanaKeys = { "CastCount", "CastCount" }
+    lu.assertNil(rewards.traitOffer(tagged(offer), "offer"))
+    offer.options[1].circeResolution = { kind = "disableFear", vowKey = "EnemyDamageShrineUpgrade" }
+    lu.assertNotNil(rewards.traitOffer(tagged(offer), "offer"))
+    offer.options[1].circeResolution.extra = true
+    lu.assertNil(rewards.traitOffer(tagged(offer), "offer"))
+    offer.options[1].circeResolution = nil
+    offer.options[2].circeResolution = { kind = "activateArcana", arcanaKeys = { "CardDraw" } }
+    lu.assertNil(rewards.traitOffer(tagged(offer), "offer"))
+    offer.options[2].circeResolution = nil
+    offer.options[1].circeResolution = { kind = "activateArcana", arcanaKeys = { "CardDraw" } }
+    offer.giver = "Zeus"
+    lu.assertNil(rewards.traitOffer(tagged(offer), "offer"))
+end
+
 function TestProtocol.testTimePieceDispositionIsNotPublished()
     local value = minimalPlan({ {
         kind = "acquisition",
@@ -306,7 +331,7 @@ function TestProtocol.testAllGateA2VectorsDecodeAndExpandDiagnostics()
     for _, name in ipairs({ "f-opening", "fg", "fg-ixion-chaos", "fg-anomaly", "automatic-boss" }) do
         local plan, errorMessage = protocol.decode(decode(name))
         lu.assertNotNil(plan, errorMessage)
-        lu.assertEquals(plan.protocolVersion, 17)
+        lu.assertEquals(plan.protocolVersion, 18)
         lu.assertNotNil(plan.occurrences[1].diagnostics.roomEntered)
     end
 end

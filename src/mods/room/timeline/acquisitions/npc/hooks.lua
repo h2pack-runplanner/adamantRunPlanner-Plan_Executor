@@ -69,6 +69,7 @@ end
 
 function npc.attach(module, session, getState, report, room)
     local choices = setmetatable({}, { __mode = "k" })
+    local activeSelection
 
     local function installInput(scope, args)
         if scope.nativeOptions == nil or scope.payload == nil then return false end
@@ -146,9 +147,17 @@ function npc.attach(module, session, getState, report, room)
         if scope == nil then return base(screen, button, args) end
 
         local selected = button and button.Data and button.Data.Name
-        local result = base(screen, button, args)
         local expected = adapter.expectedTrait(scope.payload)
-        if expected == nil or expected.key ~= selected then
+        local exact = expected ~= nil and expected.key == selected
+        local prior = activeSelection
+        if exact then
+            scope.selectedOption = expected
+            activeSelection = scope
+        end
+        local ok, result = pcall(base, screen, button, args)
+        activeSelection = prior
+        if not ok then error(result, 0) end
+        if not exact then
             session.mismatch(scope.state, "npc-trait-selection", expected and expected.key, selected)
         else
             session.complete(scope.state, scope.handle)
@@ -157,6 +166,16 @@ function npc.attach(module, session, getState, report, room)
         report(runtime)
         return result
     end)
+
+    return {
+        current = function(giver)
+            if activeSelection == nil then return nil end
+            local resolution = activeSelection.payload and activeSelection.payload.transaction.resolution
+            local offer = resolution and resolution.kind == "traitOffer" and resolution.offer
+            if offer == nil or offer.giver ~= giver then return nil end
+            return activeSelection
+        end,
+    }
 end
 
 return npc

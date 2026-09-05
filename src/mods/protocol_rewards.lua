@@ -73,6 +73,33 @@ local function concaveStoneResult(value, label)
     return p.fail(label .. ".kind is unsupported")
 end
 
+local function circeResolution(value, label)
+    local record, errorMessage = p.obj(value, label)
+    if not record then return nil, errorMessage end
+    if record.kind == "activateArcana" or record.kind == "promoteArcana" then
+        local row, rowError = p.exact(record, { "kind", "arcanaKeys" }, {}, label)
+        if not row then return nil, rowError end
+        local maximum = row.kind == "activateArcana" and 1 or 2
+        local keys, keysError = p.strings(row.arcanaKeys, label .. ".arcanaKeys", maximum)
+        if not keys then return nil, keysError end
+        local seen = {}
+        for _, key in ipairs(keys) do
+            if seen[key] then return p.fail(label .. ".arcanaKeys must be distinct") end
+            seen[key] = true
+        end
+        return row
+    end
+    if record.kind == "disableFear" then
+        local row, rowError = p.exact(record, { "kind", "vowKey" }, {}, label)
+        if not row then return nil, rowError end
+        if not p.str(row.vowKey, label .. ".vowKey") then
+            return p.fail(label .. " has invalid vowKey")
+        end
+        return row
+    end
+    return p.fail(label .. ".kind is unsupported")
+end
+
 local function hexTree(value, label)
     local tree, treeError = p.exact(value, { "layoutKey", "rareTalentKeys", "epicTalentKeys" }, { "godSent" }, label)
     if not tree then return nil, treeError end
@@ -186,7 +213,7 @@ function rewards.traitOffer(value, label)
             { "key" },
             {
                 "baseRarity", "rarity", "effectiveLevel", "allTogetherResult",
-                "naturalSelectionTargets", "concaveStoneResult", "replacement",
+                "naturalSelectionTargets", "concaveStoneResult", "circeResolution", "replacement",
             },
             label .. ".options[" .. index .. "]"
         )
@@ -227,6 +254,17 @@ function rewards.traitOffer(value, label)
                 if residualIndex == nil or residualIndex > #options or residualIndex == index then
                     return p.fail(label .. ".options[" .. index .. "].concaveStoneResult is not a residual option")
                 end
+            end
+        end
+        if option.circeResolution ~= nil then
+            local _, resultError = circeResolution(option.circeResolution,
+                label .. ".options[" .. index .. "].circeResolution")
+            if resultError then return nil, resultError end
+            if row.giver ~= "Circe" then
+                return p.fail(label .. ".options[" .. index .. "].circeResolution requires Circe")
+            end
+            if index ~= optionIndex[row.selected] then
+                return p.fail(label .. ".options[" .. index .. "].circeResolution must belong to selected option")
             end
         end
     end

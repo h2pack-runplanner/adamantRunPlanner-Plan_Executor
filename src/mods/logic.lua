@@ -1,4 +1,4 @@
--- Protocol-v17 root composition. Loadout owns run-start behavior; the
+-- Protocol-v18 root composition. Loadout owns run-start behavior; the
 -- route/room coordinator owns only occurrence-session state.
 local logic = {}
 
