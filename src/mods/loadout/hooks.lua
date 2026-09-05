@@ -3,7 +3,7 @@ local hooks = {}
 
 function hooks.attach(module, data, getState, report, room)
     local nativeBindings = import("mods/native_bindings.lua")
-    local hexTree = import("mods/hex/tree.lua")
+    local hexTree = import("mods/spells/hex_tree.lua")
     local roomCoordinator = room
     local startDepth, startingHexScope = 0, nil
 

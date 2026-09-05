@@ -2,8 +2,8 @@
 -- Native code owns transforming-row generation, sorting, rerolls, Denial, and
 -- trait equipment. This adapter only steers the authored initial rows and
 -- binds the exact selected curse at the native terminal.
-local nativeChaos = type(import) == "function" and import("mods/chaos.lua")
-    or require("mods.chaos")
+local nativeChaos = type(import) == "function" and import("mods/traits/chaos.lua")
+    or require("mods.traits.chaos")
 
 local chaos = {}
 

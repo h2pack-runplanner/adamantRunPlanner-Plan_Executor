@@ -2,7 +2,7 @@
 -- Lifecycle ownership stays with loadout/hooks.lua; this module only scopes
 -- the native result-producing contacts used by loadout, rack changes, and
 -- Echo replay.
-local chaos = type(import) == "function" and import("mods/chaos.lua") or require("mods.chaos")
+local chaos = type(import) == "function" and import("mods/traits/chaos.lua") or require("mods.traits.chaos")
 
 local equipResults = {}
 

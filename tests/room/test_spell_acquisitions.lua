@@ -1,5 +1,5 @@
 local lu = require("luaunit")
-local tree = require("mods.hex.tree")
+local tree = require("mods.spells.hex_tree")
 local spell = require("mods.room.timeline.acquisitions.spell.hooks")
 
 TestSpellAcquisitions = {}

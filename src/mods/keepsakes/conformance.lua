@@ -2,7 +2,7 @@
 -- copied from the expected row; mutable status and charges are read from the
 -- current game run. The room conformance reader owns when this is requested.
 local json = type(import) == "function" and import("mods/json.lua") or require("mods/json")
-local chaos = type(import) == "function" and import("mods/chaos.lua") or require("mods.chaos")
+local chaos = type(import) == "function" and import("mods/traits/chaos.lua") or require("mods.traits.chaos")
 local nativeBindings = type(import) == "function" and import("mods/native_bindings.lua")
     or require("mods.native_bindings")
 local conformanceBindings = nativeBindings.conformance

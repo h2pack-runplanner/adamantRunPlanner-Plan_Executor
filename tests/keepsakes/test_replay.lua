@@ -1,7 +1,7 @@
 -- luacheck: globals TestKeepsakeReplay
 local lu = require("luaunit")
 local loadoutHooks = require("mods/loadout/hooks")
-local hexTree = require("mods.hex.tree")
+local hexTree = require("mods.spells.hex_tree")
 local loadout = require("mods/loadout/session")
 
 TestKeepsakeReplay = {}

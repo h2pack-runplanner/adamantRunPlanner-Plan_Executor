@@ -1,6 +1,6 @@
 -- luacheck: globals TestNativeAdapters
 local lu = require("luaunit")
-local adapters = require("mods/native_timeline_adapters")
+local adapters = require("mods/room/timeline/acquisitions/npc/trait_offer")
 local bindings = require("mods.room.timeline.bindings")
 local timelineSession = require("mods.room.timeline.session")
 local readers = require("mods.room.conformance.readers")

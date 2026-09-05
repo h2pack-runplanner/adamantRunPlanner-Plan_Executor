@@ -1,5 +1,5 @@
 -- SpellDrop owns its native screen and delegates only tree construction.
-local tree = type(import) == "function" and import("mods/hex/tree.lua") or require("mods.hex.tree")
+local tree = type(import) == "function" and import("mods/spells/hex_tree.lua") or require("mods.spells.hex_tree")
 local hooks = {}
 local function detail(payload) return type(payload) == "table" and payload.detail or nil end
 local function offerFor(payload)

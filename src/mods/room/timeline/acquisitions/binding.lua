@@ -4,7 +4,7 @@ local ordinary = type(import) == "function" and import("mods/room/timeline/acqui
     or require("mods.room.timeline.acquisitions.traits.ordinary")
 local levels = type(import) == "function" and import("mods/room/timeline/acquisitions/levels/hooks.lua")
     or require("mods.room.timeline.acquisitions.levels.hooks")
-local chaos = type(import) == "function" and import("mods/chaos.lua") or require("mods.chaos")
+local chaos = type(import) == "function" and import("mods/traits/chaos.lua") or require("mods.traits.chaos")
 
 local binding = {}
 

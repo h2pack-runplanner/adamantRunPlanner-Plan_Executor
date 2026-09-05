@@ -2,8 +2,8 @@
 -- option-specific preparation, selection, and trait acquisition stay native;
 -- this adapter installs the published offer and binds the exact selection.
 -- Native drop production and other selected-trait effects remain pass-through.
-local adapter = type(import) == "function" and import("mods/native_timeline_adapters.lua")
-    or require("mods.native_timeline_adapters")
+local adapter = type(import) == "function" and import("mods/room/timeline/acquisitions/npc/trait_offer.lua")
+    or require("mods.room.timeline.acquisitions.npc.trait_offer")
 
 local npc = {}
 

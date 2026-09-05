@@ -1,7 +1,7 @@
 -- Transcendent Embryo's automatic blessing result. The encounter lifecycle
 -- remains in encounters/automatic.lua; this adapter only scopes the native
 -- blessing selector and its processed trait values.
-local chaos = type(import) == "function" and import("mods/chaos.lua") or require("mods.chaos")
+local chaos = type(import) == "function" and import("mods/traits/chaos.lua") or require("mods.traits.chaos")
 
 local embryo = {}
 

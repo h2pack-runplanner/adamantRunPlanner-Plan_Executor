@@ -1,5 +1,5 @@
 local lu = require("luaunit")
-local chaos = require("mods/chaos")
+local chaos = require("mods/traits/chaos")
 
 TestChaos = {}
 
