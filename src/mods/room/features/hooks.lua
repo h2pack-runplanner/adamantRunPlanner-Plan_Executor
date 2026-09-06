@@ -1,8 +1,11 @@
 -- Native spawning contacts for structural room features. Resulting exit
--- binding remains navigation-owned; later interactions remain Timeline-owned.
+-- binding remains navigation-owned; resource rolls remain feature-owned.
+local resources = type(import) == "function"
+    and import("mods/room/features/resources.lua")
+    or require("mods.room.features.resources")
 local hooks = {}
 
-function hooks.attach(module, _, getState, report, room)
+function hooks.attach(module, _, getState, report, room, route)
     local secretScope
     local pendingAdditional
 
@@ -55,8 +58,11 @@ function hooks.attach(module, _, getState, report, room)
         return result
     end)
 
+    if route ~= nil then resources.attach(module, getState, report, route) end
+
     return {
         currentAdditional = function() return pendingAdditional end,
+        resourceElementMismatch = resources.elementMismatch,
     }
 end
 

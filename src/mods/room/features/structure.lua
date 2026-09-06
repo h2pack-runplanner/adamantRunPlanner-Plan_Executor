@@ -18,15 +18,14 @@ local function featurePresent(binding, room, context)
     return false
 end
 
-function features.realize(occurrence, nativeRoom)
-    local expected = occurrence.overview
-    local resources = expected.resources or {}
-    for _, field in pairs(bindings.resourceSuccessFields) do nativeRoom[field] = false end
-    for _, resource in ipairs(resources) do
-        local field = bindings.resourceSuccessFields[resource.grantedTraitKey]
-        if field ~= nil then nativeRoom[field] = true end
+function features.realize(nativeRoom, resourcePolicy)
+    if resourcePolicy ~= nil and type(resourcePolicy.pointDispositions) == "table" then
+        for family, field in pairs(bindings.resourcePointFields) do
+            local disposition = resourcePolicy.pointDispositions[family]
+            if disposition == "force" then nativeRoom[field] = true
+            elseif disposition == "suppress" then nativeRoom[field] = false end
+        end
     end
-    nativeRoom.__runPlannerExecutionResources = expected.resources
     return nativeRoom
 end
 
@@ -35,18 +34,6 @@ function features.prove(occurrence, nativeRoom, context)
     for _, object in ipairs(expected.requiredObjects or {}) do
         if context == nil or type(context.hasObject) ~= "function" or not context.hasObject(object) then
             return nil, { kind = "requiredObject", expected = object }
-        end
-    end
-    local expectedResources = {}
-    for _, resource in ipairs(expected.resources or {}) do
-        expectedResources[resource.grantedTraitKey] = true
-    end
-    for traitKey, field in pairs(bindings.resourceSuccessFields) do
-        local planned = expectedResources[traitKey] == true
-        local observed = nativeRoom[field] == true
-        if planned ~= observed then
-            return nil, { kind = "resource", expected = planned and traitKey or false,
-                observed = observed and traitKey or false }
         end
     end
     for key, binding in pairs(bindings.features) do

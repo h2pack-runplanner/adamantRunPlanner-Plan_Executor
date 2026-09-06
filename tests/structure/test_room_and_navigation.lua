@@ -58,7 +58,6 @@ local function occurrence()
             requiredObjects = { "SoulPylon" },
             stygianWell = { interacted = true }, purgingPool = { interacted = true },
             keepsakeRack = {}, fountain = {}, shop = { offers = {} },
-            resources = { { acquisitionRole = "ore", grantedTraitKey = "FireEssence", contributions = {} } },
             additional = { { owner = "chaos", kind = "chaos", room = { gameName = "Chaos" } } },
         },
         doors = { kind = "batch", resolvedSharedRewardStoreKey = "RunProgress", targets = {
@@ -98,30 +97,22 @@ function TestRoomNavigationStructure.testRoomEntryComponentsProveThePublishedOve
 end
 
 function TestRoomNavigationStructure.testResourceRealizationWinsOverCreateRoomRandomFields()
-    local item = occurrence()
     local native = room()
     native.PickaxePointSuccess = false
-    features.realize(item, native)
-    lu.assertTrue(proveOverview(item, native, context()))
-    native.PickaxePointSuccess = false
-    lu.assertNil(features.prove(item, native, context()))
+    features.realize(native, { pointDispositions = {
+        Pickaxe = "force", Exorcism = "native", Shovel = "native", Fishing = "suppress",
+    } })
+    lu.assertTrue(native.PickaxePointSuccess)
+    lu.assertFalse(native.FishingPointSuccess)
 end
 
-function TestRoomNavigationStructure.testRoomsWithoutPlannedResourceSuccessSuppressAndRejectRandomSuccesses()
-    local item = occurrence()
-    item.overview.resources = nil
+function TestRoomNavigationStructure.testNativeResourcePointFieldsRemainNativeWithoutAnOverride()
     local native = room()
     native.PickaxePointSuccess = true
-
-    features.realize(item, native)
-
-    lu.assertFalse(native.PickaxePointSuccess)
-    lu.assertFalse(native.ExorcismPointSuccess)
-    lu.assertFalse(native.ShovelPointSuccess)
-    lu.assertFalse(native.FishingPointSuccess)
-    lu.assertTrue(proveOverview(item, native, context()))
-    native.PickaxePointSuccess = true
-    lu.assertNil(features.prove(item, native, context()))
+    features.realize(native, { pointDispositions = {
+        Pickaxe = "native", Exorcism = "native", Shovel = "native", Fishing = "native",
+    } })
+    lu.assertTrue(native.PickaxePointSuccess)
 end
 
 function TestRoomNavigationStructure.testRoomRealizationReplacesRandomInputsButKeepsNativeFields()

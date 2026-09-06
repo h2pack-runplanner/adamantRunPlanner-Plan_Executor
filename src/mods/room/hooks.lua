@@ -43,6 +43,13 @@ function hooks.attach(module, session, getState, report, route, room, featureSco
         local id = type(roomData) == "table" and roomData.__runPlannerExecutionRoomId or nil
         local occurrence = id and state.plan.occurrencesById[id]
             or additional and additional.occurrence
+        if occurrence == nil and type(route.isTransitioning) == "function"
+            and route.isTransitioning(state.route) and type(route.next) == "function" then
+            local nextOccurrence = route.next(state.route)
+            if nextOccurrence ~= nil and roomName(roomData) == nextOccurrence.gameName then
+                occurrence = nextOccurrence
+            end
+        end
         if occurrence ~= nil then
             local realized = room.realize(state, occurrence, _G.game or game, roomData)
             if type(realized) == "table" then
@@ -54,7 +61,7 @@ function hooks.attach(module, session, getState, report, route, room, featureSco
         end
         local result = base(roomData, args)
         if type(result) == "table" and occurrence ~= nil then
-            room.realizeFeatures(occurrence, result)
+            room.realizeFeatures(state, occurrence, result)
             result.__runPlannerExecutionRoomId = occurrence.id
             local binding = additional and additional.additional or nil
             if binding == nil and type(roomData) == "table"
@@ -73,9 +80,48 @@ function hooks.attach(module, session, getState, report, route, room, featureSco
     module.hooks.wrap("StartRoom", "run-planner-room-entry", function(_, runtime, base, currentRun, nativeRoom)
         local state = getState(runtime)
         if state == nil or state.state ~= "synchronized" then return base(currentRun, nativeRoom) end
-        local expected = route.expected(state.route)
+        local transitioning = type(route.isTransitioning) == "function"
+            and route.isTransitioning(state.route)
+        local expected = transitioning and route.next(state.route) or route.expected(state.route)
         local id = type(nativeRoom) == "table" and nativeRoom.__runPlannerExecutionRoomId or nil
         if id == nil and expected and roomName(nativeRoom) == expected.gameName then id = expected.id end
+        if transitioning then
+            local incoming, routeError = route.validateNext(state.route, id, roomName(nativeRoom))
+            if incoming == nil then
+                session.mismatch(state, routeError)
+                report(runtime)
+                local result = base(currentRun, nativeRoom)
+                report(runtime)
+                return result
+            end
+            local prior = route.current(state.route)
+            local resource = type(route.currentResource) == "function"
+                and route.currentResource(state.route) or nil
+            local mismatch = prior and resource and featureScope
+                and featureScope.resourceElementMismatch(prior, resource, currentRun) or nil
+            if mismatch ~= nil then
+                session.mismatch(state, mismatch)
+                report(runtime)
+                local result = base(currentRun, nativeRoom)
+                report(runtime)
+                return result
+            end
+            if type(route.acknowledge) ~= "function" or not route.acknowledge(state.route)
+                or type(route.advance) ~= "function" or not route.advance(state.route) then
+                session.mismatch(state, {
+                    checkpoint = "route-transition",
+                    expected = "acknowledgeable transition",
+                    observed = "unavailable",
+                })
+                report(runtime)
+                return base(currentRun, nativeRoom)
+            end
+            if expected == nil then
+                state.state, state.reason = "inactive", "configured-prefix-complete"
+                report(runtime)
+                return base(currentRun, nativeRoom)
+            end
+        end
         local occurrence, errorValue = route.enter(state.route, id, roomName(nativeRoom))
         if occurrence == true then
             state.state, state.reason = "inactive", "configured-prefix-complete"
@@ -113,7 +159,8 @@ function hooks.attach(module, session, getState, report, route, room, featureSco
             local ok, routeError = route.exit(state.route)
             if not ok then session.mismatch(state, routeError) end
         end
-        if state.state == "synchronized" and route.expected(state.route) == nil then
+        if state.state == "synchronized" and type(route.isTransitioning) == "function"
+            and route.isTransitioning(state.route) and route.next(state.route) == nil then
             state.reason = "configured-prefix-complete"
         end
         local result = base(currentRun, door)

@@ -64,15 +64,24 @@ function coordinator.prepare(state, occurrence)
     return roomState.prepared
 end
 
+local function resourcePolicy(state, occurrence)
+    local rows = state and state.plan and state.plan.resources
+        and state.plan.resources.occurrences or nil
+    for _, row in ipairs(rows or {}) do
+        if row.occurrenceId == occurrence.id then return row end
+    end
+    return nil
+end
+
 function coordinator.realize(state, occurrence, game, nativeRoom)
     local realized, errorValue = overview.realize(occurrence, game, nativeRoom)
     if realized == nil then return fail(state, errorValue) end
-    coordinator.realizeFeatures(occurrence, realized)
+    coordinator.realizeFeatures(state, occurrence, realized)
     return realized
 end
 
-function coordinator.realizeFeatures(occurrence, nativeRoom)
-    return features.realize(occurrence, nativeRoom)
+function coordinator.realizeFeatures(state, occurrence, nativeRoom)
+    return features.realize(nativeRoom, resourcePolicy(state, occurrence))
 end
 
 function coordinator.enter(state, occurrence, nativeRoom)

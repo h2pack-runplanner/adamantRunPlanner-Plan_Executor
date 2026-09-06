@@ -15,11 +15,17 @@ return {
                 argsMarkers = { "AddBoostedAnimation", "BoonRaritiesOverride" },
             },
         },
-        resourceSuccessFields = {
-            FireEssence = "PickaxePointSuccess",
-            AirEssence = "ExorcismPointSuccess",
-            EarthEssence = "ShovelPointSuccess",
-            WaterEssence = "FishingPointSuccess",
+        resourcePointFields = {
+            Pickaxe = "PickaxePointSuccess",
+            Exorcism = "ExorcismPointSuccess",
+            Shovel = "ShovelPointSuccess",
+            Fishing = "FishingPointSuccess",
+        },
+        resourceToolFamilies = {
+            ToolPickaxe2 = "Pickaxe",
+            ToolExorcismBook2 = "Exorcism",
+            ToolShovel2 = "Shovel",
+            ToolFishingRod2 = "Fishing",
         },
         features = {
             stygianWell = { carrier = "roomField", key = "WellShop" },

@@ -1,6 +1,6 @@
 {
   "format": "run-planner-execution",
-  "protocolVersion": 24,
+  "protocolVersion": 25,
   "catalogVersion": "0.55.0-anvil-of-fates",
   "projectId": "golden-fg",
   "routeKey": "Underworld",
@@ -67,6 +67,149 @@
     "golden-f-preboss-shop:boss",
     "golden-f-preboss-shop:postboss"
   ],
+  "resources": {
+    "occurrences": [
+      {
+        "occurrenceId": "golden-f-start",
+        "pointDispositions": {
+          "Pickaxe": "native",
+          "Exorcism": "native",
+          "Shovel": "native",
+          "Fishing": "native"
+        },
+        "postExitElementCounts": { "Aether": 0, "Earth": 0, "Air": 1, "Fire": 0, "Water": 0 }
+      },
+      {
+        "occurrenceId": "golden-f-b1-e1",
+        "pointDispositions": {
+          "Pickaxe": "native",
+          "Exorcism": "native",
+          "Shovel": "native",
+          "Fishing": "native"
+        },
+        "postExitElementCounts": { "Aether": 0, "Earth": 0, "Air": 1, "Fire": 0, "Water": 0 }
+      },
+      {
+        "occurrenceId": "golden-f-b2-e1",
+        "pointDispositions": {
+          "Pickaxe": "native",
+          "Exorcism": "native",
+          "Shovel": "native",
+          "Fishing": "native"
+        },
+        "postExitElementCounts": { "Aether": 0, "Earth": 0, "Air": 2, "Fire": 0, "Water": 0 }
+      },
+      {
+        "occurrenceId": "golden-f-b3-e1",
+        "pointDispositions": {
+          "Pickaxe": "native",
+          "Exorcism": "native",
+          "Shovel": "native",
+          "Fishing": "native"
+        },
+        "postExitElementCounts": { "Aether": 0, "Earth": 0, "Air": 2, "Fire": 0, "Water": 0 }
+      },
+      {
+        "occurrenceId": "golden-f-b4-e1",
+        "pointDispositions": {
+          "Pickaxe": "native",
+          "Exorcism": "native",
+          "Shovel": "native",
+          "Fishing": "native"
+        },
+        "postExitElementCounts": { "Aether": 0, "Earth": 0, "Air": 2, "Fire": 0, "Water": 0 }
+      },
+      {
+        "occurrenceId": "golden-f-b5-e1",
+        "pointDispositions": {
+          "Pickaxe": "native",
+          "Exorcism": "native",
+          "Shovel": "native",
+          "Fishing": "native"
+        },
+        "postExitElementCounts": { "Aether": 0, "Earth": 0, "Air": 2, "Fire": 0, "Water": 0 }
+      },
+      {
+        "occurrenceId": "golden-f-b6-e1",
+        "pointDispositions": {
+          "Pickaxe": "native",
+          "Exorcism": "native",
+          "Shovel": "native",
+          "Fishing": "native"
+        },
+        "postExitElementCounts": { "Aether": 0, "Earth": 0, "Air": 3, "Fire": 0, "Water": 0 }
+      },
+      {
+        "occurrenceId": "golden-f-b7-e1",
+        "pointDispositions": {
+          "Pickaxe": "native",
+          "Exorcism": "native",
+          "Shovel": "native",
+          "Fishing": "native"
+        },
+        "postExitElementCounts": { "Aether": 0, "Earth": 0, "Air": 3, "Fire": 0, "Water": 0 }
+      },
+      {
+        "occurrenceId": "golden-f-b8-e1",
+        "pointDispositions": {
+          "Pickaxe": "native",
+          "Exorcism": "native",
+          "Shovel": "native",
+          "Fishing": "native"
+        },
+        "postExitElementCounts": { "Aether": 0, "Earth": 0, "Air": 3, "Fire": 0, "Water": 0 }
+      },
+      {
+        "occurrenceId": "golden-f-b9-e1",
+        "pointDispositions": {
+          "Pickaxe": "native",
+          "Exorcism": "native",
+          "Shovel": "native",
+          "Fishing": "native"
+        },
+        "postExitElementCounts": { "Aether": 0, "Earth": 0, "Air": 3, "Fire": 0, "Water": 0 }
+      },
+      {
+        "occurrenceId": "golden-f-b10-e1",
+        "pointDispositions": {
+          "Pickaxe": "native",
+          "Exorcism": "native",
+          "Shovel": "native",
+          "Fishing": "native"
+        },
+        "postExitElementCounts": { "Aether": 0, "Earth": 0, "Air": 3, "Fire": 0, "Water": 0 }
+      },
+      {
+        "occurrenceId": "golden-f-preboss-shop",
+        "pointDispositions": {
+          "Pickaxe": "native",
+          "Exorcism": "native",
+          "Shovel": "native",
+          "Fishing": "native"
+        },
+        "postExitElementCounts": { "Aether": 0, "Earth": 0, "Air": 3, "Fire": 0, "Water": 0 }
+      },
+      {
+        "occurrenceId": "golden-f-preboss-shop:boss",
+        "pointDispositions": {
+          "Pickaxe": "native",
+          "Exorcism": "native",
+          "Shovel": "native",
+          "Fishing": "native"
+        },
+        "postExitElementCounts": { "Aether": 0, "Earth": 0, "Air": 3, "Fire": 0, "Water": 0 }
+      },
+      {
+        "occurrenceId": "golden-f-preboss-shop:postboss",
+        "pointDispositions": {
+          "Pickaxe": "native",
+          "Exorcism": "native",
+          "Shovel": "native",
+          "Fishing": "native"
+        }
+      }
+    ]
+  },
   "occurrences": [
     {
       "id": "golden-f-start",
@@ -85,11 +228,6 @@
           { "slotKey": "Encounter", "encounterKey": "OpeningGeneratedF", "kind": "combat" }
         ],
         "requiredObjects": []
-      },
-      "roomExitConformance": {
-        "facts": [
-          { "kind": "traitInventory" }
-        ]
       },
       "timeline": {
         "transactions": [
@@ -155,6 +293,7 @@
         ],
         "resolvedSharedRewardStoreKey": "MetaProgress"
       },
+      "roomExitConformance": { "facts": [{ "kind": "traitInventory" }] },
       "diagnostics": {
         "roomEntered": {
           "frame": 0,
@@ -488,11 +627,6 @@
         ],
         "requiredObjects": []
       },
-      "roomExitConformance": {
-        "facts": [
-          { "kind": "traitInventory" }
-        ]
-      },
       "timeline": {
         "transactions": [
           {
@@ -567,6 +701,7 @@
         ],
         "resolvedSharedRewardStoreKey": "RunProgress"
       },
+      "roomExitConformance": { "facts": [{ "kind": "traitInventory" }] },
       "diagnostics": {
         "roomEntered": {
           "frame": 4,
@@ -813,11 +948,6 @@
         ],
         "requiredObjects": []
       },
-      "roomExitConformance": {
-        "facts": [
-          { "kind": "traitInventory" }
-        ]
-      },
       "timeline": {
         "transactions": [
           {
@@ -886,6 +1016,7 @@
         ],
         "resolvedSharedRewardStoreKey": "MetaProgress"
       },
+      "roomExitConformance": { "facts": [{ "kind": "traitInventory" }] },
       "diagnostics": {
         "roomEntered": {
           "frame": 8,
@@ -1120,11 +1251,6 @@
         ],
         "requiredObjects": []
       },
-      "roomExitConformance": {
-        "facts": [
-          { "kind": "traitInventory" }
-        ]
-      },
       "timeline": {
         "transactions": [
           {
@@ -1189,6 +1315,7 @@
         ],
         "resolvedSharedRewardStoreKey": "RunProgress"
       },
+      "roomExitConformance": { "facts": [{ "kind": "traitInventory" }] },
       "diagnostics": {
         "roomEntered": {
           "frame": 12,
@@ -1414,11 +1541,6 @@
         ],
         "requiredObjects": []
       },
-      "roomExitConformance": {
-        "facts": [
-          { "kind": "traitInventory" }
-        ]
-      },
       "timeline": {
         "transactions": [
           {
@@ -1492,6 +1614,7 @@
         ],
         "resolvedSharedRewardStoreKey": "MetaProgress"
       },
+      "roomExitConformance": { "facts": [{ "kind": "traitInventory" }] },
       "diagnostics": {
         "roomEntered": {
           "frame": 16,
@@ -2036,5 +2159,5 @@
       }
     }
   ],
-  "planFingerprint": "898ed40c"
+  "planFingerprint": "01e3abf2"
 }

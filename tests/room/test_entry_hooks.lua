@@ -39,6 +39,11 @@ function TestRoomEntryHooks.testOpeningFinalizesLoadoutBeforeForcingNativeCreati
     local plan = {
         occurrences = { occurrence }, occurrencesById = { opening = occurrence },
         selectedOccurrenceIds = { "opening" },
+        resources = { occurrences = { {
+            occurrenceId = "opening", pointDispositions = {
+                Pickaxe = "suppress", Exorcism = "suppress", Shovel = "suppress", Fishing = "suppress",
+            },
+        } } },
     }
     local state = {
         state = "starting", plan = plan, route = routeSessionModule.new(plan), diagnostics = {},
@@ -191,18 +196,19 @@ function TestRoomEntryHooks.testRoomSessionStartsBeforeNativeFeatureSpawns()
     lu.assertTrue(eligible)
 end
 
-function TestRoomEntryHooks.testCreateRoomReappliesForcedAndSuppressedResourceOutcomes()
+function TestRoomEntryHooks.testCreateRoomReappliesOnlyPublishedResourceOverrides()
     local module, _, callbacks = capture()
     local occurrence = {
         id = "opening", gameName = "F_Opening01",
         overview = {
             encounterPhases = {}, requiredObjects = {}, additional = {},
-            resources = {
-                { acquisitionRole = "ore", grantedTraitKey = "FireEssence", contributions = {} },
-            },
         },
     }
-    local plan = { occurrencesById = { opening = occurrence } }
+    local plan = { occurrencesById = { opening = occurrence }, resources = { occurrences = { {
+        occurrenceId = "opening", pointDispositions = {
+            Pickaxe = "force", Exorcism = "native", Shovel = "native", Fishing = "suppress",
+        },
+    } } } }
     local state = {
         state = "synchronized", plan = plan,
         room = roomCoordinatorModule.new(plan, function() end, {}),
@@ -225,8 +231,8 @@ function TestRoomEntryHooks.testCreateRoomReappliesForcedAndSuppressedResourceOu
 
     lu.assertTrue(result.PickaxePointSuccess)
     lu.assertFalse(result.FishingPointSuccess)
-    lu.assertFalse(result.ExorcismPointSuccess)
-    lu.assertFalse(result.ShovelPointSuccess)
+    lu.assertNil(result.ExorcismPointSuccess)
+    lu.assertNil(result.ShovelPointSuccess)
     lu.assertEquals(result.__runPlannerExecutionRoomId, "opening")
 end
 
@@ -379,6 +385,94 @@ function TestRoomEntryHooks.testLeaveRoomProvesDoorsBeforeClosingTheRoomSession(
     lu.assertNil(closed)
     lu.assertNil(advanced)
     lu.assertTrue(nativeCalled)
+end
+
+local function transitionHarness(expectedCounts)
+    local module, _, callbacks = capture()
+    local first = { id = "one", gameName = "F_One" }
+    local second = { id = "two", gameName = "F_Two" }
+    local plan = {
+        selectedOccurrenceIds = { "one", "two" }, occurrencesById = { one = first, two = second },
+        resources = { occurrences = {
+            { occurrenceId = "one", pointDispositions = {}, postExitElementCounts = expectedCounts },
+            { occurrenceId = "two", pointDispositions = {} },
+        } },
+    }
+    local state = { state = "synchronized", plan = plan, route = routeSessionModule.new(plan) }
+    assert(routeSessionModule.enter(state.route, "one", "F_One"))
+    assert(routeSessionModule.exit(state.route))
+    local session = stub()
+    session.mismatch = function(_, errorValue)
+        state.state, state.firstMismatch = "desynchronized", errorValue
+    end
+    local entered
+    local roomSession = {
+        enter = function(_, occurrence) entered = occurrence; return true end,
+        proveEntry = function() return true end,
+    }
+    local featureScope = {
+        resourceElementMismatch = require("mods.room.features.resources").elementMismatch,
+    }
+    roomHooks.attach(module, session, function() return state end, function() end,
+        routeSessionModule, roomSession, featureScope, navigationEntryStub, unusedLoadoutScope)
+    return callbacks, state, first, second, function() return entered end
+end
+
+function TestRoomEntryHooks.testNextStartRoomChecksAllPriorElementsBeforeAdvancingAndThenEnters()
+    local counts = { Aether = 1, Earth = 2, Air = 3, Fire = 4, Water = 5 }
+    local callbacks, state, _, second, entered = transitionHarness(counts)
+    local nativeCalled = false
+    callbacks.StartRoom(nil, {}, function()
+        nativeCalled = true
+        return "native"
+    end, { Hero = { Elements = { Aether = 1, Earth = 2, Air = 3, Fire = 4, Water = 5 } } }, {
+        Name = "F_Two", __runPlannerExecutionRoomId = "two",
+    })
+    lu.assertTrue(nativeCalled)
+    lu.assertEquals(entered(), second)
+    lu.assertEquals(routeSessionModule.current(state.route), second)
+    lu.assertNil(state.firstMismatch)
+end
+
+function TestRoomEntryHooks.testNextStartRoomWrongRoomOrExactLedgerMismatchDoesNotAdvanceButNativeContinues()
+    local counts = { Aether = 0, Earth = 0, Air = 0, Fire = 0, Water = 0 }
+    local callbacks, state, first = transitionHarness(counts)
+    local nativeCalls = 0
+    callbacks.StartRoom(nil, {}, function() nativeCalls = nativeCalls + 1 end,
+        { Hero = { Elements = {} } }, { Name = "F_Wrong", __runPlannerExecutionRoomId = "wrong" })
+    lu.assertEquals(nativeCalls, 1)
+    lu.assertEquals(routeSessionModule.current(state.route), first)
+    lu.assertEquals(state.firstMismatch.checkpoint, "room-entry")
+
+    callbacks, state, first = transitionHarness(counts)
+    callbacks.StartRoom(nil, {}, function() nativeCalls = nativeCalls + 1 end,
+        { Hero = { Elements = { Fire = 1 } } }, { Name = "F_Two", __runPlannerExecutionRoomId = "two" })
+    lu.assertEquals(nativeCalls, 2)
+    lu.assertEquals(routeSessionModule.current(state.route), first)
+    lu.assertEquals(state.firstMismatch.kind, "resourceElementCounts")
+    lu.assertEquals(state.firstMismatch.observed,
+        { Aether = 0, Earth = 0, Air = 0, Fire = 1, Water = 0 })
+end
+
+function TestRoomEntryHooks.testFinalTransitionInactivatesWithoutTrailingElementCheck()
+    local module, _, callbacks = capture()
+    local final = { id = "final", gameName = "F_Final" }
+    local plan = {
+        selectedOccurrenceIds = { "final" }, occurrencesById = { final = final },
+        resources = { occurrences = { { occurrenceId = "final", pointDispositions = {} } } },
+    }
+    local state = { state = "synchronized", plan = plan, route = routeSessionModule.new(plan) }
+    assert(routeSessionModule.enter(state.route, "final", "F_Final"))
+    assert(routeSessionModule.exit(state.route))
+    roomHooks.attach(module, stub(), function() return state end, function() end, routeSessionModule,
+        {}, { resourceElementMismatch = require("mods.room.features.resources").elementMismatch },
+        navigationEntryStub, unusedLoadoutScope)
+    local called = false
+    callbacks.StartRoom(nil, {}, function() called = true end, { Hero = { Elements = { Fire = 99 } } },
+        { Name = "H_Unconfigured" })
+    lu.assertTrue(called)
+    lu.assertEquals(state.state, "inactive")
+    lu.assertEquals(state.reason, "configured-prefix-complete")
 end
 
 function TestRoomEntryHooks.testEncounterForcingKeepsNativeSetupAndGeneration()

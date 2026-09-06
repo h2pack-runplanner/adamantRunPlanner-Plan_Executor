@@ -8,10 +8,12 @@ local occurrences = type(import) == "function" and import("mods/protocol/occurre
     or require("mods.protocol.occurrences")
 local loadout = type(import) == "function" and import("mods/protocol/loadout.lua")
     or require("mods.protocol.loadout")
+local resources = type(import) == "function" and import("mods/protocol/resources.lua")
+    or require("mods.protocol.resources")
 
 local protocol = {
     FORMAT = "run-planner-execution",
-    VERSION = 24,
+    VERSION = 25,
     CATALOG_VERSION = "0.55.0-anvil-of-fates",
     MAX_ITEMS = p.MAX_ITEMS,
     MAX_STRING = p.MAX_STRING,
@@ -73,8 +75,26 @@ local function fingerprintBody(plan, decodedOccurrences)
         startingKeepsake = plan.startingKeepsake,
         extent = plan.extent,
         selectedOccurrenceIds = plan.selectedOccurrenceIds,
+        resources = plan.resources,
         occurrences = decodedOccurrences,
     }
+end
+
+local function validateResources(resourcePolicy, selected, occurrenceIds)
+    local rows = resourcePolicy.occurrences
+    if #rows ~= #selected then
+        return p.fail("execution plan.resources must follow selectedOccurrenceIds exactly")
+    end
+    local terminal = selected[#selected]
+    for index, row in ipairs(rows) do
+        if row.occurrenceId ~= selected[index] or occurrenceIds[row.occurrenceId] == nil then
+            return p.fail("execution plan.resources has an unresolved or misordered occurrence")
+        end
+        if (row.postExitElementCounts == nil) ~= (row.occurrenceId == terminal) then
+            return p.fail("execution plan.resources has an invalid post-exit count boundary")
+        end
+    end
+    return true
 end
 
 local function detachDerived(rows)
@@ -102,7 +122,8 @@ function protocol.decode(value)
         value,
         {
             "format", "protocolVersion", "catalogVersion", "projectId", "planFingerprint",
-            "routeKey", "startingLoadout", "startingKeepsake", "extent", "selectedOccurrenceIds", "occurrences",
+            "routeKey", "startingLoadout", "startingKeepsake", "extent", "selectedOccurrenceIds", "resources",
+            "occurrences",
         },
         {},
         "execution plan"
@@ -135,11 +156,18 @@ function protocol.decode(value)
         "execution plan.occurrences"
     )
     if not decoded then return nil, idsOrError end
+    local resourcePolicy, resourceError = resources.decode(plan.resources, "execution plan.resources")
+    if not resourcePolicy then return nil, resourceError end
+    local resourcesValid, resourcesValidationError = validateResources(
+        resourcePolicy, selected, idsOrError
+    )
+    if not resourcesValid then return nil, resourcesValidationError end
     local derived = detachDerived(decoded)
     if p.fingerprint(fingerprintBody(plan, decoded)) ~= plan.planFingerprint then
         return p.fail("execution plan fingerprint does not match contents")
     end
     attachDerived(decoded, derived)
+    plan.resources = resourcePolicy
     plan.occurrences = decoded
     plan.occurrencesById = idsOrError
     plan.kind = "ready"

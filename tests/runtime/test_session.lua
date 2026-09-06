@@ -22,6 +22,7 @@ local function fingerprintBody(plan)
         startingKeepsake = plan.startingKeepsake,
         extent = plan.extent,
         selectedOccurrenceIds = plan.selectedOccurrenceIds,
+        resources = plan.resources,
         occurrences = plan.occurrences,
     }
 end

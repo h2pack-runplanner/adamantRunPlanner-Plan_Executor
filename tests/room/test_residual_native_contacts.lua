@@ -5,7 +5,7 @@ local coordinator = require("mods.room.coordinator")
 local runtimeSession = require("mods.runtime.session")
 local automatic = require("mods.room.timeline.encounters.automatic")
 local boss = require("mods.room.timeline.encounters.boss")
-local resources = require("mods.room.timeline.interactions.resources")
+local resources = require("mods.room.features.resources")
 
 TestResidualNativeContacts = {}
 
@@ -89,11 +89,15 @@ local function withCurrentRun(value, callback)
 end
 
 function TestResidualNativeContacts.testSuccessfulResourcePointKeepsNativeGrantAuthoritative()
-    local fixture = harness({}, {
-        { acquisitionRole = "ore", grantedTraitKey = "FireEssence", contributions = {} },
+    local fixture = harness({})
+    fixture.state.route = {}
+    resources.attach(fixture.module, function() return fixture.state end, fixture.report, {
+        currentResource = function()
+            return { pointDispositions = {
+                Pickaxe = "force", Exorcism = "native", Shovel = "native", Fishing = "native",
+            } }
+        end,
     })
-    resources.attach(fixture.module, runtimeSession, function() return fixture.state end,
-        fixture.report, coordinator)
     local args = { SkipDelay = true, SkipActivatedTraitUpdate = true }
     local nativeCalls = 0
     local addedTrait
@@ -101,6 +105,7 @@ function TestResidualNativeContacts.testSuccessfulResourcePointKeepsNativeGrantA
         nativeCalls = nativeCalls + 1
         lu.assertEquals(toolName, "ToolPickaxe2")
         lu.assertEquals(receivedArgs, args)
+        lu.assertTrue(fixture.callbacks.RandomChance(nil, {}, function() return false end, 0.25, {}))
         addedTrait = {
             TraitName = "FireEssence",
             SkipActivatedTraitUpdate = receivedArgs.SkipActivatedTraitUpdate,

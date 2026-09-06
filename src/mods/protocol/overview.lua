@@ -221,26 +221,6 @@ local function purgingPool(value, label)
     return record
 end
 
-local function resources(value, label)
-    local rows, errorMessage = p.arr(value, label)
-    if not rows then return nil, errorMessage end
-    for index, valueRow in ipairs(rows) do
-        local row, rowError = p.exact(
-            valueRow,
-            { "acquisitionRole", "grantedTraitKey", "contributions" },
-            {},
-            label .. "[" .. index .. "]"
-        )
-        if not row then return nil, rowError end
-        if not p.str(row.acquisitionRole, label .. ".acquisitionRole")
-            or not p.str(row.grantedTraitKey, label .. ".grantedTraitKey")
-            or not p.recordNumbers(row.contributions, label .. ".contributions") then
-            return p.fail(label .. " has invalid resource")
-        end
-    end
-    return rows
-end
-
 local function additional(value, label)
     local rows, errorMessage = p.arr(value, label)
     if not rows then return nil, errorMessage end
@@ -282,7 +262,7 @@ function overview.decode(value, label)
         {
             "incomingReward", "effectNeutralRequiredReward", "shop", "hermesShrine", "stygianWell",
             "purgingPool", "keepsakeRack",
-            "fountain", "resources", "additional",
+            "fountain", "additional",
         },
         label
     )
@@ -359,10 +339,6 @@ function overview.decode(value, label)
             and not p.str(fountain.aromaticPhialTarget, label .. ".aromaticPhialTarget") then
             return p.fail(label .. " has invalid fountain")
         end
-    end
-    if record.resources ~= nil then
-        local _, resourcesError = resources(record.resources, label .. ".resources")
-        if resourcesError then return nil, resourcesError end
     end
     if record.additional ~= nil then
         local _, additionalError = additional(record.additional, label .. ".additional")

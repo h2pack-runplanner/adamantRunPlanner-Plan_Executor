@@ -82,7 +82,7 @@ local function refreshFingerprint(plan)
         format = plan.format, protocolVersion = plan.protocolVersion,
         catalogVersion = plan.catalogVersion, projectId = plan.projectId,
         routeKey = plan.routeKey, startingLoadout = plan.startingLoadout, startingKeepsake = plan.startingKeepsake,
-        extent = plan.extent, selectedOccurrenceIds = plan.selectedOccurrenceIds,
+        extent = plan.extent, selectedOccurrenceIds = plan.selectedOccurrenceIds, resources = plan.resources,
         occurrences = plan.occurrences,
     })
 end
@@ -164,7 +164,7 @@ local function minimalPlan(transactions)
     end
     local plan = tagged({
         format = "run-planner-execution",
-        protocolVersion = 24,
+        protocolVersion = 25,
         catalogVersion = "0.55.0-anvil-of-fates",
         projectId = "test-project",
         planFingerprint = "00000000",
@@ -176,6 +176,12 @@ local function minimalPlan(transactions)
         startingKeepsake = { keepsakeKey = "None" },
         extent = { kind = "configuredPrefix", biomeKeys = { "F" }, terminalBiomeKey = "F" },
         selectedOccurrenceIds = { "opening" },
+        resources = { occurrences = { {
+            occurrenceId = "opening",
+            pointDispositions = {
+                Pickaxe = "native", Exorcism = "native", Shovel = "native", Fishing = "native",
+            },
+        } } },
         occurrences = {
             {
                 id = "opening",
@@ -484,18 +490,48 @@ function TestProtocol.testEveryPublishedTransactionHasExactlyOneObligation()
     lu.assertNil(protocol.decode(value))
 end
 
-function TestProtocol.testAllGateA2VectorsDecodeAndExpandDiagnostics()
+function TestProtocol.testLegacyProtocolVectorsAreRejected()
     for _, name in ipairs({ "f-opening", "fg", "fg-ixion-chaos", "fg-anomaly", "automatic-boss" }) do
-        local plan, errorMessage = protocol.decode(decode(name))
-        lu.assertNotNil(plan, errorMessage)
-        lu.assertEquals(plan.protocolVersion, 24)
-        lu.assertNotNil(plan.occurrences[1].diagnostics.roomEntered)
+        local plan = decode(name)
+        plan.protocolVersion = 24
+        plan.resources = nil
+        refreshFingerprint(plan)
+        lu.assertNil(protocol.decode(plan))
     end
 end
 
-function TestProtocol.testProtocolAcceptsTaggedNullsFromAnIndependentDecoderModule()
-    local plan, errorMessage = protocol.decode(decodeWithIndependentJsonModule("f-opening"))
-    lu.assertNotNil(plan, errorMessage)
+function TestProtocol.testProtocolRejectsLegacyVectorsFromAnIndependentDecoderModule()
+    local plan = decodeWithIndependentJsonModule("f-opening")
+    plan.protocolVersion = 24
+    plan.resources = nil
+    refreshFingerprint(plan)
+    lu.assertNil(protocol.decode(plan))
+end
+
+function TestProtocol.testProtocol25RequiresCompleteOrderedRouteResourcePolicyAndRejectsLegacyOverview()
+    local plan = minimalPlan({})
+    lu.assertNotNil(protocol.decode(plan))
+
+    plan.resources = nil
+    refreshFingerprint(plan)
+    lu.assertNil(protocol.decode(plan))
+
+    plan = minimalPlan({})
+    plan.occurrences[1].overview.resources = {}
+    refreshFingerprint(plan)
+    lu.assertNil(protocol.decode(plan))
+
+    plan = minimalPlan({})
+    plan.resources.occurrences[1].pointDispositions.Pickaxe = "selected"
+    refreshFingerprint(plan)
+    lu.assertNil(protocol.decode(plan))
+
+    plan = minimalPlan({})
+    plan.resources.occurrences[1].postExitElementCounts = {
+        Aether = 0, Earth = 0, Air = 0, Fire = 0, Water = 0,
+    }
+    refreshFingerprint(plan)
+    lu.assertNil(protocol.decode(plan))
 end
 
 function TestProtocol.testOpaqueOwnerReferencesAreLocalAndLaterContactsAreRejected()
