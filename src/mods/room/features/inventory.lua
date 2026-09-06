@@ -241,12 +241,24 @@ function inventory.verify(prepared, store)
     return true
 end
 
-function inventory.applyPool(occurrence, nativeRoom)
+-- GenerateSellTraitShop has already built the native legal SellValues map at
+-- this point.  Reuse those native rows and replace only the random menu
+-- selection, leaving buttons, sale handling, removal, and proceeds native.
+function inventory.steerPool(occurrence, nativeRoom)
     local pool = occurrence and occurrence.overview.purgingPool
-    if pool == nil or not pool.interacted or type(nativeRoom) ~= "table"
-        or type(nativeRoom.SellOptions) ~= "table" then return true end
-    local available, selected = {}, {}
-    for _, option in pairs(nativeRoom.SellOptions) do available[option.Name] = option end
+    if pool == nil or not pool.interacted or type(nativeRoom) ~= "table" then return true end
+    if type(nativeRoom.SellValues) ~= "table" then
+        return nil, { checkpoint = "purging-pool-inventory", expected = "native SellValues", observed = nil }
+    end
+    local available = {}
+    for key, option in pairs(nativeRoom.SellValues) do available[key] = option end
+    -- GenerateSellTraitShop removes random selections from SellValues after
+    -- placing them in SellOptions.  Keep those rows in the authored domain as
+    -- well; the native list and remaining values are one legal candidate set.
+    for _, option in ipairs(nativeRoom.SellOptions or {}) do
+        if type(option) == "table" and option.Name ~= nil then available[option.Name] = option end
+    end
+    local selected = {}
     for _, slot in ipairs(pool.traits or {}) do
         if slot.traitKey ~= nil then
             local option = available[slot.traitKey]
@@ -254,7 +266,6 @@ function inventory.applyPool(occurrence, nativeRoom)
                 return nil, { checkpoint = "purging-pool-inventory",
                     expected = slot.traitKey, observed = nil }
             end
-            option.__runPlannerPoolSlotKey = slot.slotKey
             selected[#selected + 1] = option
         end
     end

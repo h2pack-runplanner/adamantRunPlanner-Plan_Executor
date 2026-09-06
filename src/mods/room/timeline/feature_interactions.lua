@@ -149,29 +149,6 @@ function hooks.attach(module, session, getState, report, room, inventoryBindings
         return result
     end)
 
-    module.hooks.wrap("HandleSellChoiceSelection", "run-planner-pool-sale", function(_, runtime, base, screen,
-        button, args)
-        local state = getState(runtime)
-        local active = current(state, room)
-        local slot = type(button) == "table" and button.__runPlannerPoolSlotKey
-        local trait = type(button) == "table" and button.UpgradeName
-        local handle = slot and active and room.resolve(state, active, { kind = "slot", slotKey = slot }) or nil
-        handle = room.bind(state, active, handle, button)
-        local payload = handle and room.begin(state, handle) or nil
-        local result = base(screen, button, args)
-        if payload then
-            if payload.transaction.slotKey ~= slot or payload.transaction.traitKey ~= trait then
-                session.mismatch(state, "pool-sale-selection", {
-                    slotKey = payload.transaction.slotKey, traitKey = payload.transaction.traitKey,
-                }, { slotKey = slot, traitKey = trait })
-            else
-                session.complete(state, handle)
-            end
-        end
-        report(runtime)
-        return result
-    end)
-
     module.hooks.wrap("UseHealthFountain", "run-planner-fountain", function(_, runtime, base, source, args)
         local state = getState(runtime)
         local active = current(state, room)

@@ -11,6 +11,61 @@ local fakePayload, attachFeatureHooks = support.fakePayload, support.attachFeatu
 
 TestFeatureInteractionHooks = {}
 
+function TestFeatureInteractionHooks.testUninteractedPoolLeavesNativeSaleMenuUntouched()
+    local module, _, callbacks = capture()
+    local nativeOptions = { { Name = "TraitA" }, { Name = "TraitB" } }
+    local active = opaque({ occurrence = { overview = {
+        purgingPool = { interacted = false },
+    } } }, function() return nil end)
+    local session = stub()
+    session.current = function() return active end
+    attachFeatureHooks(module, session, function() return {} end, function() end, session)
+
+    local priorRun = _G.CurrentRun
+    _G.CurrentRun = { CurrentRoom = { SellOptions = nativeOptions } }
+    callbacks.CreateSellButtons(nil, {}, function() return true end, {})
+    _G.CurrentRun = priorRun
+
+    lu.assertEquals(_G.CurrentRun, priorRun)
+    lu.assertEquals(nativeOptions, { { Name = "TraitA" }, { Name = "TraitB" } })
+end
+
+function TestFeatureInteractionHooks.testInteractedPoolSteersOnlyTheNativeSaleMenu()
+    local module, _, callbacks = capture()
+    local active = opaque({ occurrence = { overview = {
+        purgingPool = { interacted = true, traits = {
+            { slotKey = "left", traitKey = "TraitB" },
+            { slotKey = "middle", traitKey = "TraitA" },
+        } },
+    } } }, function() return nil end)
+    local session = stub()
+    session.current = function() return active end
+    attachFeatureHooks(module, session, function() return {} end, function() end, session)
+
+    local priorRun = _G.CurrentRun
+    local nativeOptions = { { Name = "TraitA" }, { Name = "TraitC" } }
+    local nativeRoom = {
+        SellOptions = nativeOptions,
+        SellValues = {
+            TraitA = { Name = "TraitA", Value = 10 },
+            TraitB = { Name = "TraitB", Value = 20 },
+            TraitC = { Name = "TraitC", Value = 30 },
+        },
+    }
+    _G.CurrentRun = { CurrentRoom = nativeRoom }
+    -- Native generation already selected TraitA and removed it from
+    -- SellValues; TraitB remains in the legal candidate map but was omitted
+    -- from the random rows.  The authored menu must recover both.
+    nativeRoom.SellValues.TraitA = nil
+    nativeRoom.SellOptions = { { Name = "TraitA", Value = 10 } }
+    callbacks.CreateSellButtons(nil, {}, function() return true end, {})
+    _G.CurrentRun = priorRun
+
+    lu.assertEquals(nativeRoom.SellOptions[1].Name, "TraitB")
+    lu.assertEquals(nativeRoom.SellOptions[2].Name, "TraitA")
+    lu.assertNil(callbacks.HandleSellChoiceSelection)
+end
+
 function TestFeatureInteractionHooks.testWorldShopCompletionUsesCurrentRoomPurchaseCounter()
     local module, _, callbacks = capture()
     local completed

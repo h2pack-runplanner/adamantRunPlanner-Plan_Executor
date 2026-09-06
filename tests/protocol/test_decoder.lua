@@ -164,7 +164,7 @@ local function minimalPlan(transactions)
     end
     local plan = tagged({
         format = "run-planner-execution",
-        protocolVersion = 22,
+        protocolVersion = 23,
         catalogVersion = "0.55.0-anvil-of-fates",
         projectId = "test-project",
         planFingerprint = "00000000",
@@ -397,6 +397,17 @@ function TestProtocol.testTimePieceDispositionIsNotPublished()
     lu.assertNil(protocol.decode(value))
 end
 
+function TestProtocol.testPoolSalesAreNotExecutionTransactions()
+    local value = minimalPlan({ {
+        kind = "poolSale",
+        owner = "sale",
+        window = window("postOutgoing"),
+        slotKey = "left",
+        traitKey = "trait",
+    } })
+    lu.assertNil(protocol.decode(value))
+end
+
 function TestProtocol.testEveryPublishedTransactionHasExactlyOneObligation()
     local value = minimalPlan({ {
         kind = "acquisition",
@@ -425,7 +436,7 @@ function TestProtocol.testAllGateA2VectorsDecodeAndExpandDiagnostics()
     for _, name in ipairs({ "f-opening", "fg", "fg-ixion-chaos", "fg-anomaly", "automatic-boss" }) do
         local plan, errorMessage = protocol.decode(decode(name))
         lu.assertNotNil(plan, errorMessage)
-        lu.assertEquals(plan.protocolVersion, 22)
+        lu.assertEquals(plan.protocolVersion, 23)
         lu.assertNotNil(plan.occurrences[1].diagnostics.roomEntered)
     end
 end
@@ -677,13 +688,6 @@ function TestProtocol.testEveryTimelineTransactionUnionDecodes()
             generationKey = "travelDealRefill",
             offerKey = "item",
             effect = "neutral",
-        },
-        {
-            kind = "poolSale",
-            owner = "sale",
-            window = window("postOutgoing"),
-            slotKey = "left",
-            traitKey = "trait",
         },
         {
             kind = "keepsakeChange",

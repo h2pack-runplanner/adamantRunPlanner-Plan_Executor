@@ -155,7 +155,7 @@ function occurrences.decode(value, selected, label)
             end
             local expected, conformanceError = conformance.resolve(
                 row.roomExitConformance,
-                expanded.beforeRoomExit,
+                expanded,
                 label .. ".roomExitConformance"
             )
             if not expected then return nil, conformanceError end

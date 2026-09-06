@@ -9,6 +9,7 @@ local keepsakeConformance = type(import) == "function" and import("mods/keepsake
     or require("mods.keepsakes.conformance")
 local readers = {}
 local supported = {
+    traitInventory = true,
     steadyGrowth = true, chaos = true, keepsakeEffects = true,
     rewardPriorities = true, pathOfStars = true, forfeit = true, stygianWell = true,
 }
@@ -27,6 +28,47 @@ local function findTrait(run, key)
         if traitKey(trait) == key then return trait end
     end
     return nil
+end
+
+local function modeledTraitInventory(run, expected)
+    local wanted, expectedRows = {}, {}
+    for _, row in ipairs(expected and expected.present or {}) do
+        if type(row) == "table" and type(row.traitKey) == "string" then
+            wanted[row.traitKey], expectedRows[row.traitKey] = true, row
+        end
+    end
+    for _, key in ipairs(expected and expected.absent or {}) do
+        if type(key) == "string" then wanted[key] = true end
+    end
+    local present, observed = {}, {}
+    for _, trait in pairs(traits(run) or {}) do
+        local key = traitKey(trait)
+        if wanted[key] and not observed[key] then
+            local expectedRow = expectedRows[key]
+            local row = { traitKey = key }
+            if expectedRow and expectedRow.rarity ~= nil then row.rarity = trait.Rarity end
+            if expectedRow and expectedRow.level ~= nil then
+                local count
+                local data = type(_G.TraitData) == "table" and _G.TraitData[key] or nil
+                if type(_G.GetTraitCount) == "function" and data ~= nil then
+                    local ok, result = pcall(_G.GetTraitCount, run.Hero, { TraitData = data })
+                    if ok and type(result) == "number" then count = result end
+                end
+                row.level = count or trait.Level or trait.StackNum
+            end
+            if expectedRow and expectedRow.hammerRank ~= nil then
+                row.hammerRank = trait.Rarity == "Legendary" and "RankII" or "RankI"
+            end
+            present[#present + 1], observed[key] = row, true
+        end
+    end
+    local absent = {}
+    for _, key in ipairs(expected and expected.absent or {}) do
+        if not observed[key] then absent[#absent + 1] = key end
+    end
+    table.sort(present, function(left, right) return left.traitKey < right.traitKey end)
+    table.sort(absent)
+    return { present = present, absent = absent }
 end
 
 local function enabledKeys(values)
@@ -153,6 +195,7 @@ local function stygianWell(run)
 end
 
 function readers.read(kind, run, gameState, expected)
+    if kind == "traitInventory" then return modeledTraitInventory(run, expected) end
     if kind == "steadyGrowth" then return steadyGrowth(run, expected) end
     if kind == "chaos" then return activeChaos(run) end
     if kind == "keepsakeEffects" then return keepsakeConformance.read(run, gameState, expected) end

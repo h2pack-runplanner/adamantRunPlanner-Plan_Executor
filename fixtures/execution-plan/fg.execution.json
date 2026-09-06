@@ -1,6 +1,6 @@
 {
   "format": "run-planner-execution",
-  "protocolVersion": 22,
+  "protocolVersion": 23,
   "catalogVersion": "0.55.0-anvil-of-fates",
   "projectId": "golden-fg",
   "routeKey": "Underworld",
@@ -96,6 +96,11 @@
           { "slotKey": "Encounter", "encounterKey": "OpeningGeneratedF", "kind": "combat" }
         ],
         "requiredObjects": []
+      },
+      "roomExitConformance": {
+        "facts": [
+          { "kind": "traitInventory" }
+        ]
       },
       "timeline": {
         "transactions": [
@@ -494,6 +499,11 @@
         ],
         "requiredObjects": []
       },
+      "roomExitConformance": {
+        "facts": [
+          { "kind": "traitInventory" }
+        ]
+      },
       "timeline": {
         "transactions": [
           {
@@ -814,6 +824,11 @@
         ],
         "requiredObjects": []
       },
+      "roomExitConformance": {
+        "facts": [
+          { "kind": "traitInventory" }
+        ]
+      },
       "timeline": {
         "transactions": [
           {
@@ -1116,6 +1131,11 @@
         ],
         "requiredObjects": []
       },
+      "roomExitConformance": {
+        "facts": [
+          { "kind": "traitInventory" }
+        ]
+      },
       "timeline": {
         "transactions": [
           {
@@ -1404,6 +1424,11 @@
           { "slotKey": "Encounter", "encounterKey": "GeneratedF", "kind": "combat" }
         ],
         "requiredObjects": []
+      },
+      "roomExitConformance": {
+        "facts": [
+          { "kind": "traitInventory" }
+        ]
       },
       "timeline": {
         "transactions": [
@@ -2108,6 +2133,11 @@
         ],
         "requiredObjects": []
       },
+      "roomExitConformance": {
+        "facts": [
+          { "kind": "traitInventory" }
+        ]
+      },
       "timeline": {
         "transactions": [
           {
@@ -2417,6 +2447,11 @@
           { "slotKey": "Encounter", "encounterKey": "Story_Narcissus_01", "kind": "story" }
         ],
         "requiredObjects": []
+      },
+      "roomExitConformance": {
+        "facts": [
+          { "kind": "traitInventory" }
+        ]
       },
       "timeline": {
         "transactions": [
@@ -2823,6 +2858,11 @@
         ],
         "requiredObjects": []
       },
+      "roomExitConformance": {
+        "facts": [
+          { "kind": "traitInventory" }
+        ]
+      },
       "timeline": {
         "transactions": [
           {
@@ -2997,6 +3037,11 @@
           { "slotKey": "Encounter", "encounterKey": "GeneratedG", "kind": "combat" }
         ],
         "requiredObjects": []
+      },
+      "roomExitConformance": {
+        "facts": [
+          { "kind": "traitInventory" }
+        ]
       },
       "timeline": {
         "transactions": [
@@ -3344,5 +3389,5 @@
       }
     }
   ],
-  "planFingerprint": "738db723"
+  "planFingerprint": "8d2b27e1"
 }

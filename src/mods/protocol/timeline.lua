@@ -297,23 +297,6 @@ local function wellRefill(value, label)
     return record
 end
 
-local function poolSale(value, label)
-    local record, errorMessage = p.exact(
-        value,
-        { "kind", "owner", "window", "slotKey", "traitKey" },
-        {},
-        label
-    )
-    if not record then return nil, errorMessage end
-    local _, baseError = validateBase(record, label)
-    if baseError then return nil, baseError end
-    if not p.str(record.slotKey, label .. ".slotKey")
-        or not p.str(record.traitKey, label .. ".traitKey") then
-        return p.fail(label .. " has invalid sale")
-    end
-    return record
-end
-
 local function keepsakeChange(value, label)
     local record, errorMessage = p.exact(
         value,
@@ -388,7 +371,6 @@ local decoders = {
     shopPurchase = shopPurchase,
     wellPurchase = wellPurchase,
     wellRefill = wellRefill,
-    poolSale = poolSale,
     keepsakeChange = keepsakeChange,
     keepsakeReplay = keepsakeReplay,
     fountainUse = fountainUse,

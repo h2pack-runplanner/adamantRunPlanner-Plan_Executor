@@ -1,8 +1,43 @@
 -- luacheck: globals TestConformanceReaders
 local lu = require("luaunit")
 local readers = require("mods.room.conformance.readers")
+local proof = require("mods.room.conformance.proof")
 
 TestConformanceReaders = {}
+
+function TestConformanceReaders.testTraitInventoryChecksOneAndThreeRemovalsButIgnoresUnmodeledTraits()
+    local oneRemoval = {
+        present = {
+            { traitKey = "HammerTrait", rarity = "Legendary", hammerRank = "RankII" },
+            { traitKey = "KeptTrait", rarity = "Rare", level = 2 },
+        },
+        absent = { "SoldOne" },
+    }
+    local expected = {
+        present = {
+            { traitKey = "HammerTrait", rarity = "Legendary", hammerRank = "RankII" },
+            { traitKey = "KeptTrait", rarity = "Rare", level = 2 },
+        },
+        absent = { "SoldOne", "SoldThree", "SoldTwo" },
+    }
+    local run = { Hero = { Traits = {
+        { Name = "HammerTrait", Rarity = "Legendary" },
+        { Name = "KeptTrait", Rarity = "Rare", StackNum = 2 },
+        { Name = "UnmodeledTrait", Rarity = "Common", StackNum = 9 },
+    } } }
+    lu.assertEquals(readers.read("traitInventory", run, nil, oneRemoval), oneRemoval)
+    local observed = readers.read("traitInventory", run, nil, expected)
+    lu.assertEquals(observed, expected)
+    local occurrence = {
+        roomExitConformance = { facts = { { kind = "traitInventory" } } },
+        conformanceExpected = { traitInventory = expected },
+    }
+    lu.assertTrue(proof.prove(occurrence, function() return observed end))
+
+    run.Hero.Traits[#run.Hero.Traits + 1] = { Name = "SoldTwo", Rarity = "Common" }
+    local missingRemoval = readers.read("traitInventory", run, nil, expected)
+    lu.assertNil(proof.prove(occurrence, function() return missingRemoval end))
+end
 
 function TestConformanceReaders.testReachableReadersProjectNativeState()
     local run = { Hero = { Traits = {} }, RewardPriorities = { Boon = 1 } }

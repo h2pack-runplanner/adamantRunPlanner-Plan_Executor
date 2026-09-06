@@ -97,11 +97,28 @@ function hooks.attach(module, session, getState, report, room, route)
         return base(ignored)
     end)
 
+    module.hooks.wrap("GenerateSellTraitShop", "run-planner-pool-inventory", function(_, runtime, base,
+        nativeRoom, args)
+        local state = getState(runtime)
+        local active = current(session, state, room, route)
+        local result = base(nativeRoom, args)
+        -- The native generator must run first: it owns legal trait filtering
+        -- and SellValues.  Apply the authored menu to that completed domain.
+        local ok, errorValue = inventory.steerPool(active and active.occurrence, nativeRoom)
+        if not ok then mismatch(session, state, errorValue) end
+        report(runtime)
+        return result
+    end)
+
+    -- Initial Pool generation occurs while the room is being constructed,
+    -- before the room session is entered.  Reapply the same candidate seam at
+    -- button creation so that pre-generated native rows receive the authored
+    -- menu without replacing native presentation or sale handling.
     module.hooks.wrap("CreateSellButtons", "run-planner-pool-inventory", function(_, runtime, base, screen)
         local state = getState(runtime)
         local active = current(session, state, room, route)
         local nativeRoom = _G.CurrentRun and _G.CurrentRun.CurrentRoom
-        local ok, errorValue = inventory.applyPool(active and active.occurrence, nativeRoom)
+        local ok, errorValue = inventory.steerPool(active and active.occurrence, nativeRoom)
         if not ok then mismatch(session, state, errorValue) end
         local result = base(screen)
         report(runtime)
