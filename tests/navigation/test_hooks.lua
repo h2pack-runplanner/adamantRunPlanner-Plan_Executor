@@ -48,6 +48,78 @@ function TestNavigationHooks.testDoorChoiceIsForcedDuringNativeGeneration()
     lu.assertEquals(physicalDoor.Room.__runPlannerExecutionRoomId, "next")
 end
 
+function TestNavigationHooks.testAnomalyDoorUsesNativeReplacementPresentation()
+    local module, _, callbacks = capture()
+    local anomaly = {
+        id = "anomaly", gameName = "B_Combat01", biomeKey = "G",
+        anomaly = { replacedRoomGameName = "G_Combat08", success = true },
+        overview = { additional = {} },
+    }
+    local source = {
+        id = "source", gameName = "G_Combat01", biomeKey = "G",
+        overview = { additional = {} },
+        doors = { kind = "batch", targets = {
+            { room = { id = "anomaly", gameName = "B_Combat01" } },
+        } },
+    }
+    local active = { occurrence = source }
+    local mismatch
+    local session = stub()
+    session.mismatch = function(_, value) mismatch = value end
+    local room = {
+        current = function() return active end,
+        checkpoint = function() return true end,
+        window = function() return true end,
+    }
+    local state = {
+        state = "synchronized", route = {},
+        plan = { occurrencesById = { anomaly = anomaly } },
+    }
+    navigation.attach(module, session, function() return state end, function() end,
+        {
+            current = function() return active.occurrence end,
+            reportDestination = function() return true end,
+        }, room)
+
+    local physicalDoor = { ObjectId = 101 }
+    local currentRun = { CurrentRoom = { Name = "G_Combat01" } }
+    local forcedRoom
+    local priorMap, priorGame, priorCollapse = _G.MapState, _G.game, _G.CollapseTableOrdered
+    _G.MapState = { OfferedExitDoors = { [101] = physicalDoor } }
+    _G.game = { RoomData = {
+        G_Combat08 = { Name = "G_Combat08", AllowAnomalyReplacement = true },
+        B_Combat01 = { Name = "B_Combat01" },
+    } }
+    _G.CollapseTableOrdered = function() return { physicalDoor } end
+
+    local function nativeChoose(run, args, otherDoors)
+        if args.ForceNextRoomSet == "Anomaly" then
+            error("the nested Anomaly choice must be supplied by the planner hook")
+        end
+        forcedRoom = args.ForceNextRoom
+        local selected = _G.game.RoomData[forcedRoom]
+        if run.CurrentRoom.DoAnomalies and selected.AllowAnomalyReplacement then
+            selected = callbacks.ChooseNextRoomData(
+                nil, {}, nativeChoose, run, { ForceNextRoomSet = "Anomaly" }, otherDoors)
+            selected.PrevRoomExitFunctionName = "ExitToAnomalyPresentation"
+        end
+        return selected
+    end
+
+    callbacks.DoUnlockRoomExits(nil, {}, function(run)
+        physicalDoor.Room = callbacks.ChooseNextRoomData(nil, {}, nativeChoose, run, {}, {})
+        return true
+    end, currentRun, currentRun.CurrentRoom)
+    _G.MapState, _G.game, _G.CollapseTableOrdered = priorMap, priorGame, priorCollapse
+
+    lu.assertNil(mismatch)
+    lu.assertEquals(forcedRoom, "G_Combat08")
+    lu.assertEquals(physicalDoor.Room.Name, "B_Combat01")
+    lu.assertEquals(physicalDoor.Room.__runPlannerExecutionRoomId, "anomaly")
+    lu.assertEquals(physicalDoor.Room.PrevRoomExitFunctionName, "ExitToAnomalyPresentation")
+    lu.assertNil(currentRun.CurrentRoom.DoAnomalies)
+end
+
 function TestNavigationHooks.testDoorUseReportsSelectionWithoutAdvancingTheRouteCursor()
     local module, _, callbacks = capture()
     local first = {

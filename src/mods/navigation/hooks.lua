@@ -27,6 +27,22 @@ local function destinationId(door)
         or type(nativeRoom) == "table" and nativeRoom.__runPlannerExecutionRoomId
 end
 
+local function withForcedAnomaly(base, currentRun, args, otherDoors, anomaly)
+    local currentRoom = type(currentRun) == "table" and currentRun.CurrentRoom or nil
+    if type(currentRoom) ~= "table" then return nil, false end
+
+    local forcedArgs = {}
+    for key, value in pairs(type(args) == "table" and args or {}) do forcedArgs[key] = value end
+    forcedArgs.ForceNextRoom = anomaly.replacedRoomGameName
+
+    local priorDoAnomalies = currentRoom.DoAnomalies
+    currentRoom.DoAnomalies = true
+    local ok, result = pcall(base, currentRun, forcedArgs, otherDoors)
+    currentRoom.DoAnomalies = priorDoAnomalies
+    if not ok then error(result, 0) end
+    return result, true
+end
+
 function hooks.reportSelection(session, state, routeSession, door)
     local id = destinationId(door)
     if id == nil then return true end
@@ -126,6 +142,13 @@ function hooks.attach(module, session, getState, report, routeSession, room, tra
         end
         if doorScope ~= nil and doorScope.rows[doorScope.index] ~= nil then
             local row = doorScope.rows[doorScope.index]
+            local occurrence = occurrenceForRoom(state, row.Room)
+            local selectingNativeAnomaly = type(args) == "table" and args.ForceNextRoomSet == "Anomaly"
+            if occurrence and occurrence.anomaly and not selectingNativeAnomaly then
+                local result, usedNativeReplacement = withForcedAnomaly(
+                    base, currentRun, args, otherDoors, occurrence.anomaly)
+                if usedNativeReplacement then return result end
+            end
             doorScope.index = doorScope.index + 1
             return row.Room
         end
