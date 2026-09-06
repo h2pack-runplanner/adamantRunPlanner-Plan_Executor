@@ -1,7 +1,7 @@
--- Coordinator for the shared UseConsumableItem callback. Transformation and
--- Well semantics remain separate capabilities composed at this native seam.
-local anvil = type(import) == "function" and import("mods/room/timeline/transformations/anvil.lua")
-    or require("mods.room.timeline.transformations.anvil")
+-- Coordinator for the shared UseConsumableItem callback. Anvil and Well Twist
+-- semantics remain separate capabilities composed at this native seam.
+local anvil = type(import) == "function" and import("mods/room/timeline/commerce/anvil.lua")
+    or require("mods.room.timeline.commerce.anvil")
 local wellTwist = type(import) == "function"
     and import("mods/room/timeline/commerce/well_twist.lua")
     or require("mods.room.timeline.commerce.well_twist")
