@@ -5,6 +5,23 @@ local proof = require("mods.room.conformance.proof")
 
 TestConformanceReaders = {}
 
+function TestConformanceReaders.testSupportBoundaryIsExactlyTheReachedFGFactSet()
+    local active = {
+        traitInventory = true,
+        steadyGrowth = true,
+        chaos = true,
+        keepsakeEffects = true,
+        rewardPriorities = true,
+        pathOfStars = true,
+        forfeit = true,
+        stygianWell = true,
+    }
+    for kind in pairs(active) do lu.assertTrue(readers.supports(kind), kind) end
+    for _, kind in ipairs({ "echoShopDuplicate", "hermesShrineDeliveries" }) do
+        lu.assertFalse(readers.supports(kind), kind)
+    end
+end
+
 function TestConformanceReaders.testTraitInventoryChecksOneAndThreeRemovalsButIgnoresUnmodeledTraits()
     local oneRemoval = {
         present = {
