@@ -76,7 +76,7 @@ function TestEncounters.testBossArcanaAdmitsAnExactEternityOutcome()
             selected = callbacks.RemoveRandomValue(nil, {}, function(values)
                 return table.remove(values, 1)
             end, candidates)
-        end, 5, {})
+        end, 1, {})
     end, { IsBoss = true }, {})
     _G.CurrentRun = priorRun
     lu.assertEquals(selected, "CastCount")
