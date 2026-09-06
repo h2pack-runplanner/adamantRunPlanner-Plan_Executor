@@ -260,7 +260,8 @@ function overview.decode(value, label)
         value,
         { "encounterPhases", "requiredObjects" },
         {
-            "incomingReward", "effectNeutralRequiredReward", "shop", "hermesShrine", "stygianWell",
+            "incomingReward", "effectNeutralRequiredReward", "unmodeledEncounterKeys",
+            "shop", "hermesShrine", "stygianWell",
             "purgingPool", "keepsakeRack",
             "fountain", "additional",
         },
@@ -269,6 +270,14 @@ function overview.decode(value, label)
     if not record then return nil, errorMessage end
     local phases, phasesError = p.arr(record.encounterPhases, label .. ".encounterPhases")
     if not phases then return nil, phasesError end
+    if record.unmodeledEncounterKeys ~= nil then
+        local _, keysError = p.strings(record.unmodeledEncounterKeys, label .. ".unmodeledEncounterKeys")
+        if keysError then return nil, keysError end
+        if #record.unmodeledEncounterKeys == 0 then
+            return p.fail(label .. ".unmodeledEncounterKeys must be non-empty when present")
+        end
+        if #phases > 0 then return p.fail(label .. ".unmodeledEncounterKeys cannot coexist with modeled phases") end
+    end
     local _, objectsError = p.strings(record.requiredObjects, label .. ".requiredObjects")
     if objectsError then return nil, objectsError end
     for index, valueRow in ipairs(phases) do

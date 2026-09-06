@@ -45,6 +45,37 @@ function TestEncounters.testCreatedPhaseRegistriesDoNotShareNativeBindings()
     lu.assertNil(other.forNative(native))
 end
 
+function TestEncounters.testUnmodeledCarrierProofUsesPublishedNativeIdentity()
+    local occurrence = { overview = { unmodeledEncounterKeys = { "Empty" }, encounterPhases = {} } }
+    lu.assertTrue(phases.prove(occurrence, { Encounter = { Name = "Empty" } }))
+
+    local result, mismatch = phases.prove(occurrence, { Encounter = { Name = "Shop" } })
+    lu.assertNil(result)
+    lu.assertEquals(mismatch, { kind = "encounter", expected = "Empty", observed = "Shop" })
+end
+
+function TestEncounters.testNoPublishedNativeCarrierRequiresNoNativeEncounter()
+    local occurrence = { overview = { encounterPhases = {} } }
+    lu.assertTrue(phases.prove(occurrence, {}))
+
+    local result, mismatch = phases.prove(occurrence, { Encounter = { Name = "Empty" } })
+    lu.assertNil(result)
+    lu.assertEquals(mismatch, { kind = "encounterCount", expected = 0, observed = 1 })
+end
+
+function TestEncounters.testPublishedEmptyPhaseRemainsAnExactNativeEncounter()
+    local occurrence = {
+        overview = {
+            encounterPhases = { { slotKey = "Encounter", encounterKey = "Empty" } },
+        },
+    }
+    lu.assertTrue(phases.prove(occurrence, { Encounter = { Name = "Empty" } }))
+
+    local result, mismatch = phases.prove(occurrence, {})
+    lu.assertNil(result)
+    lu.assertEquals(mismatch, { kind = "encounterCount", expected = 1, observed = 0 })
+end
+
 function TestEncounters.testBossArcanaAdmitsAnExactEternityOutcome()
     local module, callbacks = capture()
     local state = { state = "synchronized" }

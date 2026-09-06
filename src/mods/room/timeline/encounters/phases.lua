@@ -68,16 +68,21 @@ function phases.create()
     end
 
     function instance.prove(occurrence, nativeRoom)
+        local expected = occurrence.overview.unmodeledEncounterKeys or {}
+        if #expected == 0 then
+            for _, phase in ipairs(occurrence.overview.encounterPhases or {}) do
+                expected[#expected + 1] = phase.encounterKey
+            end
+        end
         local actual = nativePhases(nativeRoom)
-        local expected = occurrence.overview.encounterPhases or {}
         if #actual ~= #expected then
             return nil, { kind = "encounterCount", expected = #expected, observed = #actual }
         end
-        for index, expectedPhase in ipairs(expected) do
+        for index, expectedKey in ipairs(expected) do
             local native = actual[index]
-            if nativeName(native) ~= expectedPhase.encounterKey then
+            if nativeName(native) ~= expectedKey then
                 return nil, {
-                    kind = "encounter", expected = expectedPhase.encounterKey,
+                    kind = "encounter", expected = expectedKey,
                     observed = nativeName(native),
                 }
             end

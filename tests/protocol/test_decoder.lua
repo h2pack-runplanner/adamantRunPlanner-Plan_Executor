@@ -139,6 +139,7 @@ local arrayFields = {
     biomeKeys = true,
     selectedOccurrenceIds = true,
     occurrences = true,
+    unmodeledEncounterKeys = true,
     encounterPhases = true,
     requiredObjects = true,
     transactions = true,
@@ -167,7 +168,7 @@ local function minimalPlan(transactions)
     end
     local plan = tagged({
         format = "run-planner-execution",
-        protocolVersion = 26,
+        protocolVersion = 27,
         catalogVersion = "0.55.0-anvil-of-fates",
         projectId = "test-project",
         planFingerprint = "00000000",
@@ -511,7 +512,7 @@ function TestProtocol.testProtocolRejectsLegacyVectorsFromAnIndependentDecoderMo
     lu.assertNil(protocol.decode(plan))
 end
 
-function TestProtocol.testProtocol26RequiresCompleteOrderedRouteResourcePolicyAndRejectsLegacyOverview()
+function TestProtocol.testCurrentProtocolRequiresCompleteOrderedRouteResourcePolicyAndRejectsLegacyOverview()
     local plan = minimalPlan({})
     lu.assertNotNil(protocol.decode(plan))
 
@@ -531,6 +532,12 @@ function TestProtocol.testProtocol26RequiresCompleteOrderedRouteResourcePolicyAn
 
     plan = minimalPlan({})
     plan.resources.occurrences[1].postExitElementCounts = {}
+    refreshFingerprint(plan)
+    lu.assertNil(protocol.decode(plan))
+
+    plan = minimalPlan({})
+    plan.occurrences[1].overview.unmodeledEncounterKeys = { "Empty" }
+    plan.occurrences[1].overview.encounterPhases = { { slotKey = "Encounter", encounterKey = "Empty", kind = "nonCombat" } }
     refreshFingerprint(plan)
     lu.assertNil(protocol.decode(plan))
 

@@ -1,6 +1,6 @@
 {
   "format": "run-planner-execution",
-  "protocolVersion": 26,
+  "protocolVersion": 27,
   "catalogVersion": "0.55.0-anvil-of-fates",
   "projectId": "golden-fg",
   "routeKey": "Underworld",
@@ -2271,7 +2271,7 @@
       "biomeKey": "G",
       "gameName": "G_Intro",
       "kind": "EmptyEncounter",
-      "overview": { "encounterPhases": [], "requiredObjects": [] },
+      "overview": { "encounterPhases": [], "requiredObjects": [], "unmodeledEncounterKeys": ["Empty"] },
       "timeline": { "transactions": [], "dependencies": [], "obligations": [] },
       "doors": {
         "owner": "[\"exitDecision\",\"Underworld\",\"G\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-g-intro\"}]",
@@ -3598,5 +3598,5 @@
       }
     }
   ],
-  "planFingerprint": "9cd311c0"
+  "planFingerprint": "a4b010b8"
 }
