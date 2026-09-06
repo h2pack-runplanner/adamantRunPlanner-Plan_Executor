@@ -90,28 +90,31 @@ end
 
 function TestResidualNativeContacts.testSuccessfulResourcePointKeepsNativeGrantAuthoritative()
     local fixture = harness({})
-    fixture.state.route = {}
-    resources.attach(fixture.module, function() return fixture.state end, fixture.report, {
-        currentResource = function()
-            return { pointDispositions = {
-                Pickaxe = "force", Exorcism = "native", Shovel = "native", Fishing = "native",
-            } }
-        end,
-    })
+    fixture.state.plan.resources = { occurrences = { {
+        occurrenceId = "resource-room",
+        pointDispositions = {
+            Pickaxe = "force", Exorcism = "native", Shovel = "native", Fishing = "native",
+        },
+    } } }
+    resources.attach(fixture.module, function() return fixture.state end, fixture.report)
     local args = { SkipDelay = true, SkipActivatedTraitUpdate = true }
     local nativeCalls = 0
     local addedTrait
-    local result = fixture.callbacks.GrantElementFromTool(nil, {}, function(toolName, receivedArgs)
-        nativeCalls = nativeCalls + 1
-        lu.assertEquals(toolName, "ToolPickaxe2")
-        lu.assertEquals(receivedArgs, args)
-        lu.assertTrue(fixture.callbacks.RandomChance(nil, {}, function() return false end, 0.25, {}))
-        addedTrait = {
-            TraitName = "FireEssence",
-            SkipActivatedTraitUpdate = receivedArgs.SkipActivatedTraitUpdate,
-        }
-        return addedTrait.TraitName
-    end, "ToolPickaxe2", args)
+    local result = withCurrentRun({
+        CurrentRoom = { __runPlannerExecutionRoomId = "resource-room" },
+    }, function()
+        return fixture.callbacks.GrantElementFromTool(nil, {}, function(toolName, receivedArgs)
+            nativeCalls = nativeCalls + 1
+            lu.assertEquals(toolName, "ToolPickaxe2")
+            lu.assertEquals(receivedArgs, args)
+            lu.assertTrue(fixture.callbacks.RandomChance(nil, {}, function() return false end, 0.25, {}))
+            addedTrait = {
+                TraitName = "FireEssence",
+                SkipActivatedTraitUpdate = receivedArgs.SkipActivatedTraitUpdate,
+            }
+            return addedTrait.TraitName
+        end, "ToolPickaxe2", args)
+    end)
 
     lu.assertEquals(result, "FireEssence")
     lu.assertEquals(addedTrait, { TraitName = "FireEssence", SkipActivatedTraitUpdate = true })

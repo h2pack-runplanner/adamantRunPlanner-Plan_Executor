@@ -5,7 +5,7 @@ local resources = type(import) == "function"
     or require("mods.room.features.resources")
 local hooks = {}
 
-function hooks.attach(module, _, getState, report, room, route)
+function hooks.attach(module, _, getState, report, room)
     local secretScope
     local pendingAdditional
 
@@ -58,7 +58,7 @@ function hooks.attach(module, _, getState, report, room, route)
         return result
     end)
 
-    if route ~= nil then resources.attach(module, getState, report, route) end
+    resources.attach(module, getState, report)
 
     return {
         currentAdditional = function() return pendingAdditional end,

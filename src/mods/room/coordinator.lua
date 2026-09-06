@@ -120,9 +120,7 @@ function coordinator.proveEntry(state, nativeRoom, nativeContext)
         local ok, errorValue = proof()
         if not ok then return fail(state, errorValue) end
     end
-    local ok, errorValue = session.prove(active, "overview", true, true)
-    if not ok then return fail(state, errorValue) end
-    ok, errorValue = session.checkpoint(active, "roomEntered")
+    local ok, errorValue = session.checkpoint(active, "roomEntered")
     if not ok then return fail(state, errorValue) end
     return active
 end

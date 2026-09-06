@@ -276,8 +276,6 @@ function timeline.checkpoint(session, checkpoint)
 end
 
 function timeline.close(session)
-    local ok, errorValue = timeline.checkpoint(session, "roomExit")
-    if not ok then return nil, errorValue end
     session.closed = true
     session.completedOwners = {}
     session.claimedOwners = {}

@@ -387,7 +387,7 @@ function TestRoomEntryHooks.testLeaveRoomProvesDoorsBeforeClosingTheRoomSession(
     lu.assertTrue(nativeCalled)
 end
 
-function TestRoomEntryHooks.testLeaveRoomAdvancesAfterNativeLeaveReturns()
+function TestRoomEntryHooks.testLeaveRoomAdvancesBeforeNativeLeaveCanEnterNextRoom()
     local module, _, callbacks = capture()
     local first = { id = "one", gameName = "F_One" }
     local second = { id = "two", gameName = "F_Two" }
@@ -410,14 +410,15 @@ function TestRoomEntryHooks.testLeaveRoomAdvancesAfterNativeLeaveReturns()
         routeSessionModule, roomSession, nil, navigationEntryStub, unusedLoadoutScope)
     local result = callbacks.LeaveRoom(nil, {}, function()
         lu.assertTrue(closed)
-        lu.assertEquals(routeSessionModule.current(cursor), first)
-        lu.assertEquals(routeSessionModule.next(cursor), second)
+        lu.assertNil(routeSessionModule.current(cursor))
+        lu.assertEquals(routeSessionModule.expected(cursor), second)
+        lu.assertEquals(routeSessionModule.enter(cursor, "two", "F_Two"), second)
         nativeCalled = true
         return "native-exit"
     end, {}, {})
     lu.assertEquals(result, "native-exit")
     lu.assertTrue(nativeCalled)
-    lu.assertNil(routeSessionModule.current(cursor))
+    lu.assertEquals(routeSessionModule.current(cursor), second)
     lu.assertEquals(routeSessionModule.expected(cursor), second)
 end
 
@@ -437,7 +438,8 @@ function TestRoomEntryHooks.testLeaveRoomDoesNotRetainDepartingCursorAfterNested
         navigationEntryStub, unusedLoadoutScope)
 
     callbacks.LeaveRoom(nil, {}, function()
-        lu.assertEquals(routeSessionModule.current(cursor), first)
+        lu.assertNil(routeSessionModule.current(cursor))
+        lu.assertEquals(routeSessionModule.expected(cursor), second)
         state.state = "desynchronized"
     end, {}, {})
 

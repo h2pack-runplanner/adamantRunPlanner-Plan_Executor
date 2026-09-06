@@ -129,7 +129,6 @@ function TestRouteRoomSessions.testTerminalPrefixIgnoresLaterRoomEntry()
     local state = route.new({ selectedOccurrenceIds = { "one" }, occurrencesById = { one = occurrence() } })
     lu.assertNotNil(route.enter(state, "one", "F_Test"))
     lu.assertTrue(route.exit(state))
-    lu.assertTrue(route.advance(state))
     lu.assertTrue(route.enter(state, "unsupported", "H_Opening"))
 end
 
@@ -150,7 +149,6 @@ function TestRouteRoomSessions.testClosedRoomDisposesEveryPublicOperation()
     lu.assertNil(room.openWindow(session, "afterCombat"))
     lu.assertNil(complete(session, "optional"))
     lu.assertNil(room.incidental(session))
-    lu.assertNil(room.prove(session, "overview", true, true))
     lu.assertNil(room.checkpoint(session, "roomExit"))
 end
 
@@ -602,8 +600,6 @@ function TestRouteRoomSessions.testRouteAdvancesBetweenRoomEntryCheckpoints()
     local state = route.new(plan)
     lu.assertNotNil(route.enter(state, "one", "F_Test"))
     lu.assertTrue(route.exit(state))
-    lu.assertEquals(state.index, 1)
-    lu.assertTrue(route.advance(state))
     lu.assertEquals(state.index, 2)
     lu.assertNotNil(route.enter(state, "two", "F_Next"))
 end

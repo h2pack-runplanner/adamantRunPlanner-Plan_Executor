@@ -11,14 +11,25 @@ local function packValues(...)
     return { n = select("#", ...), ... }
 end
 
-function resources.attach(module, getState, report, route)
+local function currentPolicy(state)
+    local nativeRoom = _G.CurrentRun and _G.CurrentRun.CurrentRoom
+    local occurrenceId = type(nativeRoom) == "table" and nativeRoom.__runPlannerExecutionRoomId
+    local rows = state and state.plan and state.plan.resources
+        and state.plan.resources.occurrences or nil
+    if occurrenceId == nil then return nil end
+    for _, row in ipairs(rows or {}) do
+        if row.occurrenceId == occurrenceId then return row end
+    end
+    return nil
+end
+
+function resources.attach(module, getState, report)
     local active
 
     module.hooks.wrap("GrantElementFromTool", "run-planner-resource-element", function(_, runtime, base,
         toolName, args, ...)
         local state = getState(runtime)
-        local policy = state and state.state == "synchronized"
-            and type(route.currentResource) == "function" and route.currentResource(state.route) or nil
+        local policy = state and state.state == "synchronized" and currentPolicy(state) or nil
         local family = bindings.resourceToolFamilies[toolName]
         local disposition = policy and family and policy.pointDispositions[family] or nil
         local prior = active

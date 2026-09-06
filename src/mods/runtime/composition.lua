@@ -75,7 +75,7 @@ function composition.bind(root)
 
         acquisitionHooks.attach(module, session, getState, report, room, hexTree)
         local transformationScope = transformationHooks.attach(module, session, getState, report, room)
-        local featureScope = roomFeatureHooks.attach(module, session, getState, report, room, route)
+        local featureScope = roomFeatureHooks.attach(module, session, getState, report, room)
         local navigation = navigationHooks.attach(module, session, getState, report, route, room,
             transformationScope)
         roomHooks.attach(module, session, getState, report, route, room, featureScope, navigation,

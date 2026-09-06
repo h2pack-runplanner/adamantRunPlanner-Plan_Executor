@@ -5,14 +5,6 @@ local timeline = type(import) == "function" and import("mods/room/timeline/sessi
 
 local room = {}
 
-local function equal(left, right)
-    if type(left) ~= type(right) then return false end
-    if type(left) ~= "table" then return left == right end
-    for key, value in pairs(left) do if not equal(value, right[key]) then return false end end
-    for key in pairs(right) do if left[key] == nil then return false end end
-    return true
-end
-
 local function mismatch(session, checkpoint, expected, observed)
     if session.firstMismatch == nil then
         session.firstMismatch = { checkpoint = checkpoint, expected = expected, observed = observed }
@@ -25,7 +17,6 @@ function room.new(occurrence, bindings)
     local outer = {
         occurrence = occurrence,
         _timeline = inner,
-        proofs = {},
         firstMismatch = nil,
         closed = false,
     }
@@ -128,14 +119,6 @@ function room.dispose(session)
     if session == nil then return end
     session._timeline = nil
     session.closed = true
-end
-
-function room.prove(session, checkpoint, expected, observed)
-    if session.closed then return mismatch(session, "room-session", "open session", "closed") end
-    if session.firstMismatch ~= nil then return nil, session.firstMismatch end
-    if not equal(expected, observed) then return mismatch(session, checkpoint, expected, observed) end
-    session.proofs[checkpoint] = true
-    return true
 end
 
 function room.close(session, proveConformance)

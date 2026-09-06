@@ -43,13 +43,6 @@ function hooks.attach(module, session, getState, report, route, room, featureSco
         local id = type(roomData) == "table" and roomData.__runPlannerExecutionRoomId or nil
         local occurrence = id and state.plan.occurrencesById[id]
             or additional and additional.occurrence
-        if occurrence == nil and type(route.isTransitioning) == "function"
-            and route.isTransitioning(state.route) and type(route.next) == "function" then
-            local nextOccurrence = route.next(state.route)
-            if nextOccurrence ~= nil and roomName(roomData) == nextOccurrence.gameName then
-                occurrence = nextOccurrence
-            end
-        end
         if occurrence ~= nil then
             local realized = room.realize(state, occurrence, _G.game or game, roomData)
             if type(realized) == "table" then
@@ -113,23 +106,17 @@ function hooks.attach(module, session, getState, report, route, room, featureSco
     module.hooks.wrap("LeaveRoom", "run-planner-room-exit", function(_, runtime, base, currentRun, door)
         local state = getState(runtime)
         if state == nil or state.state ~= "synchronized" then return base(currentRun, door) end
-        local transitionStarted = false
         local proved, errorValue = navigation.proveOutgoingDoors(state, currentRun)
         if not proved then session.mismatch(state, errorValue) end
         if state.state == "synchronized" then room.close(state, currentRun, _G.GameState) end
         if state.state == "synchronized" then
             local ok, routeError = route.exit(state.route)
             if not ok then session.mismatch(state, routeError) end
-            transitionStarted = ok == true
+        end
+        if state.state == "synchronized" and route.expected(state.route) == nil then
+            state.reason = "configured-prefix-complete"
         end
         local result = base(currentRun, door)
-        if transitionStarted then
-            local ok, routeError = route.advance(state.route)
-            if not ok and state.state == "synchronized" then session.mismatch(state, routeError) end
-            if state.state == "synchronized" and route.expected(state.route) == nil then
-                state.reason = "configured-prefix-complete"
-            end
-        end
         report(runtime)
         return result
     end)
