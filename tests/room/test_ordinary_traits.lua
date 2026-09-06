@@ -5,8 +5,20 @@ local ordinary = require("mods.room.timeline.acquisitions.traits.ordinary")
 local seaStar = require("mods.room.timeline.acquisitions.sea_star").create()
 local hooks = require("mods.room.timeline.acquisitions.traits.hooks")
 local traitSupport = require("tests.room.ordinary_trait_support")
+local nativeGame = require("tests.harness.native_game")
 
 TestOrdinaryTraits = {}
+
+function TestOrdinaryTraits:setUp()
+    self.restoreNative = nativeGame.install({
+        TraitData = nativeGame.anyTraitDeclarations(),
+        IsTraitEligible = nativeGame.alwaysEligible,
+    })
+end
+
+function TestOrdinaryTraits:tearDown()
+    self.restoreNative()
+end
 
 local function payload(offer, disposition)
     return traitSupport.payload(offer, disposition)

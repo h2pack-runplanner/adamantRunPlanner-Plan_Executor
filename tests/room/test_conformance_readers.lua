@@ -2,8 +2,19 @@
 local lu = require("luaunit")
 local readers = require("mods.room.conformance.readers")
 local proof = require("mods.room.conformance.proof")
+local nativeGame = require("tests.harness.native_game")
 
 TestConformanceReaders = {}
+
+function TestConformanceReaders:setUp()
+    self.restoreNative = nativeGame.install({
+        GetNumShrineUpgrades = nativeGame.noShrineUpgrades,
+    })
+end
+
+function TestConformanceReaders:tearDown()
+    self.restoreNative()
+end
 
 function TestConformanceReaders.testSupportBoundaryIsExactlyTheReachedFGFactSet()
     local active = {
@@ -42,6 +53,13 @@ function TestConformanceReaders.testTraitInventoryChecksOneAndThreeRemovalsButIg
         { Name = "KeptTrait", Rarity = "Rare", StackNum = 2 },
         { Name = "UnmodeledTrait", Rarity = "Common", StackNum = 9 },
     } } }
+    local priorGetTraitCount = _G.GetTraitCount
+    _G.GetTraitCount = function(hero, args)
+        for _, trait in ipairs(hero.Traits) do
+            if trait.Name == args.Name then return trait.StackNum or 1 end
+        end
+        return 0
+    end
     lu.assertEquals(readers.read("traitInventory", run, nil, oneRemoval), oneRemoval)
     local observed = readers.read("traitInventory", run, nil, expected)
     lu.assertEquals(observed, expected)
@@ -53,7 +71,29 @@ function TestConformanceReaders.testTraitInventoryChecksOneAndThreeRemovalsButIg
 
     run.Hero.Traits[#run.Hero.Traits + 1] = { Name = "SoldTwo", Rarity = "Common" }
     local missingRemoval = readers.read("traitInventory", run, nil, expected)
+    _G.GetTraitCount = priorGetTraitCount
     lu.assertNil(proof.prove(occurrence, function() return missingRemoval end))
+end
+
+function TestConformanceReaders.testTraitInventoryReadsTheEquippedNativeStackCountByName()
+    local expected = {
+        present = { { traitKey = "AphroditeSpecialBoon", rarity = "Epic", level = 4 } },
+        absent = {},
+    }
+    local run = { Hero = { Traits = {
+        { Name = "AphroditeSpecialBoon", Rarity = "Epic", StackNum = 1 },
+    } } }
+    local priorGetTraitCount = _G.GetTraitCount
+    _G.GetTraitCount = function(hero, args)
+        lu.assertEquals(hero, run.Hero)
+        lu.assertEquals(args, { Name = "AphroditeSpecialBoon" })
+        return 4
+    end
+
+    local observed = readers.read("traitInventory", run, nil, expected)
+    _G.GetTraitCount = priorGetTraitCount
+
+    lu.assertEquals(observed, expected)
 end
 
 function TestConformanceReaders.testReachableReadersProjectNativeState()

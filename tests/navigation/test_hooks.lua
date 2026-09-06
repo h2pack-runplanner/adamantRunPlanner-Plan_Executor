@@ -23,11 +23,8 @@ function TestNavigationHooks.testDoorChoiceIsForcedDuringNativeGeneration()
         window = function() return true end,
     }
     local state = { state = "synchronized", plan = { occurrencesById = { next = {} } }, route = {} }
-    navigation.attach(module, session, function() return state end, function() end,
-        {
-            current = function() return active.occurrence end,
-            reportDestination = function() return true end,
-        }, room)
+    local navigationScope = navigation.attach(module, session, function() return state end, function() end,
+        { current = function() return active.occurrence end }, room)
     local priorMap, priorGame, priorCollapse = _G.MapState, _G.game, _G.CollapseTableOrdered
     local physicalDoor = { ObjectId = 101 }
     _G.MapState = { OfferedExitDoors = { [101] = physicalDoor } }
@@ -42,9 +39,11 @@ function TestNavigationHooks.testDoorChoiceIsForcedDuringNativeGeneration()
         physicalDoor.RewardType = "Boon"
         return true
     end, {}, {})
+    local proved, errorValue = navigationScope.proveOutgoingDoors(state, {})
     _G.MapState, _G.game, _G.CollapseTableOrdered = priorMap, priorGame, priorCollapse
     lu.assertEquals(selected.__runPlannerExecutionRoomId, "next")
     lu.assertNil(mismatch)
+    lu.assertTrue(proved, errorValue)
     lu.assertEquals(physicalDoor.Room.__runPlannerExecutionRoomId, "next")
 end
 
@@ -75,11 +74,8 @@ function TestNavigationHooks.testAnomalyDoorUsesNativeReplacementPresentation()
         state = "synchronized", route = {},
         plan = { occurrencesById = { anomaly = anomaly } },
     }
-    navigation.attach(module, session, function() return state end, function() end,
-        {
-            current = function() return active.occurrence end,
-            reportDestination = function() return true end,
-        }, room)
+    local navigationScope = navigation.attach(module, session, function() return state end, function() end,
+        { current = function() return active.occurrence end }, room)
 
     local physicalDoor = { ObjectId = 101 }
     local currentRun = { CurrentRoom = { Name = "G_Combat01" } }
@@ -110,9 +106,11 @@ function TestNavigationHooks.testAnomalyDoorUsesNativeReplacementPresentation()
         physicalDoor.Room = callbacks.ChooseNextRoomData(nil, {}, nativeChoose, run, {}, {})
         return true
     end, currentRun, currentRun.CurrentRoom)
+    local proved, errorValue = navigationScope.proveOutgoingDoors(state, currentRun)
     _G.MapState, _G.game, _G.CollapseTableOrdered = priorMap, priorGame, priorCollapse
 
     lu.assertNil(mismatch)
+    lu.assertTrue(proved, errorValue)
     lu.assertEquals(forcedRoom, "G_Combat08")
     lu.assertEquals(physicalDoor.Room.Name, "B_Combat01")
     lu.assertEquals(physicalDoor.Room.__runPlannerExecutionRoomId, "anomaly")
@@ -120,7 +118,7 @@ function TestNavigationHooks.testAnomalyDoorUsesNativeReplacementPresentation()
     lu.assertNil(currentRun.CurrentRoom.DoAnomalies)
 end
 
-function TestNavigationHooks.testDoorUseReportsSelectionWithoutAdvancingTheRouteCursor()
+function TestNavigationHooks.testDoorUseDoesNotInterpretOrAdvanceTheRouteDestination()
     local module, _, callbacks = capture()
     local first = {
         id = "first", gameName = "F_First",
@@ -136,20 +134,63 @@ function TestNavigationHooks.testDoorUseReportsSelectionWithoutAdvancingTheRoute
     lu.assertEquals(routeSession.enter(routeState, "first", "F_First"), first)
     local active = { occurrence = first }
     local state = { state = "synchronized", route = routeState, plan = plan }
+    local checkpoint
     local room = {
         current = function() return active end,
-        checkpoint = function() return true end,
+        checkpoint = function(_, value) checkpoint = value; return true end,
     }
     navigation.attach(module, stub(), function() return state end, function() end,
         routeSession, room)
 
-    local door = { Room = { __runPlannerExecutionRoomId = "second" } }
+    local door = { Room = { __runPlannerExecutionRoomId = "unexpected" } }
     lu.assertEquals(callbacks.UseExitDoor(nil, {}, function() return "native" end, door, {}), "native")
 
     lu.assertEquals(routeState.index, 1)
     lu.assertEquals(routeState.currentOccurrence, first)
-    lu.assertEquals(routeState.selectedDestinationId, "second")
+    lu.assertNil(routeState.firstMismatch)
+    lu.assertEquals(checkpoint, "exitUsable")
     lu.assertEquals(active.occurrence, first)
+end
+
+function TestNavigationHooks.testDoorMismatchIsDeferredUntilExitProof()
+    local module, _, callbacks = capture()
+    local occurrence = {
+        id = "opening", overview = { additional = {} },
+        doors = { kind = "batch", targets = {
+            { room = { id = "next", gameName = "F_Next" }, reward = { rewardType = "Boon" } },
+        } },
+    }
+    local active = { occurrence = occurrence }
+    local state = {
+        state = "synchronized", route = {},
+        plan = { occurrencesById = { next = {} } },
+    }
+    local mismatch
+    local session = stub()
+    session.mismatch = function(_, value) mismatch = value end
+    local room = {
+        checkpoint = function() return true end,
+        window = function() return true end,
+    }
+    local scope = navigation.attach(module, session, function() return state end, function() end,
+        { current = function() return active.occurrence end }, room)
+    local physicalDoor = { ObjectId = 101 }
+    local priorMap, priorGame, priorCollapse = _G.MapState, _G.game, _G.CollapseTableOrdered
+    _G.MapState = { OfferedExitDoors = { [101] = physicalDoor } }
+    _G.game = { RoomData = { F_Next = { GenusName = "F_Next" } } }
+    _G.CollapseTableOrdered = function() return { physicalDoor } end
+
+    callbacks.DoUnlockRoomExits(nil, {}, function()
+        physicalDoor.Room = callbacks.ChooseNextRoomData(nil, {}, function() return nil end, {}, {}, {})
+        physicalDoor.RewardType = "WeaponUpgrade"
+        return true
+    end, {}, {})
+    lu.assertNil(mismatch)
+    local proved, errorValue = scope.proveOutgoingDoors(state, {})
+    _G.MapState, _G.game, _G.CollapseTableOrdered = priorMap, priorGame, priorCollapse
+
+    lu.assertNil(proved)
+    lu.assertEquals(errorValue.kind, "reward")
 end
 
 function TestNavigationHooks.testChaosDoorIsExcludedAfterNormalDoorGeneration()
@@ -177,17 +218,10 @@ function TestNavigationHooks.testChaosDoorIsExcludedAfterNormalDoorGeneration()
         state = "synchronized", route = {},
         plan = { occurrencesById = { next = {}, chaos = {} } },
     }
-    local selectedDestination
     local priorGame = _G.game
     _G.game = { RoomData = { F_Next = { GenusName = "F_Next" } } }
-    navigation.attach(module, session, function() return state end, function() end,
-        {
-            current = function() return active.occurrence end,
-            reportDestination = function(_, occurrenceId)
-                selectedDestination = occurrenceId
-                return true
-            end,
-        }, room)
+    local navigationScope = navigation.attach(module, session, function() return state end, function() end,
+        { current = function() return active.occurrence end }, room)
 
     local normalDoor = { ObjectId = 101 }
     local chaosRoom = {
@@ -208,10 +242,11 @@ function TestNavigationHooks.testChaosDoorIsExcludedAfterNormalDoorGeneration()
         return true
     end, {}, {})
     callbacks.UseExitDoor(nil, {}, function() return true end, chaosDoor, {})
+    local proved, errorValue = navigationScope.proveOutgoingDoors(state, {})
     _G.MapState, _G.CollapseTableOrdered, _G.game = priorMap, priorCollapse, priorGame
 
     lu.assertNil(mismatch)
+    lu.assertTrue(proved, errorValue)
     lu.assertEquals(normalDoor.Room.__runPlannerExecutionRoomId, "next")
     lu.assertEquals(chaosDoor.Room.__runPlannerExecutionRoomId, "chaos")
-    lu.assertEquals(selectedDestination, "chaos")
 end

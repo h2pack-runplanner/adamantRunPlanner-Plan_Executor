@@ -2,13 +2,9 @@
 -- loadout policy lives in session.lua, never in these game-facing reads.
 local native = {}
 
-local function traitKey(value) return type(value) == "table" and (value.Name or value.TraitName) or value end
-
 function native.readLoadout()
-    local run, gameState = _G.CurrentRun or {}, _G.GameState or {}
-    local hero = run.Hero or {}
-    local weaponKey = type(_G.GetEquippedWeapon) == "function" and _G.GetEquippedWeapon()
-        or run.CurrentWeaponName or hero.CurrentWeaponName
+    local gameState = _G.GameState or {}
+    local weaponKey = _G.GetEquippedWeapon()
     local aspectKey = weaponKey and type(gameState.LastWeaponUpgradeName) == "table"
         and gameState.LastWeaponUpgradeName[weaponKey] or nil
     return {
@@ -45,8 +41,7 @@ end
 function native.fearRanks(expected)
     local ranks = {}
     for key in pairs(expected or {}) do
-        ranks[key] = type(_G.GetNumShrineUpgrades) == "function"
-            and _G.GetNumShrineUpgrades(key) or tonumber((_G.GameState or {}).ShrineUpgrades and _G.GameState.ShrineUpgrades[key]) or 0
+        ranks[key] = _G.GetNumShrineUpgrades(key)
     end
     return ranks
 end
@@ -62,7 +57,9 @@ function native.treeTalentKeys()
     local keys = {}
     for _, depth in pairs(talents) do
         if type(depth) == "table" then
-            for _, node in pairs(depth) do if type(node) == "table" and node.Name then keys[#keys + 1] = node.Name end end
+            for _, node in pairs(depth) do
+                if type(node) == "table" and node.Name then keys[#keys + 1] = node.Name end
+            end
         end
     end
     return keys

@@ -99,11 +99,12 @@ end
 M.navigationEntryStub = {
     realizeIncomingReward = function(_, nativeRoom) return nativeRoom end,
     proveIncomingReward = function() return true end,
+    proveOutgoingDoors = function() return true end,
 }
 
 function M.attachRewardHooks(module, session, getState, report)
     navigation.attach(module, session, getState, report,
-        { reportDestination = function() return true end }, session)
+        { current = function() return nil end }, session)
 end
 
 function M.attachFeatureHooks(module, session, getState, report, room, route)

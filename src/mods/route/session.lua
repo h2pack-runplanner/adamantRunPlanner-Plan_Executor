@@ -1,11 +1,11 @@
--- Sole outer cursor for the configured route. It records which published
--- destination navigation reports, but owns no room-local lifecycle state.
+-- Sole outer cursor for the configured route. Room exit advances the cursor;
+-- the next room entry proves the next published occurrence identity.
 local routeSession = {}
 
 function routeSession.new(plan)
     return {
         plan = plan, index = 1, currentOccurrence = nil,
-        selectedDestinationId = nil, firstMismatch = nil, diagnostics = {},
+        firstMismatch = nil, diagnostics = {},
     }
 end
 
@@ -39,26 +39,7 @@ function routeSession.enter(route, occurrenceId, gameName)
         return nil, route.firstMismatch
     end
     route.currentOccurrence = occurrence
-    route.selectedDestinationId = nil
     return occurrence
-end
-
-function routeSession.reportDestination(route, occurrenceId)
-    if route.currentOccurrence == nil then
-        route.firstMismatch = route.firstMismatch or {
-            checkpoint = "door-selection", expected = "active room", observed = occurrenceId,
-        }
-        return nil, route.firstMismatch
-    end
-    local expectedId = route.plan.selectedOccurrenceIds[route.index + 1]
-    if expectedId ~= occurrenceId then
-        route.firstMismatch = {
-            checkpoint = "door-selection", expected = expectedId, observed = occurrenceId,
-        }
-        return nil, route.firstMismatch
-    end
-    route.selectedDestinationId = occurrenceId
-    return true
 end
 
 function routeSession.exit(route)
@@ -68,17 +49,8 @@ function routeSession.exit(route)
         }
         return nil, route.firstMismatch
     end
-    local nextId = route.plan.selectedOccurrenceIds[route.index + 1]
-    if nextId ~= nil and route.selectedDestinationId ~= nextId then
-        route.firstMismatch = {
-            checkpoint = "door-selection", expected = nextId,
-            observed = route.selectedDestinationId,
-        }
-        return nil, route.firstMismatch
-    end
     route.index = route.index + 1
     route.currentOccurrence = nil
-    route.selectedDestinationId = nil
     return true
 end
 

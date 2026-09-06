@@ -21,12 +21,12 @@ function carriers.eligible(key, args, purchase)
     local data, kind = carrier(key)
     if data == nil then return false end
     if kind == "Trait" then
-        return type(_G.IsTraitEligible) ~= "function" or _G.IsTraitEligible(data, args) == true
+        return _G.IsTraitEligible(data, args) == true
     end
-    if type(_G.StoreItemEligible) == "function" and not _G.StoreItemEligible(data, args or {}) then
+    if not _G.StoreItemEligible(data, args or {}) then
         return false
     end
-    return not purchase or data.PurchaseRequirements == nil or type(_G.IsGameStateEligible) ~= "function"
+    return not purchase or data.PurchaseRequirements == nil
         or _G.IsGameStateEligible(data, data.PurchaseRequirements) == true
 end
 
@@ -56,9 +56,9 @@ end
 function carriers.available(storeData, key, args)
     if not availableIn(storeData, key) then return false end
     local entry = namedEntry(storeData, key)
-    if entry and entry.AdditionalRequirements and type(_G.IsGameStateEligible) == "function"
+    if entry and entry.AdditionalRequirements
         and not _G.IsGameStateEligible(entry, entry.AdditionalRequirements) then return false end
-    if entry and entry.ReplaceRequirements and type(_G.IsGameStateEligible) == "function" then
+    if entry and entry.ReplaceRequirements then
         return _G.IsGameStateEligible(entry, entry.ReplaceRequirements) == true
     end
     if entry and entry.SkipRequirements then return true end

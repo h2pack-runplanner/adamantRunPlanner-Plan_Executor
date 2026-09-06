@@ -6,8 +6,20 @@ local traits = require("mods.room.timeline.acquisitions.traits.hooks")
 local circe = require("mods.room.timeline.acquisitions.npc.circe")
 local icarus = require("mods.room.timeline.acquisitions.npc.icarus")
 local echo = require("mods.room.timeline.acquisitions.npc.echo")
+local nativeGame = require("tests.harness.native_game")
 
 TestNpcAcquisitions = {}
+
+function TestNpcAcquisitions:setUp()
+    self.restoreNative = nativeGame.install({
+        TraitData = nativeGame.anyTraitDeclarations(),
+        IsGameStateEligible = nativeGame.alwaysEligible,
+    })
+end
+
+function TestNpcAcquisitions:tearDown()
+    self.restoreNative()
+end
 
 local function capture()
     local callbacks = {}

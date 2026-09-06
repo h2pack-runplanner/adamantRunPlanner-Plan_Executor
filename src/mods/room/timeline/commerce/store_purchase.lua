@@ -51,7 +51,7 @@ function purchase.attach(module, session, getState, report, room, inventoryBindi
             }
         end
         local purchasesBefore = transaction and transaction.kind == "wellPurchase"
-            and _G.CurrentRun and _G.CurrentRun.WellPurchases or nil
+            and _G.CurrentRun and (_G.CurrentRun.WellPurchases or 0) or nil
         local ok, result = pcall(base, screen, button, args)
         materializationScope = nil
         if inventoryBindings and inventoryBindings.setWellRefillScope then

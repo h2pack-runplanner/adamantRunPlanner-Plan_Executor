@@ -58,21 +58,16 @@ function ordinary.isNativeCarrier(loot)
 end
 
 -- Native declarations must admit every exact authored row before the adapter
--- overwrites positional menu entries. Missing game globals are tolerated so
--- the native game remains authoritative; once declarations are exposed, an
--- unavailable exact row is a contact mismatch rather than a substitution.
+-- overwrites positional menu entries. An unavailable exact row is a contact
+-- mismatch rather than a substitution.
 function ordinary.nativeRowsAvailable(offer)
     if type(offer) ~= "table" or offer.kind == "fallbackGold" then return true end
     local declarations = _G.TraitData
-    if type(declarations) ~= "table" then return true end
     for _, option in ipairs(offer.options or {}) do
         local key = option and option.key
         local declaration = key and declarations[key]
         if declaration == nil then return false end
-        if type(_G.IsTraitEligible) == "function" then
-            local ok, eligible = pcall(_G.IsTraitEligible, declaration)
-            if not ok or eligible ~= true then return false end
-        end
+        if _G.IsTraitEligible(declaration) ~= true then return false end
     end
     return true
 end

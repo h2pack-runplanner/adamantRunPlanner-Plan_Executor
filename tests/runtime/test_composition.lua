@@ -201,7 +201,7 @@ function TestRuntimeComposition.testRuntimeCompositionInstallsSupportedHookGroup
     local hexTree = hexTreeDefinition.create()
     local session = stub()
     local getState, report = function() end, function() end
-    local route = { expected = function() end, reportDestination = function() return true end }
+    local route = { expected = function() end, current = function() end }
     local priorImport = _G.import
     _G.import = function(path)
         return require((path:gsub("%.lua$", ""):gsub("/", ".")))
@@ -276,7 +276,7 @@ function TestRuntimeComposition.testMismatchStopsEnforcementWithoutBlockingNativ
     local getState = function()
         return { state = "desynchronized" }
     end
-    local route = { expected = function() end, reportDestination = function() return true end }
+    local route = { expected = function() end, current = function() end }
     local featureScope = roomFeatureHooks.attach(module, session, getState, function() end, session)
     local navigationEntry = navigation.attach(module, session, getState, function() end, route, session)
     roomHooks.attach(module, session, getState, function() end,

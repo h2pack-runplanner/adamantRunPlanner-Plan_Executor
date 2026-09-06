@@ -253,6 +253,7 @@ function TestRoomEntryHooks.testIncomingRewardProofRemainsNavigationOwnedAtRoomE
         proveIncomingReward = function()
             return nil, { kind = "incomingReward", expected = "Boon", observed = "WeaponUpgrade" }
         end,
+        proveOutgoingDoors = function() return true end,
     }
     roomHooks.attach(module, session, function() return state end, function() end,
         route, roomSession, nil, navigationEntry, unusedLoadoutScope)
@@ -265,7 +266,7 @@ function TestRoomEntryHooks.testIncomingRewardProofRemainsNavigationOwnedAtRoomE
     lu.assertNil(roomProof)
 end
 
-function TestRoomEntryHooks.testZagreusContractRemainsAnAdditionalDoorDuringNormalDoorProof()
+function TestRoomEntryHooks.testZagreusContractRemainsAnAdditionalDoorDuringExitProof()
     local module, _, callbacks = capture()
     local additional = {
         owner = "contract-exit", kind = "zagreusContract",
@@ -304,7 +305,6 @@ function TestRoomEntryHooks.testZagreusContractRemainsAnAdditionalDoorDuringNorm
     }
     local route = {
         current = function() return active.occurrence end,
-        reportDestination = function() return true end,
     }
     local featureScope = roomFeatureHooks.attach(module, session, function() return state end, function() end,
         roomSession)
@@ -333,12 +333,52 @@ function TestRoomEntryHooks.testZagreusContractRemainsAnAdditionalDoorDuringNorm
     _G.CollapseTableOrdered = function(value) return value end
     _G.game = { RoomData = { F_One = {}, F_Two = {} } }
     callbacks.DoUnlockRoomExits(nil, {}, function() return true end, {}, {})
+    local proved, errorValue = navigationEntry.proveOutgoingDoors(state, {})
     _G.MapState, _G.CollapseTableOrdered, _G.game = priorMap, priorCollapse, priorGame
 
     lu.assertNil(mismatch)
+    lu.assertTrue(proved, errorValue)
     lu.assertNil(oneDoor.__runPlannerExecutionAdditionalKind)
     lu.assertNil(twoDoor.__runPlannerExecutionAdditionalKind)
     lu.assertEquals(contractDoor.__runPlannerExecutionAdditionalKind, "zagreusContract")
+end
+
+function TestRoomEntryHooks.testLeaveRoomProvesDoorsBeforeClosingTheRoomSession()
+    local module, _, callbacks = capture()
+    local state = { state = "synchronized", route = {} }
+    local mismatch, closed, advanced, nativeCalled
+    local session = stub()
+    session.mismatch = function(_, errorValue)
+        mismatch = errorValue
+        state.state = "desynchronized"
+    end
+    local route = {
+        exit = function() advanced = true; return true end,
+        expected = function() return {} end,
+    }
+    local roomSession = {
+        close = function() closed = true; return true end,
+    }
+    local navigationEntry = {
+        realizeIncomingReward = function(_, nativeRoom) return nativeRoom end,
+        proveIncomingReward = function() return true end,
+        proveOutgoingDoors = function()
+            return nil, { kind = "reward", expected = "Boon", observed = "WeaponUpgrade" }
+        end,
+    }
+    roomHooks.attach(module, session, function() return state end, function() end,
+        route, roomSession, nil, navigationEntry, unusedLoadoutScope)
+
+    local result = callbacks.LeaveRoom(nil, {}, function()
+        nativeCalled = true
+        return "native-exit"
+    end, {}, {})
+
+    lu.assertEquals(result, "native-exit")
+    lu.assertEquals(mismatch.kind, "reward")
+    lu.assertNil(closed)
+    lu.assertNil(advanced)
+    lu.assertTrue(nativeCalled)
 end
 
 function TestRoomEntryHooks.testEncounterForcingKeepsNativeSetupAndGeneration()

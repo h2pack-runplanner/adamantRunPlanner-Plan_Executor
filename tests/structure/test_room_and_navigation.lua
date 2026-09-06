@@ -162,7 +162,7 @@ function TestRoomNavigationStructure.testIntermediateRewardReturnWaitsForRoomEnt
         current = function() return { occurrence = item } end,
     }
     navigationHooks.attach(module, session, function() return state end, function() end,
-        { reportDestination = function() return true end }, session)
+        { current = function() return nil end }, session)
 
     local nativeRoom = room()
     nativeRoom.__runPlannerExecutionRoomId = "target"

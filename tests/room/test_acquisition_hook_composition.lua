@@ -10,10 +10,23 @@ local traitAcquisitions = require("mods.room.timeline.acquisitions.traits.hooks"
 local npcAcquisitions = require("mods.room.timeline.acquisitions.npc.hooks")
 local mysteryAcquisitions = require("mods.room.timeline.acquisitions.mystery.hooks")
 local support = require("tests.harness.hook_composition")
+local nativeGame = require("tests.harness.native_game")
 local capture, stub, opaque = support.capture, support.stub, support.opaque
 local fakePayload = support.fakePayload
 
 TestAcquisitionHookComposition = {}
+
+function TestAcquisitionHookComposition:setUp()
+    self.restoreNative = nativeGame.install({
+        TraitData = nativeGame.anyTraitDeclarations(),
+        IsTraitEligible = nativeGame.alwaysEligible,
+        GetAllUpgradeableGodTraits = nativeGame.currentUpgradeableTraits,
+    })
+end
+
+function TestAcquisitionHookComposition:tearDown()
+    self.restoreNative()
+end
 
 function TestAcquisitionHookComposition.testChaosChoiceCompletesItsBoundOwner()
     local module, _, callbacks = capture()

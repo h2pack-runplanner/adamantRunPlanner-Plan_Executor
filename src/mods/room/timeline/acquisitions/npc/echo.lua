@@ -47,7 +47,6 @@ local function consequencePayload(scope, offer)
 end
 
 local function rowsAvailable(offer)
-    if type(_G.TraitData) ~= "table" then return true end
     for _, row in ipairs(offer.options or {}) do
         if _G.TraitData[row.key] == nil then return false end
     end

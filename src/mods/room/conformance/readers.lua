@@ -48,13 +48,7 @@ local function modeledTraitInventory(run, expected)
             local row = { traitKey = key }
             if expectedRow and expectedRow.rarity ~= nil then row.rarity = trait.Rarity end
             if expectedRow and expectedRow.level ~= nil then
-                local count
-                local data = type(_G.TraitData) == "table" and _G.TraitData[key] or nil
-                if type(_G.GetTraitCount) == "function" and data ~= nil then
-                    local ok, result = pcall(_G.GetTraitCount, run.Hero, { TraitData = data })
-                    if ok and type(result) == "number" then count = result end
-                end
-                row.level = count or trait.Level or trait.StackNum
+                row.level = _G.GetTraitCount(run.Hero, { Name = key })
             end
             if expectedRow and expectedRow.hammerRank ~= nil then
                 row.hammerRank = trait.Rarity == "Legendary" and "RankII" or "RankI"
@@ -100,8 +94,7 @@ local function activeChaos(run)
 end
 
 local function forfeit(run)
-    local rank = type(_G.GetNumShrineUpgrades) == "function"
-        and _G.GetNumShrineUpgrades(conformanceBindings.shrineUpgrades.forfeit) or 0
+    local rank = _G.GetNumShrineUpgrades(conformanceBindings.shrineUpgrades.forfeit)
     if type(rank) ~= "number" or rank <= 0 then return "inactive" end
     local count = type(run) == "table" and run.BiomeBoonSkipCount or nil
     if type(count) ~= "number" then return nil end

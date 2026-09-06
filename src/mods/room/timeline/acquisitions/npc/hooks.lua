@@ -29,9 +29,7 @@ end
 local function nativeRequirementAvailable(source, option)
     local requirements = option and option.GameStateRequirements
     if requirements == nil then return true end
-    if type(_G.IsGameStateEligible) ~= "function" then return false end
-    local ok, result = pcall(_G.IsGameStateEligible, source, requirements)
-    return ok and result == true
+    return _G.IsGameStateEligible(source, requirements) == true
 end
 
 local function optionsByName(options)

@@ -548,7 +548,6 @@ function TestFeatureInteractionHooks.testProcessedWellButtonRetainsItsExactGener
     }
     local screen = { Components = {} }
     _G.CurrentRun = {
-        WellPurchases = 0,
         CurrentRoom = { Store = { StoreOptions = { raw } } },
     }
     local priorTraitData, priorEligibility = _G.TraitData, _G.IsTraitEligible
@@ -563,7 +562,7 @@ function TestFeatureInteractionHooks.testProcessedWellButtonRetainsItsExactGener
     local item = screen.Components.PurchaseButton1.Data
     lu.assertEquals(item.__runPlannerGenerationKey, "initial:secondLeft")
     callbacks.HandleStorePurchase(nil, {}, function()
-        _G.CurrentRun.WellPurchases = _G.CurrentRun.WellPurchases + 1
+        _G.CurrentRun.WellPurchases = (_G.CurrentRun.WellPurchases or 0) + 1
     end, screen, screen.Components.PurchaseButton1, {})
     _G.TraitData, _G.IsTraitEligible = priorTraitData, priorEligibility
     _G.CurrentRun = priorRun

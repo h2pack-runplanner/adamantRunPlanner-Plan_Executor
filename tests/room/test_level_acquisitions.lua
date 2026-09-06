@@ -3,8 +3,19 @@ local lu = require("luaunit")
 local binding = require("mods.room.timeline.acquisitions.binding")
 local seaStar = require("mods.room.timeline.acquisitions.sea_star").create()
 local levels = require("mods.room.timeline.acquisitions.levels.hooks")
+local nativeGame = require("tests.harness.native_game")
 
 TestLevelAcquisitions = {}
+
+function TestLevelAcquisitions:setUp()
+    self.restoreNative = nativeGame.install({
+        GetAllUpgradeableGodTraits = nativeGame.currentUpgradeableTraits,
+    })
+end
+
+function TestLevelAcquisitions:tearDown()
+    self.restoreNative()
+end
 
 local function capture()
     local callbacks = {}

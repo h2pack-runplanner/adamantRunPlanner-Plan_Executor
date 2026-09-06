@@ -61,7 +61,6 @@ function levels.prepareVisible(row, loot)
 end
 
 local function upgradeableTargets(stackNum)
-    if type(_G.GetAllUpgradeableGodTraits) ~= "function" then return nil, false end
     return _G.GetAllUpgradeableGodTraits(stackNum or 1) or {}, true
 end
 

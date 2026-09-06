@@ -6,25 +6,12 @@ local rewards = type(import) == "function" and import("mods/navigation/rewards.l
 local hooks = {}
 
 local function orderedDoors(value)
-    if type(_G.CollapseTableOrdered) == "function" then return _G.CollapseTableOrdered(value or {}) end
-    local result = {}
-    for _, door in ipairs(value or {}) do result[#result + 1] = door end
-    if #result == 0 then
-        for _, door in pairs(value or {}) do result[#result + 1] = door end
-    end
-    return result
+    return _G.CollapseTableOrdered(value or {})
 end
 
 local function occurrenceForRoom(state, nativeRoom)
     local id = type(nativeRoom) == "table" and nativeRoom.__runPlannerExecutionRoomId or nil
     return id and state and state.plan and state.plan.occurrencesById[id] or nil
-end
-
-local function destinationId(door)
-    if type(door) ~= "table" then return nil end
-    local nativeRoom = door.Room or door.RoomData
-    return door.__runPlannerExecutionDoorTarget
-        or type(nativeRoom) == "table" and nativeRoom.__runPlannerExecutionRoomId
 end
 
 local function withForcedAnomaly(base, currentRun, args, otherDoors, anomaly)
@@ -43,15 +30,7 @@ local function withForcedAnomaly(base, currentRun, args, otherDoors, anomaly)
     return result, true
 end
 
-function hooks.reportSelection(session, state, routeSession, door)
-    local id = destinationId(door)
-    if id == nil then return true end
-    local ok, errorValue = routeSession.reportDestination(state.route, id)
-    if not ok then return session.mismatch(state, errorValue) end
-    return true
-end
-
-function hooks.attach(module, session, getState, report, routeSession, room, transformationScope)
+function hooks.attach(module, _session, getState, report, routeSession, room, transformationScope)
     local doorScope
     local rewardChoiceScope
 
@@ -184,17 +163,8 @@ function hooks.attach(module, session, getState, report, routeSession, room, tra
         local ok, result = pcall(base, currentRun, nativeRoom)
         doorScope = nil
         if not ok then error(result, 0) end
-        local additional
-        normal, additional = doors.partition(occurrence, offeredDoors())
-        if expected and expected.resolvedSharedRewardStoreKey then
-            normal.sharedRewardStoreKey = currentRun.NextRewardStoreName
-        end
-        local proved, errorValue = doors.prove(occurrence, normal, state.plan.occurrencesById)
-        if proved then proved, errorValue = doors.proveAdditional(occurrence, additional) end
-        if not proved then session.mismatch(state, errorValue) else
-            room.checkpoint(state, "outgoingGeneration")
-            room.window(state, "postOutgoing")
-        end
+        room.checkpoint(state, "outgoingGeneration")
+        if state.state == "synchronized" then room.window(state, "postOutgoing") end
         report(runtime)
         return result
     end)
@@ -203,7 +173,6 @@ function hooks.attach(module, session, getState, report, routeSession, room, tra
         local state = getState(runtime)
         if state == nil or state.state ~= "synchronized" then return base(door, args) end
         room.checkpoint(state, "exitUsable")
-        if state.state == "synchronized" then hooks.reportSelection(session, state, routeSession, door) end
         report(runtime)
         return base(door, args)
     end)
@@ -212,6 +181,19 @@ function hooks.attach(module, session, getState, report, routeSession, room, tra
         bindAdditionalRoom = doors.bindAdditional,
         realizeIncomingReward = rewards.realize,
         proveIncomingReward = rewards.prove,
+        proveOutgoingDoors = function(state, currentRun)
+            local occurrence = routeSession.current(state.route)
+            if occurrence == nil or occurrence.doors == nil then return true end
+            local offered = orderedDoors(_G.MapState and _G.MapState.OfferedExitDoors or {})
+            local normal, additional = doors.partition(occurrence, offered)
+            if occurrence.doors.resolvedSharedRewardStoreKey then
+                normal.sharedRewardStoreKey = currentRun and currentRun.NextRewardStoreName
+            end
+            local proved, errorValue = doors.prove(
+                occurrence, normal, state.plan.occurrencesById)
+            if proved then proved, errorValue = doors.proveAdditional(occurrence, additional) end
+            return proved, errorValue
+        end,
     }
 end
 

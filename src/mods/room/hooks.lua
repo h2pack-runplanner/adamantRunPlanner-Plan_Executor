@@ -27,9 +27,8 @@ function hooks.attach(module, session, getState, report, route, room, featureSco
         local gameValue = _G.game or game
         local data = occurrence and room.realize(state, occurrence, gameValue) or nil
         if data ~= nil then data = navigation.realizeIncomingReward(occurrence, data) end
-        local createRoom = gameValue and (gameValue.CreateRoom or _G.CreateRoom)
-        if type(data) == "table" and type(createRoom) == "function" then
-            local value = createRoom(data, args)
+        if type(data) == "table" then
+            local value = (gameValue.CreateRoom or _G.CreateRoom)(data, args)
             report(runtime)
             return value
         end
@@ -95,7 +94,6 @@ function hooks.attach(module, session, getState, report, route, room, featureSco
                 activeObstacles = _G.MapState and _G.MapState.ActiveObstacles,
                 offeredExitDoors = _G.MapState and _G.MapState.OfferedExitDoors,
                 hasObject = function(key)
-                    if type(_G.GetIdsByType) ~= "function" then return false end
                     local ids = _G.GetIdsByType({ Name = key })
                     return type(ids) == "table" and next(ids) ~= nil
                 end,
@@ -108,10 +106,12 @@ function hooks.attach(module, session, getState, report, route, room, featureSco
     module.hooks.wrap("LeaveRoom", "run-planner-room-exit", function(_, runtime, base, currentRun, door)
         local state = getState(runtime)
         if state == nil or state.state ~= "synchronized" then return base(currentRun, door) end
-        room.close(state, currentRun, _G.GameState)
+        local proved, errorValue = navigation.proveOutgoingDoors(state, currentRun)
+        if not proved then session.mismatch(state, errorValue) end
+        if state.state == "synchronized" then room.close(state, currentRun, _G.GameState) end
         if state.state == "synchronized" then
-            local ok, errorValue = route.exit(state.route)
-            if not ok then session.mismatch(state, errorValue) end
+            local ok, routeError = route.exit(state.route)
+            if not ok then session.mismatch(state, routeError) end
         end
         if state.state == "synchronized" and route.expected(state.route) == nil then
             state.reason = "configured-prefix-complete"

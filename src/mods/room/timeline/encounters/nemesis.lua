@@ -26,8 +26,7 @@ function nemesis.attach(module, session, getState, report, room)
             return false
         end
         if item.GameStateRequirements == nil then return true end
-        return type(_G.IsGameStateEligible) == "function"
-            and _G.IsGameStateEligible(item, item.GameStateRequirements) == true
+        return _G.IsGameStateEligible(item, item.GameStateRequirements) == true
     end
 
     local function constrainConsumables(consumables, matches)

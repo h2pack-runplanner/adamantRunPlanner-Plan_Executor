@@ -591,7 +591,7 @@ function TestRouteRoomSessions.testRouteRefusesOverlapThenAdvancesExactlyOnce()
     lu.assertEquals(state.index, 1)
 end
 
-function TestRouteRoomSessions.testRouteAdvancesAcrossSelectedOccurrences()
+function TestRouteRoomSessions.testRouteAdvancesBetweenRoomEntryCheckpoints()
     local first, second = occurrence(), occurrence()
     second.id, second.gameName = "two", "F_Next"
     local plan = {
@@ -600,13 +600,12 @@ function TestRouteRoomSessions.testRouteAdvancesAcrossSelectedOccurrences()
     }
     local state = route.new(plan)
     lu.assertNotNil(route.enter(state, "one", "F_Test"))
-    lu.assertTrue(route.reportDestination(state, "two"))
     lu.assertTrue(route.exit(state))
     lu.assertEquals(state.index, 2)
     lu.assertNotNil(route.enter(state, "two", "F_Next"))
 end
 
-function TestRouteRoomSessions.testRouteRejectsAnUnpublishedDestination()
+function TestRouteRoomSessions.testNextRoomEntryRejectsAnUnpublishedDestination()
     local first, second = occurrence(), occurrence()
     second.id, second.gameName = "two", "F_Next"
     local state = route.new({
@@ -614,6 +613,7 @@ function TestRouteRoomSessions.testRouteRejectsAnUnpublishedDestination()
         occurrencesById = { one = first, two = second },
     })
     lu.assertNotNil(route.enter(state, "one", "F_Test"))
-    lu.assertNil(route.reportDestination(state, "other"))
-    lu.assertEquals(state.firstMismatch.checkpoint, "door-selection")
+    lu.assertTrue(route.exit(state))
+    lu.assertNil(route.enter(state, "other", "F_Other"))
+    lu.assertEquals(state.firstMismatch.checkpoint, "room-entry")
 end
