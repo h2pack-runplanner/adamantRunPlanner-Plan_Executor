@@ -43,6 +43,7 @@ local function traitInventoryExpected(frames)
 end
 
 local readers = {
+    elementCounts = function(state) return state.traits.elements end,
     steadyGrowth = function(state) return state.retainedEffects.steadyGrowth end,
     chaos = function(state) return state.chaos end,
     keepsakeEffects = function(state) return state.retainedEffects.keepsakes end,

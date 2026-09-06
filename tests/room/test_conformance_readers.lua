@@ -19,6 +19,7 @@ end
 function TestConformanceReaders.testSupportBoundaryIsExactlyTheReachedFGFactSet()
     local active = {
         traitInventory = true,
+        elementCounts = true,
         steadyGrowth = true,
         chaos = true,
         keepsakeEffects = true,
@@ -97,7 +98,7 @@ function TestConformanceReaders.testTraitInventoryReadsTheEquippedNativeStackCou
 end
 
 function TestConformanceReaders.testReachableReadersProjectNativeState()
-    local run = { Hero = { Traits = {} }, RewardPriorities = { "Boon" } }
+    local run = { Hero = { Traits = {}, Elements = { Earth = 2 } }, RewardPriorities = { "Boon" } }
     lu.assertEquals(readers.read("steadyGrowth", run, nil, {}), {})
     lu.assertEquals(readers.read("chaos", run), { active = {}, matured = {} })
     local keepsakes = readers.read("keepsakeEffects", run, nil, {})
@@ -105,6 +106,9 @@ function TestConformanceReaders.testReachableReadersProjectNativeState()
     lu.assertEquals(keepsakes.experimentalHammers, {})
     lu.assertTrue(require("mods/protocol/json").isNull(keepsakes.figurine))
     lu.assertEquals(readers.read("rewardPriorities", run), { "Boon" })
+    lu.assertEquals(readers.read("elementCounts", run), {
+        Aether = 0, Earth = 2, Air = 0, Fire = 0, Water = 0,
+    })
     lu.assertEquals(readers.read("pathOfStars", run), {
         spellTraitKey = nil, layoutKey = nil, talentKeys = {}, closed = false,
         bankedPathPoints = 0, investedPathPoints = 0,
@@ -116,6 +120,29 @@ function TestConformanceReaders.testReachableReadersProjectNativeState()
     })
     lu.assertNil(readers.read("echoShopDuplicate", run))
     lu.assertNil(readers.read("hermesShrineDeliveries", run))
+end
+
+function TestConformanceReaders.testElementCountsUseOrdinaryExitProofAndNormalizeMissingKeys()
+    local expected = { Aether = 0, Earth = 2, Air = 0, Fire = 0, Water = 0 }
+    local occurrence = {
+        roomExitConformance = { facts = { { kind = "elementCounts" } } },
+        conformanceExpected = { elementCounts = expected },
+    }
+    local run = { Hero = { Elements = { Earth = 2 } } }
+    lu.assertTrue(proof.prove(occurrence, function(kind, factExpected)
+        return readers.read(kind, run, nil, factExpected)
+    end))
+
+    run.Hero.Elements.Fire = 1
+    local ok, mismatch = proof.prove(occurrence, function(kind, factExpected)
+        return readers.read(kind, run, nil, factExpected)
+    end)
+    lu.assertNil(ok)
+    lu.assertEquals(mismatch.checkpoint, "room-exit-conformance:elementCounts")
+    lu.assertEquals(mismatch.expected, expected)
+    lu.assertEquals(mismatch.observed, {
+        Aether = 0, Earth = 2, Air = 0, Fire = 1, Water = 0,
+    })
 end
 
 function TestConformanceReaders.testSteadyGrowthReadsTheProcessedNativeClockAndInterval()

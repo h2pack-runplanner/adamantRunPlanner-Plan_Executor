@@ -5,35 +5,10 @@ local nativeBindings = type(import) == "function" and import("mods/native_bindin
     or require("mods.native_bindings")
 local bindings = nativeBindings.roomFeatures
 local resources = {}
-local elementKeys = { "Aether", "Earth", "Air", "Fire", "Water" }
 
 local unpackValues = table.unpack
 local function packValues(...)
     return { n = select("#", ...), ... }
-end
-
-function resources.elementMismatch(occurrence, policy, currentRun)
-    local expected = policy and policy.postExitElementCounts
-    if expected == nil then return nil end
-    local hero = type(currentRun) == "table" and currentRun.Hero or nil
-    local elements = type(hero) == "table" and hero.Elements or nil
-    local observed = {}
-    for _, key in ipairs(elementKeys) do
-        observed[key] = type(elements) == "table" and elements[key] or 0
-    end
-    for _, key in ipairs(elementKeys) do
-        if observed[key] ~= expected[key] then
-            return {
-                kind = "resourceElementCounts",
-                checkpoint = "resource-element-counts",
-                occurrenceId = occurrence.id,
-                element = key,
-                expected = expected,
-                observed = observed,
-            }
-        end
-    end
-    return nil
 end
 
 function resources.attach(module, getState, report, route)

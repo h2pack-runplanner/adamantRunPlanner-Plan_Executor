@@ -1,6 +1,6 @@
 {
   "format": "run-planner-execution",
-  "protocolVersion": 25,
+  "protocolVersion": 26,
   "catalogVersion": "0.55.0-anvil-of-fates",
   "projectId": "golden-fg",
   "routeKey": "Underworld",
@@ -87,8 +87,7 @@
           "Exorcism": "native",
           "Shovel": "native",
           "Fishing": "native"
-        },
-        "postExitElementCounts": { "Aether": 0, "Earth": 0, "Air": 1, "Fire": 0, "Water": 0 }
+        }
       },
       {
         "occurrenceId": "golden-f-b1-e1",
@@ -97,8 +96,7 @@
           "Exorcism": "native",
           "Shovel": "native",
           "Fishing": "native"
-        },
-        "postExitElementCounts": { "Aether": 0, "Earth": 0, "Air": 1, "Fire": 0, "Water": 0 }
+        }
       },
       {
         "occurrenceId": "golden-f-b2-e1",
@@ -107,8 +105,7 @@
           "Exorcism": "native",
           "Shovel": "native",
           "Fishing": "native"
-        },
-        "postExitElementCounts": { "Aether": 0, "Earth": 0, "Air": 2, "Fire": 0, "Water": 0 }
+        }
       },
       {
         "occurrenceId": "golden-f-b3-e1",
@@ -117,8 +114,7 @@
           "Exorcism": "native",
           "Shovel": "native",
           "Fishing": "native"
-        },
-        "postExitElementCounts": { "Aether": 0, "Earth": 0, "Air": 2, "Fire": 0, "Water": 0 }
+        }
       },
       {
         "occurrenceId": "golden-f-b4-e1",
@@ -127,8 +123,7 @@
           "Exorcism": "native",
           "Shovel": "native",
           "Fishing": "native"
-        },
-        "postExitElementCounts": { "Aether": 0, "Earth": 0, "Air": 2, "Fire": 0, "Water": 0 }
+        }
       },
       {
         "occurrenceId": "golden-f-b5-e1",
@@ -137,8 +132,7 @@
           "Exorcism": "native",
           "Shovel": "native",
           "Fishing": "native"
-        },
-        "postExitElementCounts": { "Aether": 0, "Earth": 0, "Air": 2, "Fire": 0, "Water": 0 }
+        }
       },
       {
         "occurrenceId": "golden-f-b6-e1",
@@ -147,8 +141,7 @@
           "Exorcism": "native",
           "Shovel": "native",
           "Fishing": "native"
-        },
-        "postExitElementCounts": { "Aether": 0, "Earth": 0, "Air": 3, "Fire": 0, "Water": 0 }
+        }
       },
       {
         "occurrenceId": "golden-f-b7-e1",
@@ -157,8 +150,7 @@
           "Exorcism": "native",
           "Shovel": "native",
           "Fishing": "native"
-        },
-        "postExitElementCounts": { "Aether": 0, "Earth": 0, "Air": 3, "Fire": 0, "Water": 0 }
+        }
       },
       {
         "occurrenceId": "golden-f-b8-e1",
@@ -167,8 +159,7 @@
           "Exorcism": "native",
           "Shovel": "native",
           "Fishing": "native"
-        },
-        "postExitElementCounts": { "Aether": 0, "Earth": 0, "Air": 3, "Fire": 1, "Water": 0 }
+        }
       },
       {
         "occurrenceId": "golden-f-b9-e1",
@@ -177,8 +168,7 @@
           "Exorcism": "native",
           "Shovel": "native",
           "Fishing": "native"
-        },
-        "postExitElementCounts": { "Aether": 0, "Earth": 0, "Air": 3, "Fire": 1, "Water": 0 }
+        }
       },
       {
         "occurrenceId": "golden-f-b10-e1",
@@ -187,8 +177,7 @@
           "Exorcism": "native",
           "Shovel": "native",
           "Fishing": "native"
-        },
-        "postExitElementCounts": { "Aether": 0, "Earth": 0, "Air": 3, "Fire": 1, "Water": 0 }
+        }
       },
       {
         "occurrenceId": "golden-f-preboss-shop",
@@ -197,8 +186,7 @@
           "Exorcism": "native",
           "Shovel": "native",
           "Fishing": "native"
-        },
-        "postExitElementCounts": { "Aether": 0, "Earth": 0, "Air": 3, "Fire": 1, "Water": 0 }
+        }
       },
       {
         "occurrenceId": "golden-f-preboss-shop:boss",
@@ -207,8 +195,7 @@
           "Exorcism": "native",
           "Shovel": "native",
           "Fishing": "native"
-        },
-        "postExitElementCounts": { "Aether": 0, "Earth": 0, "Air": 3, "Fire": 1, "Water": 0 }
+        }
       },
       {
         "occurrenceId": "golden-f-preboss-shop:postboss",
@@ -217,8 +204,7 @@
           "Exorcism": "native",
           "Shovel": "native",
           "Fishing": "native"
-        },
-        "postExitElementCounts": { "Aether": 0, "Earth": 0, "Air": 3, "Fire": 1, "Water": 0 }
+        }
       },
       {
         "occurrenceId": "golden-g-intro",
@@ -227,8 +213,7 @@
           "Exorcism": "native",
           "Shovel": "native",
           "Fishing": "native"
-        },
-        "postExitElementCounts": { "Aether": 0, "Earth": 0, "Air": 3, "Fire": 1, "Water": 0 }
+        }
       },
       {
         "occurrenceId": "golden-g-intro:chaos",
@@ -237,8 +222,7 @@
           "Exorcism": "native",
           "Shovel": "native",
           "Fishing": "native"
-        },
-        "postExitElementCounts": { "Aether": 0, "Earth": 0, "Air": 3, "Fire": 1, "Water": 0 }
+        }
       },
       {
         "occurrenceId": "golden-g-b2-e1",
@@ -247,8 +231,7 @@
           "Exorcism": "native",
           "Shovel": "native",
           "Fishing": "native"
-        },
-        "postExitElementCounts": { "Aether": 0, "Earth": 0, "Air": 3, "Fire": 1, "Water": 0 }
+        }
       },
       {
         "occurrenceId": "golden-g-b3-e1",
@@ -257,8 +240,7 @@
           "Exorcism": "native",
           "Shovel": "native",
           "Fishing": "native"
-        },
-        "postExitElementCounts": { "Aether": 0, "Earth": 0, "Air": 3, "Fire": 1, "Water": 0 }
+        }
       },
       {
         "occurrenceId": "golden-g-b4-e1",
@@ -267,8 +249,7 @@
           "Exorcism": "native",
           "Shovel": "native",
           "Fishing": "native"
-        },
-        "postExitElementCounts": { "Aether": 0, "Earth": 0, "Air": 3, "Fire": 1, "Water": 0 }
+        }
       },
       {
         "occurrenceId": "golden-g-b5-e1",
@@ -277,8 +258,7 @@
           "Exorcism": "native",
           "Shovel": "native",
           "Fishing": "native"
-        },
-        "postExitElementCounts": { "Aether": 0, "Earth": 0, "Air": 3, "Fire": 1, "Water": 0 }
+        }
       },
       {
         "occurrenceId": "golden-g-b6-e1",
@@ -287,8 +267,7 @@
           "Exorcism": "native",
           "Shovel": "native",
           "Fishing": "native"
-        },
-        "postExitElementCounts": { "Aether": 0, "Earth": 0, "Air": 3, "Fire": 2, "Water": 0 }
+        }
       },
       {
         "occurrenceId": "golden-g-b7-e1",
@@ -297,8 +276,7 @@
           "Exorcism": "native",
           "Shovel": "native",
           "Fishing": "native"
-        },
-        "postExitElementCounts": { "Aether": 0, "Earth": 0, "Air": 3, "Fire": 2, "Water": 0 }
+        }
       },
       {
         "occurrenceId": "ixion-chaos-g-preboss-shop",
@@ -307,8 +285,7 @@
           "Exorcism": "native",
           "Shovel": "native",
           "Fishing": "native"
-        },
-        "postExitElementCounts": { "Aether": 0, "Earth": 0, "Air": 3, "Fire": 2, "Water": 0 }
+        }
       },
       {
         "occurrenceId": "ixion-chaos-g-preboss-shop:boss",
@@ -317,8 +294,7 @@
           "Exorcism": "native",
           "Shovel": "native",
           "Fishing": "native"
-        },
-        "postExitElementCounts": { "Aether": 0, "Earth": 0, "Air": 3, "Fire": 2, "Water": 0 }
+        }
       },
       {
         "occurrenceId": "ixion-chaos-g-preboss-shop:postboss",
@@ -414,7 +390,7 @@
         ],
         "resolvedSharedRewardStoreKey": "MetaProgress"
       },
-      "roomExitConformance": { "facts": [{ "kind": "traitInventory" }] },
+      "roomExitConformance": { "facts": [{ "kind": "elementCounts" }, { "kind": "traitInventory" }] },
       "diagnostics": {
         "roomEntered": {
           "frame": 0,
@@ -695,6 +671,7 @@
         ],
         "resolvedSharedRewardStoreKey": "RunProgress"
       },
+      "roomExitConformance": { "facts": [{ "kind": "elementCounts" }] },
       "diagnostics": {
         "roomEntered": {
           "frame": 2,
@@ -822,7 +799,7 @@
         ],
         "resolvedSharedRewardStoreKey": "RunProgress"
       },
-      "roomExitConformance": { "facts": [{ "kind": "traitInventory" }] },
+      "roomExitConformance": { "facts": [{ "kind": "elementCounts" }, { "kind": "traitInventory" }] },
       "diagnostics": {
         "roomEntered": {
           "frame": 4,
@@ -994,6 +971,7 @@
         ],
         "resolvedSharedRewardStoreKey": "RunProgress"
       },
+      "roomExitConformance": { "facts": [{ "kind": "elementCounts" }] },
       "diagnostics": {
         "roomEntered": {
           "frame": 6,
@@ -1137,7 +1115,7 @@
         ],
         "resolvedSharedRewardStoreKey": "MetaProgress"
       },
-      "roomExitConformance": { "facts": [{ "kind": "traitInventory" }] },
+      "roomExitConformance": { "facts": [{ "kind": "elementCounts" }, { "kind": "traitInventory" }] },
       "diagnostics": {
         "roomEntered": {
           "frame": 8,
@@ -1296,6 +1274,7 @@
         ],
         "resolvedSharedRewardStoreKey": "RunProgress"
       },
+      "roomExitConformance": { "facts": [{ "kind": "elementCounts" }] },
       "diagnostics": {
         "roomEntered": {
           "frame": 10,
@@ -1436,7 +1415,7 @@
         ],
         "resolvedSharedRewardStoreKey": "RunProgress"
       },
-      "roomExitConformance": { "facts": [{ "kind": "traitInventory" }] },
+      "roomExitConformance": { "facts": [{ "kind": "elementCounts" }, { "kind": "traitInventory" }] },
       "diagnostics": {
         "roomEntered": {
           "frame": 12,
@@ -1610,6 +1589,7 @@
         ],
         "resolvedSharedRewardStoreKey": "RunProgress"
       },
+      "roomExitConformance": { "facts": [{ "kind": "elementCounts" }] },
       "diagnostics": {
         "roomEntered": {
           "frame": 14,
@@ -1735,7 +1715,7 @@
         ],
         "resolvedSharedRewardStoreKey": "MetaProgress"
       },
-      "roomExitConformance": { "facts": [{ "kind": "traitInventory" }] },
+      "roomExitConformance": { "facts": [{ "kind": "elementCounts" }, { "kind": "traitInventory" }] },
       "diagnostics": {
         "roomEntered": {
           "frame": 16,
@@ -1894,6 +1874,7 @@
         ],
         "resolvedSharedRewardStoreKey": "RunProgress"
       },
+      "roomExitConformance": { "facts": [{ "kind": "elementCounts" }] },
       "diagnostics": {
         "roomEntered": {
           "frame": 18,
@@ -2032,6 +2013,7 @@
         ],
         "resolvedSharedRewardStoreKey": "RunProgress"
       },
+      "roomExitConformance": { "facts": [{ "kind": "elementCounts" }] },
       "diagnostics": {
         "roomEntered": {
           "frame": 20,
@@ -2130,6 +2112,7 @@
         "kind": "fixed",
         "target": { "id": "golden-f-preboss-shop:boss", "biomeKey": "F", "gameName": "F_Boss01" }
       },
+      "roomExitConformance": { "facts": [{ "kind": "elementCounts" }] },
       "diagnostics": {
         "roomEntered": {
           "frame": 22,
@@ -2198,6 +2181,7 @@
           "gameName": "F_PostBoss01"
         }
       },
+      "roomExitConformance": { "facts": [{ "kind": "elementCounts" }] },
       "diagnostics": {
         "roomEntered": {
           "frame": 24,
@@ -2296,7 +2280,7 @@
         "kind": "fixed",
         "target": { "id": "golden-g-intro", "biomeKey": "G", "gameName": "G_Intro" }
       },
-      "roomExitConformance": { "facts": [{ "kind": "stygianWell" }] },
+      "roomExitConformance": { "facts": [{ "kind": "elementCounts" }, { "kind": "stygianWell" }] },
       "diagnostics": {
         "roomEntered": {
           "frame": 26,
@@ -2386,7 +2370,7 @@
         ],
         "resolvedSharedRewardStoreKey": "RunProgress"
       },
-      "roomExitConformance": { "facts": [{ "kind": "stygianWell" }] },
+      "roomExitConformance": { "facts": [{ "kind": "elementCounts" }, { "kind": "stygianWell" }] },
       "diagnostics": {
         "roomEntered": {
           "frame": 28,
@@ -2565,7 +2549,7 @@
         ],
         "resolvedSharedRewardStoreKey": "MetaProgress"
       },
-      "roomExitConformance": { "facts": [{ "kind": "chaos" }] },
+      "roomExitConformance": { "facts": [{ "kind": "elementCounts" }, { "kind": "chaos" }] },
       "diagnostics": {
         "roomEntered": {
           "frame": 30,
@@ -2703,7 +2687,7 @@
         ],
         "resolvedSharedRewardStoreKey": "RunProgress"
       },
-      "roomExitConformance": { "facts": [{ "kind": "chaos" }] },
+      "roomExitConformance": { "facts": [{ "kind": "elementCounts" }, { "kind": "chaos" }] },
       "diagnostics": {
         "roomEntered": {
           "frame": 32,
@@ -2854,7 +2838,7 @@
         ],
         "resolvedSharedRewardStoreKey": "RunProgress"
       },
-      "roomExitConformance": { "facts": [{ "kind": "chaos" }] },
+      "roomExitConformance": { "facts": [{ "kind": "elementCounts" }, { "kind": "chaos" }] },
       "diagnostics": {
         "roomEntered": {
           "frame": 34,
@@ -3048,7 +3032,7 @@
         "resolvedSharedRewardStoreKey": "RunProgress"
       },
       "roomExitConformance": {
-        "facts": [{ "kind": "traitInventory" }, { "kind": "chaos" }, { "kind": "pathOfStars" }]
+        "facts": [{ "kind": "elementCounts" }, { "kind": "traitInventory" }, { "kind": "chaos" }, { "kind": "pathOfStars" }]
       },
       "diagnostics": {
         "roomEntered": {
@@ -3211,6 +3195,7 @@
         ],
         "resolvedSharedRewardStoreKey": "RunProgress"
       },
+      "roomExitConformance": { "facts": [{ "kind": "elementCounts" }] },
       "diagnostics": {
         "roomEntered": {
           "frame": 38,
@@ -3361,7 +3346,7 @@
         ],
         "resolvedSharedRewardStoreKey": "MetaProgress"
       },
-      "roomExitConformance": { "facts": [{ "kind": "traitInventory" }] },
+      "roomExitConformance": { "facts": [{ "kind": "elementCounts" }, { "kind": "traitInventory" }] },
       "diagnostics": {
         "roomEntered": {
           "frame": 40,
@@ -3546,6 +3531,7 @@
         ],
         "resolvedSharedRewardStoreKey": "RunProgress"
       },
+      "roomExitConformance": { "facts": [{ "kind": "elementCounts" }] },
       "diagnostics": {
         "roomEntered": {
           "frame": 42,
@@ -3648,6 +3634,7 @@
           "gameName": "G_Boss01"
         }
       },
+      "roomExitConformance": { "facts": [{ "kind": "elementCounts" }] },
       "diagnostics": {
         "roomEntered": {
           "frame": 44,
@@ -3716,6 +3703,7 @@
           "gameName": "G_PostBoss01"
         }
       },
+      "roomExitConformance": { "facts": [{ "kind": "elementCounts" }] },
       "diagnostics": {
         "roomEntered": {
           "frame": 46,
@@ -3775,6 +3763,7 @@
         "owner": "[\"occurrence\",\"Underworld\",\"G\",\"ixion-chaos-g-preboss-shop:postboss\"]",
         "kind": "terminal"
       },
+      "roomExitConformance": { "facts": [{ "kind": "elementCounts" }] },
       "diagnostics": {
         "roomEntered": {
           "frame": 48,
@@ -3798,5 +3787,5 @@
       }
     }
   ],
-  "planFingerprint": "19ae1893"
+  "planFingerprint": "f55ea72b"
 }

@@ -110,8 +110,6 @@ function TestResourcePolicy.testRouteRetainsCurrentAcrossExitAndExposesNextForPr
     lu.assertTrue(route.exit(cursor))
     lu.assertEquals(route.current(cursor), first)
     lu.assertEquals(route.next(cursor), second)
-    lu.assertEquals(route.validateNext(cursor, "two", "F_Two"), second)
-    lu.assertTrue(route.acknowledge(cursor))
     lu.assertTrue(route.advance(cursor))
     lu.assertEquals(route.expected(cursor), second)
 end

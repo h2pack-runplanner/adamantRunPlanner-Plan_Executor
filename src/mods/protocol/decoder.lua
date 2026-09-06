@@ -13,7 +13,7 @@ local resources = type(import) == "function" and import("mods/protocol/resources
 
 local protocol = {
     FORMAT = "run-planner-execution",
-    VERSION = 25,
+    VERSION = 26,
     CATALOG_VERSION = "0.55.0-anvil-of-fates",
     MAX_ITEMS = p.MAX_ITEMS,
     MAX_STRING = p.MAX_STRING,
@@ -85,13 +85,9 @@ local function validateResources(resourcePolicy, selected, occurrenceIds)
     if #rows ~= #selected then
         return p.fail("execution plan.resources must follow selectedOccurrenceIds exactly")
     end
-    local terminal = selected[#selected]
     for index, row in ipairs(rows) do
         if row.occurrenceId ~= selected[index] or occurrenceIds[row.occurrenceId] == nil then
             return p.fail("execution plan.resources has an unresolved or misordered occurrence")
-        end
-        if (row.postExitElementCounts == nil) ~= (row.occurrenceId == terminal) then
-            return p.fail("execution plan.resources has an invalid post-exit count boundary")
         end
     end
     return true

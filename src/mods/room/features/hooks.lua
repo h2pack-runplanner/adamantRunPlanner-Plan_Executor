@@ -62,7 +62,6 @@ function hooks.attach(module, _, getState, report, room, route)
 
     return {
         currentAdditional = function() return pendingAdditional end,
-        resourceElementMismatch = resources.elementMismatch,
     }
 end
 

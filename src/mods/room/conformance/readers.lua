@@ -8,8 +8,9 @@ local conformanceBindings = nativeBindings.conformance
 local keepsakeConformance = type(import) == "function" and import("mods/keepsakes/conformance.lua")
     or require("mods.keepsakes.conformance")
 local readers = {}
+local elementKeys = { "Aether", "Earth", "Air", "Fire", "Water" }
 local supported = {
-    traitInventory = true,
+    traitInventory = true, elementCounts = true,
     steadyGrowth = true, chaos = true, keepsakeEffects = true,
     rewardPriorities = true, pathOfStars = true, forfeit = true, stygianWell = true,
 }
@@ -21,6 +22,16 @@ end
 local function traits(run)
     local hero = type(run) == "table" and run.Hero or nil
     return type(hero) == "table" and hero.Traits or nil
+end
+
+local function elements(run)
+    local hero = type(run) == "table" and run.Hero or nil
+    local native = type(hero) == "table" and hero.Elements or nil
+    local result = {}
+    for _, key in ipairs(elementKeys) do
+        result[key] = type(native) == "table" and (native[key] or 0) or 0
+    end
+    return result
 end
 
 local function findTrait(run, key)
@@ -195,6 +206,7 @@ end
 
 function readers.read(kind, run, gameState, expected)
     if kind == "traitInventory" then return modeledTraitInventory(run, expected) end
+    if kind == "elementCounts" then return elements(run) end
     if kind == "steadyGrowth" then return steadyGrowth(run, expected) end
     if kind == "chaos" then return activeChaos(run) end
     if kind == "keepsakeEffects" then return keepsakeConformance.read(run, gameState, expected) end

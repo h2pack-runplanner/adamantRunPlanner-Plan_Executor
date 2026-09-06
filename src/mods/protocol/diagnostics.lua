@@ -2,6 +2,7 @@ local p = type(import) == "function" and import("mods/protocol/primitives.lua")
     or require("mods.protocol.primitives")
 
 local diagnostics = {}
+local elementKeys = { "Aether", "Earth", "Air", "Fire", "Water" }
 
 local sections = {
     "counters",
@@ -160,8 +161,14 @@ local function validateTraits(value, label)
             return p.fail(label .. " has invalid trait slot")
         end
     end
-    if not p.recordNumbers(record.elements, label .. ".elements")
-        or not p.recordNumbers(record.godRarityCounts, label .. ".godRarityCounts")
+    local elements, elementsError = p.exact(record.elements, elementKeys, {}, label .. ".elements")
+    if not elements then return nil, elementsError end
+    for _, key in ipairs(elementKeys) do
+        if not p.int(elements[key], label .. ".elements." .. key, 0) then
+            return p.fail(label .. " has invalid element counts")
+        end
+    end
+    if not p.recordNumbers(record.godRarityCounts, label .. ".godRarityCounts")
         or not p.int(record.upgradableCount, label .. ".upgradableCount", 0) then
         return p.fail(label .. " has invalid trait summary")
     end

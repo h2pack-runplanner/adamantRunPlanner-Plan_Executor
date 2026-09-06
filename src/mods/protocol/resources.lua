@@ -1,28 +1,14 @@
--- Strict decoding for the route-owned physical resource and element policy.
+-- Strict decoding for the route-owned physical resource-point policy.
 local p = type(import) == "function" and import("mods/protocol/primitives.lua")
     or require("mods.protocol.primitives")
 
 local resources = {}
 local families = { Pickaxe = true, Exorcism = true, Shovel = true, Fishing = true }
-local elements = { "Aether", "Earth", "Air", "Fire", "Water" }
-
-local function elementCounts(value, label)
-    local record, errorMessage = p.exact(value, elements, {}, label)
-    if not record then return nil, errorMessage end
-    local result = {}
-    for _, element in ipairs(elements) do
-        local count, countError = p.int(record[element], label .. "." .. element, 0)
-        if countError then return nil, countError end
-        result[element] = count
-    end
-    return result
-end
-
 local function occurrence(value, label)
     local record, errorMessage = p.exact(
         value,
         { "occurrenceId", "pointDispositions" },
-        { "postExitElementCounts" },
+        {},
         label
     )
     if not record then return nil, errorMessage end
@@ -50,14 +36,6 @@ local function occurrence(value, label)
         occurrenceId = record.occurrenceId,
         pointDispositions = pointDispositions,
     }
-    if record.postExitElementCounts ~= nil then
-        local counts, countsError = elementCounts(
-            record.postExitElementCounts,
-            label .. ".postExitElementCounts"
-        )
-        if not counts then return nil, countsError end
-        result.postExitElementCounts = counts
-    end
     return result
 end
 

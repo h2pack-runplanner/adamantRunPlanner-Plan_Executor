@@ -129,7 +129,6 @@ function TestRouteRoomSessions.testTerminalPrefixIgnoresLaterRoomEntry()
     local state = route.new({ selectedOccurrenceIds = { "one" }, occurrencesById = { one = occurrence() } })
     lu.assertNotNil(route.enter(state, "one", "F_Test"))
     lu.assertTrue(route.exit(state))
-    lu.assertTrue(route.acknowledge(state))
     lu.assertTrue(route.advance(state))
     lu.assertTrue(route.enter(state, "unsupported", "H_Opening"))
 end
@@ -604,20 +603,7 @@ function TestRouteRoomSessions.testRouteAdvancesBetweenRoomEntryCheckpoints()
     lu.assertNotNil(route.enter(state, "one", "F_Test"))
     lu.assertTrue(route.exit(state))
     lu.assertEquals(state.index, 1)
-    lu.assertTrue(route.acknowledge(state))
     lu.assertTrue(route.advance(state))
     lu.assertEquals(state.index, 2)
     lu.assertNotNil(route.enter(state, "two", "F_Next"))
-end
-
-function TestRouteRoomSessions.testNextRoomEntryRejectsAnUnpublishedDestination()
-    local first, second = occurrence(), occurrence()
-    second.id, second.gameName = "two", "F_Next"
-    local state = route.new({
-        selectedOccurrenceIds = { "one", "two" },
-        occurrencesById = { one = first, two = second },
-    })
-    lu.assertNotNil(route.enter(state, "one", "F_Test"))
-    lu.assertTrue(route.exit(state))
-    lu.assertNil(route.validateNext(state, "other", "F_Other"))
 end

@@ -159,7 +159,12 @@ function occurrences.decode(value, selected, label)
                 label .. ".roomExitConformance"
             )
             if not expected then return nil, conformanceError end
+            if expected.elementCounts == nil then
+                return p.fail(label .. " conformance is missing elementCounts")
+            end
             row.conformanceExpected = expected
+        elseif expanded.beforeRoomExit ~= nil then
+            return p.fail(label .. " beforeRoomExit diagnostic is missing room-exit conformance")
         end
         result[index] = row
     end

@@ -19,6 +19,7 @@ function TestProtocol.testConformanceResolverProjectsNamedFactsAndRejectsUnknown
         "rewardPriorities": ["boon"],
         "hexProgress": {"investedPathPoints":2},
         "forfeit": "inactive"
+        ,"traits": {"elements": {"Aether":0,"Earth":0,"Air":0,"Fire":0,"Water":0}}
     }]]))
     local expected, errorMessage = conformance.resolve(assert(json.decode([[{
         "facts": [
@@ -28,7 +29,8 @@ function TestProtocol.testConformanceResolverProjectsNamedFactsAndRejectsUnknown
             {"kind":"rewardPriorities"},
             {"kind":"pathOfStars"},
             {"kind":"forfeit"},
-            {"kind":"stygianWell"}
+            {"kind":"stygianWell"},
+            {"kind":"elementCounts"}
         ]
     }]])), state, "roomExitConformance")
     lu.assertNotNil(expected, errorMessage)
@@ -39,6 +41,7 @@ function TestProtocol.testConformanceResolverProjectsNamedFactsAndRejectsUnknown
     lu.assertEquals(expected.pathOfStars, state.hexProgress)
     lu.assertEquals(expected.forfeit, state.forfeit)
     lu.assertEquals(expected.stygianWell, state.retainedEffects.stygianWell)
+    lu.assertEquals(expected.elementCounts, state.traits.elements)
 
     local unknown = conformance.resolve(assert(json.decode([[{
         "facts": [{"kind":"unknown"}]
@@ -164,7 +167,7 @@ local function minimalPlan(transactions)
     end
     local plan = tagged({
         format = "run-planner-execution",
-        protocolVersion = 25,
+        protocolVersion = 26,
         catalogVersion = "0.55.0-anvil-of-fates",
         projectId = "test-project",
         planFingerprint = "00000000",
@@ -508,7 +511,7 @@ function TestProtocol.testProtocolRejectsLegacyVectorsFromAnIndependentDecoderMo
     lu.assertNil(protocol.decode(plan))
 end
 
-function TestProtocol.testProtocol25RequiresCompleteOrderedRouteResourcePolicyAndRejectsLegacyOverview()
+function TestProtocol.testProtocol26RequiresCompleteOrderedRouteResourcePolicyAndRejectsLegacyOverview()
     local plan = minimalPlan({})
     lu.assertNotNil(protocol.decode(plan))
 
@@ -527,10 +530,16 @@ function TestProtocol.testProtocol25RequiresCompleteOrderedRouteResourcePolicyAn
     lu.assertNil(protocol.decode(plan))
 
     plan = minimalPlan({})
-    plan.resources.occurrences[1].postExitElementCounts = {
-        Aether = 0, Earth = 0, Air = 0, Fire = 0, Water = 0,
-    }
+    plan.resources.occurrences[1].postExitElementCounts = {}
     refreshFingerprint(plan)
+    lu.assertNil(protocol.decode(plan))
+
+    plan = decodeWithIndependentJsonModule("f-opening")
+    plan.occurrences[1].diagnostics.roomEntered.replace.traits.elements.Water = nil
+    lu.assertNil(protocol.decode(plan))
+
+    plan = decodeWithIndependentJsonModule("f-opening")
+    plan.occurrences[1].diagnostics.roomEntered.replace.traits.elements.Unknown = 0
     lu.assertNil(protocol.decode(plan))
 end
 

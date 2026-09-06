@@ -1,6 +1,6 @@
 -- Sole outer cursor for the configured route. A room exit starts a native
--- transition while retaining the departing occurrence; the next room entry
--- settles that transition before advancing the cursor.
+-- transition while retaining the departing occurrence; the LeaveRoom wrapper
+-- advances the cursor immediately after the native call returns.
 local routeSession = {}
 
 function routeSession.new(plan)
@@ -10,7 +10,7 @@ function routeSession.new(plan)
     end
     return {
         plan = plan, index = 1, currentOccurrence = nil,
-        resourcesById = resourcesById, transitioning = false, transitionAcknowledged = false,
+        resourcesById = resourcesById, transitioning = false,
         firstMismatch = nil, diagnostics = {},
     }
 end
@@ -32,26 +32,6 @@ function routeSession.next(route)
     if route == nil or route.plan == nil then return nil end
     local id = route.plan.selectedOccurrenceIds[route.index + 1]
     return id and route.plan.occurrencesById[id] or nil
-end
-
-function routeSession.validateNext(route, occurrenceId, gameName)
-    if not routeSession.isTransitioning(route) then
-        return nil, {
-            checkpoint = "route-transition",
-            expected = "active native transition",
-            observed = { id = occurrenceId, gameName = gameName },
-        }
-    end
-    local occurrence = routeSession.next(route)
-    if occurrence == nil then return true end
-    if occurrenceId ~= occurrence.id or gameName ~= occurrence.gameName then
-        return nil, {
-            checkpoint = "room-entry",
-            expected = occurrence,
-            observed = { id = occurrenceId, gameName = gameName },
-        }
-    end
-    return occurrence
 end
 
 function routeSession.currentResource(route)
@@ -107,30 +87,16 @@ function routeSession.exit(route)
         return nil, route.firstMismatch
     end
     route.transitioning = true
-    route.transitionAcknowledged = false
-    return true
-end
-
--- A stable native checkpoint (including a future restored Hub) may acknowledge
--- the departing occurrence without promoting that checkpoint to an occurrence
--- or advancing the authored cursor.
-function routeSession.acknowledge(route)
-    if route == nil or not route.transitioning or route.currentOccurrence == nil then
-        return nil
-    end
-    route.transitionAcknowledged = true
     return true
 end
 
 function routeSession.advance(route)
-    if route == nil or not route.transitioning or not route.transitionAcknowledged
-        or route.currentOccurrence == nil then
+    if route == nil or not route.transitioning or route.currentOccurrence == nil then
         return nil
     end
     route.index = route.index + 1
     route.currentOccurrence = nil
     route.transitioning = false
-    route.transitionAcknowledged = false
     return true
 end
 
