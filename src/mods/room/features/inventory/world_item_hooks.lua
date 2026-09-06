@@ -70,11 +70,9 @@ function hooks.attach(module, session, getState, report, room, route, scope)
                 or bindingKey and room.resolve(state, active, { kind = "offer", offerKey = bindingKey }) or nil
             handle = materializedHandle(state, active, room, handle, itemKey)
             handle = room.bind(state, active, handle, result)
-            -- Refill materializes before its acquisition dependency is ready;
-            -- only preserve its exact native-object binding here.
-            local payload = not shrineDelivery and itemData.__runPlannerSourceOwner == nil
-                and handle and room.begin(state, handle) or nil
-            if payload and payload.transaction.kind == "wellRefill" then session.complete(state, handle) end
+            -- Inventory construction only binds the native object.  The
+            -- Timeline owner begins at its interaction contact; in particular,
+            -- merely spawning a World Shop item is not a purchase.
             local paid = itemData.__runPlannerPaidShopOffer == true
             local sourceOwned = itemData.__runPlannerSourceOwner ~= nil
             if type(result) == "table" and result.ObjectId ~= nil and (handle ~= nil or paid) then

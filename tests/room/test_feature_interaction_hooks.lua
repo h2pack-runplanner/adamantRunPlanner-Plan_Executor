@@ -326,7 +326,7 @@ end
 
 function TestFeatureInteractionHooks.testWorldShopCompletionUsesCurrentRoomPurchaseCounter()
     local module, _, callbacks = capture()
-    local completed
+    local completed, begun = nil, 0
     local node = { owner = "shop", kind = "shopPurchase", offerKey = "Boon" }
     local active = opaque({
         occurrence = { overview = { shop = { offers = {
@@ -337,6 +337,10 @@ function TestFeatureInteractionHooks.testWorldShopCompletionUsesCurrentRoomPurch
     end)
     local session = stub()
     session.current = function() return active end
+    session.begin = function(_, handle)
+        begun = begun + 1
+        return fakePayload(handle)
+    end
     session.complete = function(_, row)
         completed = { row = row }
         return true
@@ -351,10 +355,12 @@ function TestFeatureInteractionHooks.testWorldShopCompletionUsesCurrentRoomPurch
     lu.assertEquals(itemData.__runPlannerOfferKey, "Boon")
     local world = { ObjectId = 7 }
     callbacks.SpawnStoreItemInWorld(nil, {}, function() return world end, itemData, nil)
+    lu.assertEquals(begun, 0)
     callbacks.RemoveStoreItem(nil, {}, function()
         _G.CurrentRun.CurrentRoom.StoreItemsPurchased = _G.CurrentRun.CurrentRoom.StoreItemsPurchased + 1
     end, { Id = 7 })
     _G.CurrentRun = priorRun
+    lu.assertEquals(begun, 1)
     lu.assertEquals(fakePayload(completed.row).transaction.owner, "shop")
 end
 
