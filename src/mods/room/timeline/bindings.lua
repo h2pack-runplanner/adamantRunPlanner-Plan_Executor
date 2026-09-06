@@ -73,6 +73,7 @@ function bindings.resolve(index, contact, source)
     end
     if contact.kind == "offer" then return indexed(index, "offer", contact.offerKey)
     elseif contact.kind == "generation" then return indexed(index, "generation", contact.generationKey)
+    elseif contact.kind == "source" then return indexed(index, "source", contact.sourceOwner)
     elseif contact.kind == "encounterInteraction" then
         return indexed(index, "encounterInteraction", contact.phaseKey)
     elseif contact.kind == "slot" then return indexed(index, "slot", contact.slotKey)

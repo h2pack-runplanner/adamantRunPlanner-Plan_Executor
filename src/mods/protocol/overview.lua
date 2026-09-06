@@ -12,7 +12,9 @@ local generationKeys = {
 }
 
 local function shop(value, label)
-    local record, errorMessage = p.exact(value, { "profileKey", "offers" }, { "travelDealRefill" }, label)
+    local record, errorMessage = p.exact(
+        value, { "profileKey", "offers" }, { "travelDealRefill", "infernalContract" }, label
+    )
     if not record then return nil, errorMessage end
     if not p.str(record.profileKey, label .. ".profileKey") then
         return p.fail(label .. " has invalid profileKey")
@@ -38,16 +40,28 @@ local function shop(value, label)
             end
         end
     end
+    if record.infernalContract ~= nil then
+        local contract, contractError = p.exact(
+            record.infernalContract, { "sourceOwner", "rewardType" }, {}, label .. ".infernalContract"
+        )
+        if not contract then return nil, contractError end
+        if not p.str(contract.sourceOwner, label .. ".infernalContract.sourceOwner", p.MAX_OWNER_STRING)
+            or not p.str(contract.rewardType, label .. ".infernalContract.rewardType") then
+            return p.fail(label .. " has invalid Infernal Contract pedestal")
+        end
+    end
     if record.travelDealRefill ~= nil then
         local refill, refillError = p.exact(
             record.travelDealRefill,
-            { "sourceOfferKey", "slotIndex", "optionKey", "reward" },
+            { "sourceOfferKey", "sourceOwner", "slotIndex", "groupIndex", "optionKey", "reward" },
             {},
             label .. ".travelDealRefill"
         )
         if not refill then return nil, refillError end
         if not p.str(refill.sourceOfferKey, label .. ".travelDealRefill.sourceOfferKey")
+            or not p.str(refill.sourceOwner, label .. ".travelDealRefill.sourceOwner", p.MAX_OWNER_STRING)
             or not p.int(refill.slotIndex, label .. ".travelDealRefill.slotIndex", 0)
+            or not p.int(refill.groupIndex, label .. ".travelDealRefill.groupIndex", 0)
             or not p.str(refill.optionKey, label .. ".travelDealRefill.optionKey") then
             return p.fail(label .. " has invalid Travel Deal refill")
         end

@@ -1,12 +1,12 @@
 -- Timeline contacts for interacting with already-realized room features.
 -- Feature adapters own native inventory construction and expose only stable
 -- item bindings; this module owns purchases, sales, uses, and acquired effects.
-local carriers = type(import) == "function" and import("mods/room/features/store_carriers.lua")
-    or require("mods.room.features.store_carriers")
 local nativeBindings = type(import) == "function" and import("mods/native_bindings.lua")
     or require("mods.native_bindings")
 local aromaticPhial = type(import) == "function" and import("mods/keepsakes/aromatic_phial.lua")
     or require("mods.keepsakes.aromatic_phial")
+local anvil = type(import) == "function" and import("mods/room/timeline/transformations/anvil.lua")
+    or require("mods.room.timeline.transformations.anvil")
 local hooks = {}
 
 local function current(state, room)
@@ -23,6 +23,7 @@ local function shopBinding(payload, bindingKey)
 end
 
 local function completesAtPurchase(node)
+    if node and node.anvilResult ~= nil then return false end
     for _, role in ipairs(node and node.roles or {}) do
         if role.lifecyclePoint ~= "purchase" or role.traitOffer ~= nil or role.levelResolution ~= nil then
             return false
@@ -48,6 +49,7 @@ function hooks.attach(module, session, getState, report, room, inventoryBindings
         room = room,
         phialTraitKey = nativeBindings.conformance.keepsakeTraits.phial,
     })
+    local anvilScope = anvil.attach(module, session, report)
 
     module.hooks.wrap("HandleStorePurchase", "run-planner-store-purchase", function(_, runtime, base, screen,
         button, args)
@@ -63,33 +65,50 @@ function hooks.attach(module, session, getState, report, room, inventoryBindings
         handle = materializedHandle(state, active, room, handle, itemKey)
         handle = room.bind(state, active, handle, item)
         local payload = handle and room.begin(state, handle) or nil
+        local transaction = payload and payload.transaction
         pendingTwist = item and item.__runPlannerTwistResultKey
-        local purchasesBefore = _G.CurrentRun and _G.CurrentRun.WellPurchases
+        local purchasesBefore = transaction and transaction.kind == "wellPurchase"
+            and _G.CurrentRun and _G.CurrentRun.WellPurchases or nil
         local ok, result = pcall(base, screen, button, args)
         pendingTwist = nil
         if not ok then error(result, 0) end
-        local purchasesAfter = _G.CurrentRun and _G.CurrentRun.WellPurchases
-        local transaction = payload and payload.transaction
-        local purchased = payload ~= nil and (transaction.kind ~= "wellPurchase"
-            or type(purchasesBefore) ~= "number" or purchasesAfter == purchasesBefore + 1)
-        local nativeEligible = transaction == nil or transaction.kind ~= "wellPurchase"
-            or carriers.eligible(itemKey, args, true)
+        local purchasesAfter = transaction and transaction.kind == "wellPurchase"
+            and _G.CurrentRun and _G.CurrentRun.WellPurchases or nil
+        local purchased = payload ~= nil and type(purchasesBefore) == "number"
+            and purchasesAfter == purchasesBefore + 1
         local exact = transaction and (
             transaction.kind == "wellPurchase"
             and transaction.offerKey == itemKey
             or transaction.kind == "shopPurchase"
             and shopBinding(payload, bindingKey)
         )
-        if payload and not exact then
-            session.mismatch(state, "purchase-selection",
-                transaction.kind == "wellPurchase" and transaction.offerKey or transaction.offerKey,
-                itemKey or bindingKey)
-        elseif transaction and (not nativeEligible or not purchased or result == false) then
-            session.mismatch(state, "purchase-selection", itemKey,
-                not nativeEligible and "native-ineligible" or "native-rejected")
-        elseif purchased and completesAtPurchase(transaction) then
-            session.complete(state, handle)
+        if transaction == nil or transaction.kind ~= "shopPurchase" then
+            if payload and not exact then
+                session.mismatch(state, "purchase-selection", transaction.offerKey,
+                    itemKey or bindingKey)
+            elseif transaction and (not purchased or result == false) then
+                session.mismatch(state, "purchase-selection", itemKey,
+                    "native-rejected")
+            elseif purchased and completesAtPurchase(transaction) then
+                session.complete(state, handle)
+            end
         end
+        report(runtime)
+        return result
+    end)
+
+    module.hooks.wrap("UseConsumableItem", "run-planner-anvil-use", function(_, runtime, base,
+        item, args, user)
+        local state = getState(runtime)
+        local active = current(state, room)
+        local handle = active and room.bound(state, active, item) or nil
+        local payload = handle and room.peek(state, handle) or nil
+        local scope = anvilScope.beginUse(state, payload)
+        if scope == nil then return base(item, args, user) end
+        local ok, result = pcall(base, item, args, user)
+        local called = anvilScope.finishUse(scope)
+        if not ok then error(result, 0) end
+        if called then session.complete(state, handle) end
         report(runtime)
         return result
     end)
@@ -107,13 +126,19 @@ function hooks.attach(module, session, getState, report, room, inventoryBindings
         local state = getState(runtime)
         local binding = type(args) == "table" and inventoryBindings.find(args.Id) or nil
         local handle = binding and binding.handle
-        local payload = handle and room.begin(state, handle) or nil
+        local preview = handle and room.peek(state, handle) or nil
+        local payload = preview and preview.transaction.kind == "shopPurchase"
+            and room.begin(state, handle) or nil
         local nativeRoom = _G.CurrentRun and _G.CurrentRun.CurrentRoom
         local before = nativeRoom and nativeRoom.StoreItemsPurchased or 0
         local result = base(args)
         local after = nativeRoom and nativeRoom.StoreItemsPurchased or 0
-        if payload and payload.transaction.kind == "shopPurchase" and completesAtPurchase(payload.transaction) then
-            if after ~= before + 1 or not shopBinding(payload, binding.bindingKey) then
+        local accepted = after == before + 1
+        local exactShopHandle = preview and preview.transaction.kind == "shopPurchase"
+        if accepted and binding and binding.paid and not binding.sourceOwned and not exactShopHandle then
+            session.mismatch(state, "purchase-selection", "authored Shop purchase", binding.bindingKey)
+        elseif payload and completesAtPurchase(payload.transaction) then
+            if not accepted or not shopBinding(payload, binding.bindingKey) then
                 session.mismatch(state, "purchase-selection", binding.bindingKey, binding.itemKey)
             else
                 session.complete(state, handle)

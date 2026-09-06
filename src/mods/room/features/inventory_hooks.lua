@@ -32,10 +32,12 @@ end
 function hooks.attach(module, session, getState, report, room, route)
     local inventorySources
     local refillScope
+    local contractScope
     local worldItemsById = {}
 
     local bindingFields = {
         "__runPlannerOfferKey", "__runPlannerGenerationKey", "__runPlannerTwistResultKey",
+        "__runPlannerSourceOwner", "__runPlannerContractSourceOwner", "__runPlannerPaidShopOffer",
     }
 
     local function captureStoreBindings()
@@ -71,7 +73,7 @@ function hooks.attach(module, session, getState, report, room, route)
         local state = getState(runtime)
         local active = current(session, state, room, route)
         local prepared, errorValue = inventory.prepare(active and active.occurrence, args,
-            refillScope ~= nil)
+            refillScope ~= nil, contractScope ~= nil)
         if errorValue then mismatch(session, state, errorValue); report(runtime); return base(args) end
         inventorySources = {}
         for _, offer in ipairs(prepared and prepared.expected or {}) do
@@ -82,6 +84,7 @@ function hooks.attach(module, session, getState, report, room, route)
         end
         local result = base(prepared and prepared.args or args)
         inventorySources = nil
+        result = inventory.placeRefill(prepared, result)
         result = inventory.order(prepared, result)
         local ok, verifyError = inventory.verify(prepared, result)
         if not ok then mismatch(session, state, verifyError) end
@@ -117,16 +120,32 @@ function hooks.attach(module, session, getState, report, room, route)
         args)
         local state = getState(runtime)
         local active = current(session, state, room, route)
-        local handle = active and room.resolve(state, active,
-            { kind = "generation", generationKey = "travelDealRefill" })
-        if handle ~= nil and room.begin(state, handle) == nil then
-            report(runtime)
-            return base(index, kitId, args)
+        local refill = active and active.occurrence.overview.shop
+            and active.occurrence.overview.shop.travelDealRefill
+        if refill == nil then return base(index, kitId, args) end
+        if index ~= refill.slotIndex + 1 then
+            mismatch(session, state, {
+                checkpoint = "shop-refill-slot", expected = refill.slotIndex + 1, observed = index,
+            })
         end
         local prior = refillScope
-        refillScope = active and { index = index, kitId = kitId } or nil
+        refillScope = active and {
+            index = index, kitId = kitId,
+            groupIndex = refill and refill.groupIndex,
+        } or nil
         local ok, result = pcall(base, index, kitId, args)
         refillScope = prior
+        if not ok then error(result, 0) end
+        report(runtime)
+        return result
+    end)
+
+    module.hooks.wrap("SpawnZagContractRewards", "run-planner-contract-inventory", function(_, runtime, base,
+        nativeRoom, args)
+        local prior = contractScope
+        contractScope = true
+        local ok, result = pcall(base, nativeRoom, args)
+        contractScope = prior
         if not ok then error(result, 0) end
         report(runtime)
         return result
@@ -141,16 +160,27 @@ function hooks.attach(module, session, getState, report, room, route)
             local generationKey = itemData.__runPlannerGenerationKey
             local bindingKey = itemData.__runPlannerOfferKey or itemData.Name or itemData.ItemName
             local itemKey = itemData.Name or itemData.ItemName or bindingKey
-            local handle = generationKey and room.resolve(state, active,
+            local handle = itemData.__runPlannerSourceOwner and room.resolve(state, active,
+                { kind = "source", sourceOwner = itemData.__runPlannerSourceOwner })
+                or itemData.__runPlannerContractSourceOwner and room.resolve(state, active,
+                { kind = "source", sourceOwner = itemData.__runPlannerContractSourceOwner })
+                or generationKey and room.resolve(state, active,
                 { kind = "generation", generationKey = generationKey })
                 or bindingKey and room.resolve(state, active, { kind = "offer", offerKey = bindingKey }) or nil
             handle = materializedHandle(state, active, room, handle, itemKey)
             handle = room.bind(state, active, handle, result)
-            local payload = handle and room.begin(state, handle) or nil
+            -- A Travel Deal refill materializes during the source purchase,
+            -- before its acquisition dependency can be ready. Preserve the
+            -- exact native-object binding; the pickup adapter begins it later.
+            local payload = itemData.__runPlannerSourceOwner == nil
+                and handle and room.begin(state, handle) or nil
             if payload and payload.transaction.kind == "wellRefill" then session.complete(state, handle) end
-            if type(result) == "table" and result.ObjectId ~= nil and handle ~= nil then
+            local paid = itemData.__runPlannerPaidShopOffer == true
+            local sourceOwned = itemData.__runPlannerSourceOwner ~= nil
+            if type(result) == "table" and result.ObjectId ~= nil and (handle ~= nil or paid) then
                 worldItemsById[result.ObjectId] = {
                     handle = handle, bindingKey = bindingKey, itemKey = itemKey,
+                    paid = paid, sourceOwned = sourceOwned,
                 }
             end
         end

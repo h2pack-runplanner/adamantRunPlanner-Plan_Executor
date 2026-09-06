@@ -43,7 +43,8 @@ function TestRuntimeComposition.testExplicitGateBHookGroupsStayInstalled()
         "NemesisTradeChoice", "NPCRewardDropPreProcess", "NPCRewardDropPreProcessArgs", "NemesisDamageContestTimer",
         "CirceRandomMetaUpgrade", "AddRandomMetaUpgrades", "CirceMetaUpgradeRarity",
         "CirceRemoveShrineUpgrades", "RandomChance", "GetRandomKey",
-        "FillInShopOptions", "CreateStoreButtons", "RestockWorldItem",
+        "FillInShopOptions", "CreateStoreButtons", "RestockWorldItem", "CreateConsumableItem",
+        "ChaosHammerUpgrade",
         "SpawnStoreItemInWorld", "RemoveStoreItem", "HandleStorePurchase",
     }) do
         lu.assertNotNil(names[name], name)

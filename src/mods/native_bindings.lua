@@ -9,6 +9,12 @@ return {
         },
     },
     roomFeatures = {
+        shopOptionCarriers = {
+            BoostedRandomLoot = {
+                name = "RandomLoot",
+                argsMarkers = { "AddBoostedAnimation", "BoonRaritiesOverride" },
+            },
+        },
         resourceSuccessFields = {
             FireEssence = "PickaxePointSuccess",
             AirEssence = "ExorcismPointSuccess",

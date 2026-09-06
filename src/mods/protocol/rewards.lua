@@ -3,6 +3,24 @@ local p = type(import) == "function" and import("mods/protocol/primitives.lua")
 
 local rewards = {}
 
+function rewards.anvilResult(value, label)
+    local record, errorMessage = p.exact(
+        value, { "kind", "removedTraitKey", "addedTraitKeys" }, {}, label
+    )
+    if not record then return nil, errorMessage end
+    if record.kind ~= "anvilOfFates" then return p.fail(label .. ".kind is unsupported") end
+    if not p.json.isNull(record.removedTraitKey)
+        and not p.str(record.removedTraitKey, label .. ".removedTraitKey") then
+        return p.fail(label .. " has invalid removedTraitKey")
+    end
+    local added, addedError = p.strings(record.addedTraitKeys, label .. ".addedTraitKeys", 2)
+    if not added then return nil, addedError end
+    if #added ~= 2 or added[1] == added[2] then
+        return p.fail(label .. ".addedTraitKeys must contain two distinct traits")
+    end
+    return record
+end
+
 local optionKeys = { option1 = true, option2 = true, option3 = true }
 function rewards.reward(value, label)
     local record, errorMessage = p.exact(

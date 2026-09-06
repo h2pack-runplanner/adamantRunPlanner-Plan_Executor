@@ -164,7 +164,7 @@ local function minimalPlan(transactions)
     end
     local plan = tagged({
         format = "run-planner-execution",
-        protocolVersion = 21,
+        protocolVersion = 22,
         catalogVersion = "0.55.0-anvil-of-fates",
         projectId = "test-project",
         planFingerprint = "00000000",
@@ -425,7 +425,7 @@ function TestProtocol.testAllGateA2VectorsDecodeAndExpandDiagnostics()
     for _, name in ipairs({ "f-opening", "fg", "fg-ixion-chaos", "fg-anomaly", "automatic-boss" }) do
         local plan, errorMessage = protocol.decode(decode(name))
         lu.assertNotNil(plan, errorMessage)
-        lu.assertEquals(plan.protocolVersion, 21)
+        lu.assertEquals(plan.protocolVersion, 22)
         lu.assertNotNil(plan.occurrences[1].diagnostics.roomEntered)
     end
 end
@@ -732,6 +732,37 @@ function TestProtocol.testFountainUseRequiresItsPublishedInteractionContact()
     value.occurrences[1].timeline.transactions[1].interactionKey = "other"
     refreshFingerprint(value)
     lu.assertNil(protocol.decode(value))
+end
+
+function TestProtocol.testAnvilResultExistsOnlyOnThePurchasedAnvilTransaction()
+    local transaction = {
+        kind = "shopPurchase",
+        owner = "anvil",
+        window = window("postOutgoing"),
+        offerKey = "Anvil",
+        rewardType = "ChaosWeaponUpgrade",
+        sourceOwner = "source",
+        reward = { rewardType = "ChaosWeaponUpgrade", producerLifecycleKey = "Q_WorldShop" },
+        producerLifecycleKey = "Q_WorldShop",
+        roles = {},
+        anvilResult = {
+            kind = "anvilOfFates",
+            removedTraitKey = json.null,
+            addedTraitKeys = { "HammerA", "HammerB" },
+        },
+    }
+    lu.assertNotNil(protocol.decode(minimalPlan({ transaction })))
+
+    transaction.anvilResult = nil
+    lu.assertNil(protocol.decode(minimalPlan({ transaction })))
+
+    transaction.rewardType = "MaxHealthDrop"
+    transaction.anvilResult = {
+        kind = "anvilOfFates",
+        removedTraitKey = json.null,
+        addedTraitKeys = { "HammerA", "HammerB" },
+    }
+    lu.assertNil(protocol.decode(minimalPlan({ transaction })))
 end
 
 function TestProtocol.testKeepsakeReplayIsAClosedBeforeCombatEquipTransaction()

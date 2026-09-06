@@ -214,7 +214,7 @@ local function shopPurchase(value, label)
             "kind", "owner", "window", "offerKey", "rewardType", "sourceOwner", "reward",
             "producerLifecycleKey", "roles",
         },
-        {},
+        { "anvilResult" },
         label
     )
     if not record then return nil, errorMessage end
@@ -236,6 +236,16 @@ local function shopPurchase(value, label)
         if role.seaStarResult ~= nil then
             return p.fail(label .. ".roles may not publish Sea Star results for purchases")
         end
+    end
+    if record.rewardType == "ChaosWeaponUpgrade" and record.anvilResult == nil then
+        return p.fail(label .. ".anvilResult is required for an Anvil purchase")
+    end
+    if record.rewardType ~= "ChaosWeaponUpgrade" and record.anvilResult ~= nil then
+        return p.fail(label .. ".anvilResult is only valid for an Anvil purchase")
+    end
+    if record.anvilResult ~= nil then
+        local _, anvilError = rewards.anvilResult(record.anvilResult, label .. ".anvilResult")
+        if anvilError then return nil, anvilError end
     end
     return record
 end
