@@ -152,10 +152,11 @@ local function steadyGrowth(run, expected)
     local result = {}
     for _, row in ipairs(expected or {}) do
         local trait = findTrait(run, row.traitKey)
+        local roomsPerUpgrade = type(trait) == "table" and trait.RoomsPerUpgrade or nil
         result[#result + 1] = {
             traitKey = row.traitKey,
-            progress = type(trait) == "table" and (trait.SteadyGrowthProgress or 0) or 0,
-            interval = row.interval,
+            progress = type(trait) == "table" and (trait.CurrentRoom or 0) or 0,
+            interval = type(roomsPerUpgrade) == "table" and (roomsPerUpgrade.Amount or 0) or 0,
         }
     end
     return result
@@ -169,7 +170,12 @@ end
 local function durationList(run, key)
     local result = {}
     for _, trait in pairs(traits(run) or {}) do
-        if traitKey(trait) == key then result[#result + 1] = trait.RemainingUses or 0 end
+        if traitKey(trait) == key then
+            local uses = trait.RemainingUses or 0
+            -- The planner uses a negative counter for an Extended item whose
+            -- native duration advances on bosses rather than encounters.
+            result[#result + 1] = trait.UsesAsBosses and -uses or uses
+        end
     end
     table.sort(result)
     return result

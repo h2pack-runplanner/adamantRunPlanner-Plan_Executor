@@ -97,14 +97,14 @@ function TestConformanceReaders.testTraitInventoryReadsTheEquippedNativeStackCou
 end
 
 function TestConformanceReaders.testReachableReadersProjectNativeState()
-    local run = { Hero = { Traits = {} }, RewardPriorities = { Boon = 1 } }
+    local run = { Hero = { Traits = {} }, RewardPriorities = { "Boon" } }
     lu.assertEquals(readers.read("steadyGrowth", run, nil, {}), {})
     lu.assertEquals(readers.read("chaos", run), { active = {}, matured = {} })
     local keepsakes = readers.read("keepsakeEffects", run, nil, {})
     lu.assertEquals(keepsakes.olympianSources, {})
     lu.assertEquals(keepsakes.experimentalHammers, {})
     lu.assertTrue(require("mods/protocol/json").isNull(keepsakes.figurine))
-    lu.assertEquals(readers.read("rewardPriorities", run), { Boon = 1 })
+    lu.assertEquals(readers.read("rewardPriorities", run), { "Boon" })
     lu.assertEquals(readers.read("pathOfStars", run), {
         spellTraitKey = nil, layoutKey = nil, talentKeys = {}, closed = false,
         bankedPathPoints = 0, investedPathPoints = 0,
@@ -116,6 +116,55 @@ function TestConformanceReaders.testReachableReadersProjectNativeState()
     })
     lu.assertNil(readers.read("echoShopDuplicate", run))
     lu.assertNil(readers.read("hermesShrineDeliveries", run))
+end
+
+function TestConformanceReaders.testSteadyGrowthReadsTheProcessedNativeClockAndInterval()
+    local expected = { { traitKey = "BoonGrowthBoon", progress = 1, interval = 4 } }
+    local run = { Hero = { Traits = { {
+        Name = "BoonGrowthBoon",
+        CurrentRoom = 3,
+        RoomsPerUpgrade = { Amount = 5 },
+    } } } }
+
+    lu.assertEquals(readers.read("steadyGrowth", run, nil, expected), {
+        { traitKey = "BoonGrowthBoon", progress = 3, interval = 5 },
+    })
+
+    run.Hero.Traits = {}
+    lu.assertEquals(readers.read("steadyGrowth", run, nil, expected), {
+        { traitKey = "BoonGrowthBoon", progress = 0, interval = 0 },
+    })
+end
+
+function TestConformanceReaders.testChaosReaderUsesTheLivePairClockAndRemainingUses()
+    local run = { Hero = { Traits = {
+        {
+            Name = "ChaosDamageCurse",
+            Rarity = "Common",
+            RemainingUses = 2,
+            UsesAsEncounters = true,
+            OnExpire = { TraitData = { Name = "ChaosWeaponBlessing", Rarity = "Epic" } },
+        },
+        { Name = "ChaosHealthBlessing", Rarity = "Rare" },
+    } } }
+    lu.assertEquals(readers.read("chaos", run), {
+        active = { {
+            curseKey = "ChaosDamageCurse", blessingKey = "ChaosWeaponBlessing",
+            rarity = "Epic", clock = "encounters", remaining = 2,
+        } },
+        matured = { { blessingKey = "ChaosHealthBlessing", rarity = "Rare" } },
+    })
+end
+
+function TestConformanceReaders.testForfeitUsesTheNativeShrineRankAndBiomeCounter()
+    _G.GetNumShrineUpgrades = function(name)
+        lu.assertEquals(name, "BoonSkipShrineUpgrade")
+        return 2
+    end
+    local run = { BiomeBoonSkipCount = 1 }
+    lu.assertEquals(readers.read("forfeit", run), "available")
+    run.BiomeBoonSkipCount = 2
+    lu.assertEquals(readers.read("forfeit", run), "consumed")
 end
 
 function TestConformanceReaders.testPathReaderProjectsOnlyPublishedHighValueTalentsInCanonicalOrder()
@@ -153,6 +202,17 @@ function TestConformanceReaders.testStygianWellReaderRetainsIxionAndDurationStat
     })
 end
 
+function TestConformanceReaders.testStygianWellReaderDistinguishesEncounterAndBossDurations()
+    local run = { Hero = { Traits = {
+        { Name = "TemporaryDiscountTrait", RemainingUses = 2, UsesAsEncounters = true },
+        { Name = "TemporaryEmptySlotDamageTrait", RemainingUses = 2, UsesAsBosses = true },
+    } } }
+    lu.assertEquals(readers.read("stygianWell", run), {
+        sparkUses = 0, yarnUses = 0, hymnUses = 0, discountUses = { 2 },
+        emptySlotUses = { -2 }, extendedUses = 0,
+    })
+end
+
 function TestConformanceReaders.testKeepsakeReaderDerivesMutableFigurineStateFromNativeTraits()
     local expected = { figurine = { origin = "ordinary", status = "pending", rarity = "Epic" } }
     local run = {
@@ -162,9 +222,18 @@ function TestConformanceReaders.testKeepsakeReaderDerivesMutableFigurineStateFro
     lu.assertEquals(readers.read("keepsakeEffects", run, nil, expected).figurine, {
         origin = "ordinary", status = "pending", rarity = "Rare",
     })
+    run.TemporaryMetaUpgrades.SomeUnrelatedTemporaryArcana = true
+    lu.assertEquals(readers.read("keepsakeEffects", run, nil, expected).figurine, {
+        origin = "ordinary", status = "pending", rarity = "Rare",
+    })
     run.Hero.Traits[1].RemainingUses = 0
     lu.assertEquals(readers.read("keepsakeEffects", run, nil, expected).figurine, {
         origin = "ordinary", status = "consumed", rarity = "Rare",
+    })
+
+    run.Hero.Traits = {}
+    lu.assertEquals(readers.read("keepsakeEffects", run, nil, expected).figurine, {
+        origin = "ordinary", status = "consumed", rarity = "Epic",
     })
 end
 
@@ -281,12 +350,16 @@ function TestConformanceReaders.testKeepsakeReaderUsesNativeOlympianSourceCharge
     local run = {
         Hero = { Traits = { {
             Name = "ForceApolloBoonKeepsake", Uses = 1,
-            RarityUpgradeData = { Uses = 0, LootName = "ApolloUpgrade", MaxRarity = 3 },
+            RarityUpgradeData = { Uses = 0, LootName = "ApolloUpgrade", MaxRarity = 2 },
         } } },
     }
     lu.assertEquals(readers.read("keepsakeEffects", run, nil, expected).olympianSources, { {
         keepsakeKey = "ForceApolloBoonKeepsake", providerKey = "Apollo", origin = "ordinary",
         acquisitionOrder = 3, remainingForceUses = 1, remainingRarificationUses = 0,
-        maximumSourceRarityLevel = 3,
+        maximumSourceRarityLevel = 2,
     } })
+
+    run.Hero.Traits[1].RarityUpgradeData = nil
+    local malformed = readers.read("keepsakeEffects", run, nil, expected).olympianSources[1]
+    lu.assertEquals(malformed.maximumSourceRarityLevel, 0)
 end

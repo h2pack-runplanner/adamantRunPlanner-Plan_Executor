@@ -89,6 +89,11 @@ function conformance.read(run, gameState, expected)
     for _, source in ipairs(expected.olympianSources or {}) do
         local trait = findTrait(run, source.keepsakeKey)
         local rarityUpgrade = type(trait) == "table" and trait.RarityUpgradeData or nil
+        local maximumSourceRarityLevel = source.maximumSourceRarityLevel
+        if type(trait) == "table" then
+            maximumSourceRarityLevel = type(rarityUpgrade) == "table"
+                and rarityUpgrade.MaxRarity or 0
+        end
         result.olympianSources[#result.olympianSources + 1] = {
             keepsakeKey = source.keepsakeKey,
             providerKey = source.providerKey,
@@ -97,7 +102,9 @@ function conformance.read(run, gameState, expected)
             remainingForceUses = type(trait) == "table" and (trait.Uses or 0) > 0 and 1 or 0,
             remainingRarificationUses = type(rarityUpgrade) == "table"
                 and (rarityUpgrade.Uses or 0) > 0 and 1 or 0,
-            maximumSourceRarityLevel = source.maximumSourceRarityLevel,
+            -- A live processed keepsake owns its realized rarity ceiling. A
+            -- fully consumed and removed source retains only planner history.
+            maximumSourceRarityLevel = maximumSourceRarityLevel,
         }
     end
     if expected.jeweledPom ~= nil and not json.isNull(expected.jeweledPom) then
@@ -175,12 +182,13 @@ function conformance.read(run, gameState, expected)
     end
     if expected.figurine ~= nil and not json.isNull(expected.figurine) then
         local trait = findTrait(run, conformanceBindings.keepsakeTraits.figurine)
-        local temporary = type(run) == "table" and next(run.TemporaryMetaUpgrades or {}) ~= nil
+        local pending = type(trait) == "table"
+            and type(trait.RemainingUses) == "number" and trait.RemainingUses > 0
         result.figurine = {
             origin = expected.figurine.origin,
-            status = (temporary or (trait and (trait.RemainingUses or 0) == 0))
-                and "consumed" or "pending",
-            rarity = trait and trait.Rarity or expected.figurine.rarity,
+            status = pending and "pending" or "consumed",
+            rarity = type(trait) == "table" and (trait.Rarity or "")
+                or expected.figurine.rarity,
         }
     end
     if expected.stone ~= nil and not json.isNull(expected.stone) then
