@@ -32,6 +32,35 @@ function TestTimelineBindings.testIndexesRejectAmbiguousPublishedKeys()
     lu.assertEquals(errorValue.checkpoint, "timeline-binding")
 end
 
+function TestTimelineBindings.testWellRefillAndReplacementPurchaseUseDistinctContacts()
+    local item = occurrence()
+    item.transactionsByOwner = {
+        initial = {
+            owner = "initial", kind = "wellPurchase", generationKey = "initial:secondLeft",
+            offerKey = "TemporaryDiscountTrait", window = { kind = "postOutgoing" },
+        },
+        realized = {
+            owner = "realized", kind = "wellRefill", generationKey = "travelDealRefill",
+            offerKey = "TemporaryEmptySlotDamageTrait", effect = "emptySlot",
+            window = { kind = "postOutgoing" },
+        },
+        replacement = {
+            owner = "replacement", kind = "wellPurchase", generationKey = "travelDealRefill",
+            offerKey = "TemporaryEmptySlotDamageTrait", window = { kind = "postOutgoing" },
+        },
+    }
+    local index = assert(bindings.index(item))
+    lu.assertEquals(bindings.resolve(index,
+        { kind = "wellPurchase", generationKey = "travelDealRefill" }).transaction.owner,
+        "replacement")
+    lu.assertEquals(bindings.resolve(index,
+        { kind = "wellRefill", generationKey = "travelDealRefill" }).transaction.owner,
+        "realized")
+    lu.assertEquals(bindings.resolve(index,
+        { kind = "wellPurchase", generationKey = "initial:secondLeft" }).transaction.owner,
+        "initial")
+end
+
 function TestTimelineBindings.testKeepsakeReplayUsesItsOwnCarrierNamespace()
     local item = occurrence()
     item.transactionsByOwner = {

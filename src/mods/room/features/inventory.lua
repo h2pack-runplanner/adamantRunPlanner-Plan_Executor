@@ -75,12 +75,41 @@ local function retainRawOffers(values, offers)
     return result, matchesFound
 end
 
-function inventory.prepare(occurrence, args, refillOnly, contractOnly)
+local function wellOffers(well)
+    local byGeneration = {}
+    for _, rawOffer in ipairs(well and well.offers or {}) do
+        local offer = copy(rawOffer)
+        byGeneration[offer.generationKey] = offer
+    end
+    return byGeneration
+end
+
+local function retainWellOffer(storeData, offer)
+    if type(offer) ~= "table" then return false end
+    local matched = false
+    if storeData.HealingOffers and storeData.HealingOffers.WeightedList then
+        local retained, count = retainAndCount(storeData.HealingOffers.WeightedList,
+            { [offer.offerKey] = true })
+        storeData.HealingOffers.WeightedList = retained
+        matched = matched or count > 0
+    end
+    local wanted = { [offer.offerKey] = true }
+    local retained, count = retainAndCount(storeData.Traits, wanted)
+    storeData.Traits = retained
+    matched = matched or count > 0
+    retained, count = retainAndCount(storeData.Consumables, wanted)
+    storeData.Consumables = retained
+    matched = matched or count > 0
+    return matched
+end
+
+function inventory.prepare(occurrence, args, refillScope, contractOnly)
     local expected = occurrence and occurrence.overview or {}
     local shop, well = expected.shop, expected.stygianWell
     local storeData = copy(type(args) == "table" and args.StoreData or nil)
     if type(storeData) ~= "table" then return nil end
-    if refillOnly and shop and shop.travelDealRefill then
+    if type(refillScope) == "table" and refillScope.kind == "shop"
+        and shop and shop.travelDealRefill then
         local refill = copy(shop.travelDealRefill)
         local group = storeData.GroupsOf and storeData.GroupsOf[refill.groupIndex + 1]
         if type(group) ~= "table" then
@@ -93,6 +122,21 @@ function inventory.prepare(occurrence, args, refillOnly, contractOnly)
         local result = copy(args or {})
         result.StoreData = storeData
         return { kind = "shopRefill", expected = { refill }, args = result }
+    end
+    if type(refillScope) == "table" and refillScope.kind == "well"
+        and well and well.interacted then
+        local refill = wellOffers(well)["travelDealRefill"]
+        if refill == nil then
+            return nil, { checkpoint = "well-refill", expected = "published refill", observed = nil }
+        end
+        if not retainWellOffer(storeData, refill) then
+            return nil, { checkpoint = "well-refill-inventory", expected = refill.offerKey, observed = nil }
+        end
+        local expectedRefill = copy(refill)
+        expectedRefill.slotIndex = refillScope.slotIndex
+        local result = copy(args or {})
+        result.StoreData = storeData
+        return { kind = "wellRefill", expected = { expectedRefill }, args = result }
     end
     if contractOnly and shop and shop.infernalContract then
         if type(storeData.GroupsOf) ~= "table" then return nil end
@@ -153,11 +197,7 @@ function inventory.prepare(occurrence, args, refillOnly, contractOnly)
         return { kind = "shop", expected = expectedOffers, args = result }
     end
     if well and well.interacted then
-        local byGeneration = {}
-        for _, rawOffer in ipairs(well.offers or {}) do
-            local offer = copy(rawOffer)
-            byGeneration[offer.generationKey] = offer
-        end
+        local byGeneration = wellOffers(well)
         local healing = byGeneration["initial:healing"]
         local left = byGeneration["initial:secondLeft"]
         local right = byGeneration["initial:secondRight"]
@@ -200,11 +240,14 @@ function inventory.order(prepared, store)
 end
 
 function inventory.placeRefill(prepared, store)
-    if prepared == nil or prepared.kind ~= "shopRefill" or type(store) ~= "table"
+    if prepared == nil or (prepared.kind ~= "shopRefill" and prepared.kind ~= "wellRefill")
+        or type(store) ~= "table"
         or type(store.StoreOptions) ~= "table" then return store end
     local option = store.StoreOptions[1]
     if option == nil then return store end
-    store.StoreOptions = { [prepared.expected[1].slotIndex + 1] = option }
+    local refill = prepared.expected[1]
+    local index = prepared.kind == "shopRefill" and refill.slotIndex + 1 or refill.slotIndex
+    store.StoreOptions = { [index] = option }
     return store
 end
 
@@ -223,7 +266,9 @@ function inventory.verify(prepared, store)
         option.__runPlannerContractSourceOwner = contract.sourceOwner
         return true
     end
-    local offset = prepared.kind == "shopRefill" and prepared.expected[1].slotIndex or 0
+    local offset = 0
+    if prepared.kind == "shopRefill" then offset = prepared.expected[1].slotIndex end
+    if prepared.kind == "wellRefill" then offset = prepared.expected[1].slotIndex - 1 end
     for index, offer in ipairs(prepared.expected) do
         local option = store.StoreOptions[index + offset]
         local expectedKey = offer.optionKey or offer.offerKey

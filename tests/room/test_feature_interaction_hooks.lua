@@ -5,6 +5,7 @@ local json = require("mods.protocol.json")
 local mysteryAcquisitions = require("mods.room.timeline.acquisitions.mystery.hooks")
 local traitAcquisitions = require("mods.room.timeline.acquisitions.traits.hooks")
 local logic = require("mods.runtime.composition")
+local runtimeSession = require("mods.runtime.session")
 local support = require("tests.harness.hook_composition")
 local capture, stub, opaque = support.capture, support.stub, support.opaque
 local fakePayload, attachFeatureHooks = support.fakePayload, support.attachFeatureHooks
@@ -351,6 +352,298 @@ function TestFeatureInteractionHooks.testRejectedWellPurchaseReportsMismatchWith
     lu.assertEquals(nativeCalls, 1)
     lu.assertEquals(completed, 0)
     lu.assertEquals(mismatch, 1)
+end
+
+function TestFeatureInteractionHooks.testUninteractedWellLeavesNativeInventoryUntouched()
+    local module, _, callbacks = capture()
+    local active = opaque({ occurrence = { overview = {
+        stygianWell = { interacted = false },
+    } } }, function() return nil end)
+    local session = stub()
+    session.current = function() return active end
+    attachFeatureHooks(module, session, function() return {} end, function() end, session)
+
+    local source = {
+        StoreData = {
+            HealingOffers = { WeightedList = { { Name = "ArmorBoostStore" } } },
+            Traits = { { Name = "TemporaryDiscountTrait" } },
+            Consumables = { { Name = "RandomStoreItem" } },
+        },
+    }
+    local received
+    local generated = callbacks.FillInShopOptions(nil, {}, function(args)
+        received = args
+        return { StoreOptions = { { Name = "ArmorBoostStore" } } }
+    end, source)
+    lu.assertTrue(received == source)
+    lu.assertEquals(generated.StoreOptions[1].Name, "ArmorBoostStore")
+end
+
+function TestFeatureInteractionHooks.testInteractedWellSteersItsThreeInitialOfferSlots()
+    local module, _, callbacks = capture()
+    local expected = {
+        { generationKey = "initial:healing", offerKey = "ArmorBoostStore" },
+        { generationKey = "initial:secondLeft", offerKey = "TemporaryDiscountTrait" },
+        { generationKey = "initial:secondRight", offerKey = "RandomStoreItem" },
+    }
+    local active = opaque({ occurrence = { overview = {
+        stygianWell = { interacted = true, offers = expected },
+    } } }, function() return nil end)
+    local session = stub()
+    session.current = function() return active end
+    attachFeatureHooks(module, session, function() return {} end, function() end, session)
+
+    local generated = callbacks.FillInShopOptions(nil, {}, function(args)
+        return { StoreOptions = {
+            args.StoreData.HealingOffers.WeightedList[1],
+            args.StoreData.Traits[1],
+            args.StoreData.Consumables[1],
+        } }
+    end, { StoreData = {
+        HealingOffers = { WeightedList = {
+            { Name = "HealDropRange" }, { Name = "ArmorBoostStore" },
+        } },
+        Traits = { { Name = "TemporaryDiscountTrait" }, { Name = "TemporaryMoveSpeedTrait" } },
+        Consumables = { { Name = "RandomStoreItem" }, { Name = "LastStandShopItem" } },
+    } })
+
+    lu.assertEquals(generated.StoreOptions[1].Name, "ArmorBoostStore")
+    lu.assertEquals(generated.StoreOptions[2].Name, "TemporaryDiscountTrait")
+    lu.assertEquals(generated.StoreOptions[3].Name, "RandomStoreItem")
+    for index, offer in ipairs(expected) do
+        lu.assertEquals(generated.StoreOptions[index].__runPlannerGenerationKey, offer.generationKey)
+        lu.assertEquals(generated.StoreOptions[index].__runPlannerOfferKey, offer.offerKey)
+    end
+end
+
+function TestFeatureInteractionHooks.testWellTwistUsesItsPublishedNestedResult()
+    local function run(values)
+        local module, _, callbacks = capture()
+        local completed, chosen, mismatches = 0, nil, 0
+        local node = {
+            owner = "well-twist", kind = "wellPurchase", generationKey = "initial:secondLeft",
+            offerKey = "RandomStoreItem", twistResultKey = "HealDropRange",
+        }
+        local active = opaque({}, function(contact)
+            if contact.kind == "wellPurchase" and contact.generationKey == "initial:secondLeft" then
+                return { transaction = node }
+            end
+        end)
+        local session = stub()
+        session.current = function() return active end
+        session.complete = function() completed = completed + 1 end
+        session.mismatch = function() mismatches = mismatches + 1 end
+        attachFeatureHooks(module, session, function() return {} end, function() end, session)
+
+        local priorRun = _G.CurrentRun
+        _G.CurrentRun = { WellPurchases = 0 }
+        local item = {
+            Name = "RandomStoreItem", __runPlannerOfferKey = "RandomStoreItem",
+            __runPlannerGenerationKey = "initial:secondLeft",
+            __runPlannerTwistResultKey = "HealDropRange",
+        }
+        local materialized
+        callbacks.HandleStorePurchase(nil, {}, function(_, button)
+            materialized = callbacks.CreateConsumableItem(nil, {}, function()
+                return { Name = "RandomStoreItem" }
+            end, button.Data, {})
+            _G.CurrentRun.WellPurchases = 1
+            return true
+        end, {}, { Data = item }, {})
+        lu.assertEquals(materialized.__runPlannerTwistResultKey, "HealDropRange")
+        callbacks.UseConsumableItem(nil, {}, function()
+            callbacks.AwardRandomStoreItem(nil, {}, function(candidates)
+                chosen = callbacks.GetRandomValue(nil, {}, function(options) return options[1] end,
+                    candidates, {})
+                return chosen
+            end, values, {})
+            return true
+        end, materialized, {}, {})
+        _G.CurrentRun = priorRun
+        return chosen, completed, mismatches
+    end
+
+    local chosen, completed, mismatches = run({ { Name = "Other" }, { Name = "HealDropRange" } })
+    lu.assertEquals(chosen.Name, "HealDropRange")
+    lu.assertEquals(completed, 1)
+    lu.assertEquals(mismatches, 0)
+
+    local nativeChoice, unavailableCompleted, unavailable = run({ { Name = "Other" } })
+    lu.assertEquals(nativeChoice.Name, "Other")
+    lu.assertEquals(unavailableCompleted, 1)
+    lu.assertEquals(unavailable, 1)
+end
+
+function TestFeatureInteractionHooks.testWellTravelDealRefillBindsItsRealizationBeforeOptionalPurchase()
+    local module, _, callbacks = capture()
+    local completed, mismatches = 0, 0
+    local initial = {
+        owner = "well-initial", kind = "wellPurchase", generationKey = "initial:secondLeft",
+        offerKey = "TemporaryDiscountTrait",
+    }
+    local realization = {
+        owner = "well-refill", kind = "wellRefill", generationKey = "travelDealRefill",
+        offerKey = "RandomStoreItem", effect = "extended",
+    }
+    local replacement = {
+        owner = "well-replacement", kind = "wellPurchase", generationKey = "travelDealRefill",
+        offerKey = "RandomStoreItem", twistResultKey = "HealDropRange",
+    }
+    local active = opaque({ occurrence = { overview = { stygianWell = {
+        interacted = true,
+        offers = {
+            { generationKey = "initial:healing", offerKey = "ArmorBoostStore" },
+            { generationKey = "initial:secondLeft", offerKey = "TemporaryDiscountTrait" },
+            { generationKey = "initial:secondRight", offerKey = "RandomStoreItem" },
+            { generationKey = "travelDealRefill", offerKey = "RandomStoreItem" },
+        },
+    } } } }, function(contact)
+        if contact.kind == "wellPurchase" and contact.generationKey == "initial:secondLeft" then
+            return { transaction = initial }
+        end
+        if contact.kind == "wellRefill" and contact.generationKey == "travelDealRefill" then
+            return { transaction = realization }
+        end
+        if contact.kind == "wellPurchase" and contact.generationKey == "travelDealRefill" then
+            return { transaction = replacement }
+        end
+    end)
+    local session = stub()
+    session.current = function() return active end
+    session.complete = function() completed = completed + 1 end
+    session.mismatch = function() mismatches = mismatches + 1 end
+    attachFeatureHooks(module, session, function() return {} end, function() end, session)
+
+    local priorRun = _G.CurrentRun
+    local initialItem = {
+        Name = "TemporaryDiscountTrait", Index = 2,
+        __runPlannerOfferKey = "TemporaryDiscountTrait",
+        __runPlannerGenerationKey = "initial:secondLeft",
+    }
+    _G.CurrentRun = {
+        WellPurchases = 0,
+        CurrentRoom = { Store = { StoreOptions = { [2] = initialItem } } },
+    }
+    local button = { Index = 2, Data = initialItem }
+    callbacks.HandleStorePurchase(nil, {}, function(_, nativeButton)
+        local generated = callbacks.FillInShopOptions(nil, {}, function(args)
+            return { StoreOptions = { args.StoreData.Consumables[1] } }
+        end, { StoreData = {
+            HealingOffers = { WeightedList = { { Name = "ArmorBoostStore" } } },
+            Traits = { { Name = "ExtendedShopTrait" } },
+            Consumables = { { Name = "RandomStoreItem" } },
+        } })
+        _G.CurrentRun.CurrentRoom.Store.StoreOptions[nativeButton.Index] =
+            generated.StoreOptions[nativeButton.Index]
+        _G.CurrentRun.WellPurchases = _G.CurrentRun.WellPurchases + 1
+        return true
+    end, {}, button, {})
+
+    local refillItem = _G.CurrentRun.CurrentRoom.Store.StoreOptions[2]
+    lu.assertEquals(refillItem.__runPlannerGenerationKey, "travelDealRefill")
+    local refillConsumable, refillChoice
+    callbacks.HandleStorePurchase(nil, {}, function(_, nativeButton)
+        refillConsumable = callbacks.CreateConsumableItem(nil, {}, function()
+            return { Name = "RandomStoreItem" }
+        end, nativeButton.Data, {})
+        _G.CurrentRun.WellPurchases = 2
+        return true
+    end, {}, { Index = 2, Data = refillItem }, {})
+    callbacks.UseConsumableItem(nil, {}, function()
+        callbacks.AwardRandomStoreItem(nil, {}, function(candidates)
+            refillChoice = callbacks.GetRandomValue(nil, {}, function(options) return options[1] end,
+                candidates, {})
+            return refillChoice
+        end, { { Name = "Other" }, { Name = "HealDropRange" } }, {})
+        return true
+    end, refillConsumable, {}, {})
+    _G.CurrentRun = priorRun
+
+    lu.assertEquals(mismatches, 0)
+    lu.assertEquals(completed, 3)
+    lu.assertEquals(refillConsumable.__runPlannerTwistResultKey, "HealDropRange")
+    lu.assertEquals(refillChoice.Name, "HealDropRange")
+end
+
+function TestFeatureInteractionHooks.testRealSessionClosesRefillAfterTwistSourceSettlesInPurchase()
+    local module, _, callbacks = capture()
+    local source = {
+        owner = "well-source", kind = "wellPurchase", generationKey = "initial:secondLeft",
+        offerKey = "RandomStoreItem", twistResultKey = "HealDropRange",
+        window = { kind = "standard", phase = "beforeCombat" },
+    }
+    local refill = {
+        owner = "well-refill", kind = "wellRefill", generationKey = "travelDealRefill",
+        offerKey = "RandomStoreItem", window = { kind = "standard", phase = "beforeCombat" },
+    }
+    local occurrence = {
+        id = "well-real-session", overview = { stygianWell = {
+            interacted = true,
+            offers = {
+                { generationKey = "initial:healing", offerKey = "ArmorBoostStore" },
+                { generationKey = "initial:secondLeft", offerKey = "RandomStoreItem" },
+                { generationKey = "initial:secondRight", offerKey = "TemporaryDiscountTrait" },
+                { generationKey = "travelDealRefill", offerKey = "RandomStoreItem" },
+            },
+        } },
+        transactionsByOwner = { [source.owner] = source, [refill.owner] = refill },
+        timeline = {
+            transactions = { source, refill },
+            dependencies = { { owner = refill.owner, afterOwner = source.owner } },
+            obligations = {},
+        },
+        roomExitConformance = { facts = {} }, conformanceExpected = {},
+    }
+    local plan = { occurrencesById = { [occurrence.id] = occurrence } }
+    local mismatches = {}
+    local state = {
+        state = "synchronized", plan = plan,
+        room = roomCoordinatorModule.new(plan, function(errorValue, expected, observed)
+            mismatches[#mismatches + 1] = { error = errorValue, expected = expected, observed = observed }
+        end),
+    }
+    lu.assertNotNil(roomCoordinatorModule.enter(state, occurrence))
+    attachFeatureHooks(module, runtimeSession, function() return state end, function() end,
+        roomCoordinatorModule)
+
+    local priorRun = _G.CurrentRun
+    _G.CurrentRun = {
+        WellPurchases = 0,
+        CurrentRoom = { Store = { StoreOptions = { [2] = {
+            Name = "RandomStoreItem", Index = 2,
+            __runPlannerOfferKey = "RandomStoreItem",
+            __runPlannerGenerationKey = "initial:secondLeft",
+            __runPlannerTwistResultKey = "HealDropRange",
+        } } } },
+    }
+    local materialized
+    callbacks.HandleStorePurchase(nil, {}, function(_, nativeButton)
+        local generated = callbacks.FillInShopOptions(nil, {}, function(args)
+            return { StoreOptions = { args.StoreData.Consumables[1] } }
+        end, { StoreData = {
+            HealingOffers = { WeightedList = { { Name = "ArmorBoostStore" } } },
+            Traits = { { Name = "TemporaryDiscountTrait" } },
+            Consumables = { { Name = "RandomStoreItem" } },
+        } })
+        _G.CurrentRun.CurrentRoom.Store.StoreOptions[nativeButton.Index] =
+            generated.StoreOptions[nativeButton.Index]
+        materialized = callbacks.CreateConsumableItem(nil, {}, function()
+            return { Name = "RandomStoreItem" }
+        end, nativeButton.Data, {})
+        callbacks.UseConsumableItem(nil, {}, function()
+            callbacks.AwardRandomStoreItem(nil, {}, function(candidates)
+                return callbacks.GetRandomValue(nil, {}, function(options) return options[1] end,
+                    candidates, {})
+            end, { { Name = "Other" }, { Name = "HealDropRange" } }, {})
+            return true
+        end, materialized, {}, {})
+        _G.CurrentRun.WellPurchases = 1
+        return true
+    end, {}, { Index = 2, Data = _G.CurrentRun.CurrentRoom.Store.StoreOptions[2] }, {})
+    _G.CurrentRun = priorRun
+
+    lu.assertEquals(#mismatches, 0)
+    lu.assertTrue(roomCoordinatorModule.close(state, {}, {}))
 end
 
 function TestFeatureInteractionHooks.testTravelDealRefillKeepsSlotBindingSeparateFromReplacementItem()

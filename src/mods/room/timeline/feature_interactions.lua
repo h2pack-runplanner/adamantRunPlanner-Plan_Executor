@@ -24,6 +24,7 @@ end
 
 local function completesAtPurchase(node)
     if node and node.anvilResult ~= nil then return false end
+    if node and node.twistResultKey ~= nil then return false end
     for _, role in ipairs(node and node.roles or {}) do
         if role.lifecyclePoint ~= "purchase" or role.traitOffer ~= nil or role.levelResolution ~= nil then
             return false
@@ -40,8 +41,20 @@ local function materializedHandle(state, active, room, root, itemKey)
     }) or root
 end
 
+local function storeButtonIndex(button, item)
+    if type(button) == "table" and type(button.Index) == "number" then return button.Index end
+    if type(item) == "table" and type(item.Index) == "number" then return item.Index end
+    local options = _G.CurrentRun and _G.CurrentRun.CurrentRoom
+        and _G.CurrentRun.CurrentRoom.Store and _G.CurrentRun.CurrentRoom.Store.StoreOptions
+    for index, option in pairs(options or {}) do
+        if option == item then return index end
+    end
+    return nil
+end
+
 function hooks.attach(module, session, getState, report, room, inventoryBindings)
-    local pendingTwist
+    local materializationScope
+    local activeWellTwist
     local phial = aromaticPhial.attach(module, {
         session = session,
         getState = getState,
@@ -60,17 +73,48 @@ function hooks.attach(module, session, getState, report, room, inventoryBindings
         local bindingKey = item and (item.__runPlannerOfferKey or item.Name or item.ItemName)
         local itemKey = item and (item.Name or item.ItemName or bindingKey)
         local handle = active and room.resolve(state, active, generationKey
-            and { kind = "generation", generationKey = generationKey }
+            and { kind = "wellPurchase", generationKey = generationKey }
             or { kind = "offer", offerKey = bindingKey }) or nil
+        if handle == nil and active and generationKey ~= nil then
+            handle = room.resolve(state, active, { kind = "generation", generationKey = generationKey })
+        end
         handle = materializedHandle(state, active, room, handle, itemKey)
         handle = room.bind(state, active, handle, item)
         local payload = handle and room.begin(state, handle) or nil
         local transaction = payload and payload.transaction
-        pendingTwist = item and item.__runPlannerTwistResultKey
+        local wellRefillScope
+        local wellRefillHandle
+        if transaction and transaction.kind == "wellPurchase"
+            and transaction.generationKey ~= "travelDealRefill"
+            and inventoryBindings and inventoryBindings.setWellRefillScope then
+            local slotIndex = storeButtonIndex(button, item)
+            wellRefillHandle = room.resolve(state, active,
+                { kind = "wellRefill", generationKey = "travelDealRefill" })
+            local refillPayload = wellRefillHandle and room.peek(state, wellRefillHandle) or nil
+            if slotIndex ~= nil and refillPayload and refillPayload.transaction.kind == "wellRefill" then
+                wellRefillScope = {
+                    kind = "well",
+                    slotIndex = slotIndex,
+                }
+                inventoryBindings.setWellRefillScope(wellRefillScope)
+            end
+        end
+        if transaction and transaction.kind == "wellPurchase"
+            and transaction.twistResultKey ~= nil then
+            materializationScope = {
+                state = state, active = active, handle = handle,
+                twistResultKey = transaction.twistResultKey,
+                generationKey = transaction.generationKey,
+                offerKey = transaction.offerKey,
+            }
+        end
         local purchasesBefore = transaction and transaction.kind == "wellPurchase"
             and _G.CurrentRun and _G.CurrentRun.WellPurchases or nil
         local ok, result = pcall(base, screen, button, args)
-        pendingTwist = nil
+        materializationScope = nil
+        if inventoryBindings and inventoryBindings.setWellRefillScope then
+            inventoryBindings.setWellRefillScope(nil)
+        end
         if not ok then error(result, 0) end
         local purchasesAfter = transaction and transaction.kind == "wellPurchase"
             and _G.CurrentRun and _G.CurrentRun.WellPurchases or nil
@@ -92,6 +136,40 @@ function hooks.attach(module, session, getState, report, room, inventoryBindings
             elseif purchased and completesAtPurchase(transaction) then
                 session.complete(state, handle)
             end
+            -- Travel Deal realization is an independent transaction.  The
+            -- source may itself be a RandomStoreItem whose Twist settles
+            -- later in this native contact; only the DAG readiness check may
+            -- decide whether the refill can close here.
+            if purchased and exact and result ~= false and wellRefillScope and wellRefillHandle ~= nil then
+                local nativeRoom = _G.CurrentRun and _G.CurrentRun.CurrentRoom
+                local options = nativeRoom and nativeRoom.Store and nativeRoom.Store.StoreOptions
+                local replacement = options and options[wellRefillScope.slotIndex]
+                if type(replacement) == "table"
+                    and replacement.__runPlannerGenerationKey == "travelDealRefill" then
+                    local refillPayload = room.begin(state, wellRefillHandle)
+                    if refillPayload ~= nil then session.complete(state, wellRefillHandle) end
+                end
+            end
+        end
+        report(runtime)
+        return result
+    end)
+
+    module.hooks.wrap("CreateConsumableItem", "run-planner-well-purchase-carrier", function(_, runtime, base,
+        ...)
+        local result = base(...)
+        local scope = materializationScope
+        if scope ~= nil and type(result) == "table" then
+            local source = select(1, ...)
+            if type(source) == "table" and type(source.Data) == "table" then source = source.Data end
+            local itemKey = type(source) == "table" and (source.Name or source.ItemName) or source
+            local resultKey = result.Name or result.ItemName
+            if itemKey == "RandomStoreItem" or resultKey == "RandomStoreItem" then
+                result.__runPlannerGenerationKey = scope.generationKey
+                result.__runPlannerOfferKey = scope.offerKey
+                result.__runPlannerTwistResultKey = scope.twistResultKey
+                room.bind(scope.state, scope.active, scope.handle, result)
+            end
         end
         report(runtime)
         return result
@@ -102,23 +180,60 @@ function hooks.attach(module, session, getState, report, room, inventoryBindings
         local state = getState(runtime)
         local active = current(state, room)
         local handle = active and room.bound(state, active, item) or nil
+        if handle == nil and active and type(item) == "table"
+            and item.__runPlannerGenerationKey ~= nil
+            and item.__runPlannerTwistResultKey ~= nil then
+            handle = room.resolve(state, active, {
+                kind = "wellPurchase", generationKey = item.__runPlannerGenerationKey,
+            })
+            handle = room.bind(state, active, handle, item)
+        end
         local payload = handle and room.peek(state, handle) or nil
+        local transaction = payload and payload.transaction
+        local twistScope = transaction and transaction.kind == "wellPurchase"
+            and transaction.twistResultKey ~= nil and {
+                state = state, handle = handle, target = transaction.twistResultKey,
+                awarded = false, unavailable = false,
+            } or nil
+        local priorTwist = activeWellTwist
+        activeWellTwist = twistScope
         local scope = anvilScope.beginUse(state, payload)
-        if scope == nil then return base(item, args, user) end
+        if scope == nil and twistScope == nil then
+            activeWellTwist = priorTwist
+            return base(item, args, user)
+        end
         local ok, result = pcall(base, item, args, user)
-        local called = anvilScope.finishUse(scope)
+        activeWellTwist = priorTwist
+        local called = scope and anvilScope.finishUse(scope) or false
         if not ok then error(result, 0) end
         if called then session.complete(state, handle) end
+        if twistScope and twistScope.awarded and result ~= false then session.complete(state, handle) end
         report(runtime)
         return result
     end)
 
-    module.hooks.wrap("GetRandomValue", "run-planner-well-twist", function(_, _, base, values, args)
-        if pendingTwist and type(values) == "table" then
+    module.hooks.wrap("AwardRandomStoreItem", "run-planner-well-twist-award", function(_, runtime, base, ...)
+        local scope = activeWellTwist
+        local ok, result = pcall(base, ...)
+        if not ok then error(result, 0) end
+        if scope ~= nil then scope.awarded = result ~= false end
+        report(runtime)
+        return result
+    end)
+
+    module.hooks.wrap("GetRandomValue", "run-planner-well-twist-use", function(_, runtime, base, values, args)
+        local scope = activeWellTwist
+        if scope ~= nil and type(values) == "table" then
             for _, value in pairs(values) do
-                if type(value) == "table" and value.Name == pendingTwist then return value end
+                local key = type(value) == "table" and (value.Name or value.ItemName) or value
+                if key == scope.target then return value end
+            end
+            if not scope.unavailable then
+                scope.unavailable = true
+                session.mismatch(scope.state, "well-twist-result", scope.target, "unavailable")
             end
         end
+        report(runtime)
         return base(values, args)
     end)
 

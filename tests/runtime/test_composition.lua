@@ -45,7 +45,7 @@ function TestRuntimeComposition.testExplicitGateBHookGroupsStayInstalled()
         "CirceRemoveShrineUpgrades", "RandomChance", "GetRandomKey",
         "FillInShopOptions", "CreateStoreButtons", "RestockWorldItem", "CreateConsumableItem",
         "ChaosHammerUpgrade",
-        "SpawnStoreItemInWorld", "RemoveStoreItem", "HandleStorePurchase",
+        "SpawnStoreItemInWorld", "RemoveStoreItem", "HandleStorePurchase", "AwardRandomStoreItem",
     }) do
         lu.assertNotNil(names[name], name)
     end

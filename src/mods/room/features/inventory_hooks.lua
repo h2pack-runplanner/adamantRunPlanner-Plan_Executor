@@ -32,6 +32,7 @@ end
 function hooks.attach(module, session, getState, report, room, route)
     local inventorySources
     local refillScope
+    local wellRefillScope
     local contractScope
     local worldItemsById = {}
 
@@ -73,7 +74,7 @@ function hooks.attach(module, session, getState, report, room, route)
         local state = getState(runtime)
         local active = current(session, state, room, route)
         local prepared, errorValue = inventory.prepare(active and active.occurrence, args,
-            refillScope ~= nil, contractScope ~= nil)
+            wellRefillScope or refillScope, contractScope ~= nil)
         if errorValue then mismatch(session, state, errorValue); report(runtime); return base(args) end
         inventorySources = {}
         for _, offer in ipairs(prepared and prepared.expected or {}) do
@@ -82,7 +83,8 @@ function hooks.attach(module, session, getState, report, room, route)
                 inventorySources[#inventorySources + 1] = offer.reward.source
             end
         end
-        local result = base(prepared and prepared.args or args)
+        local baseOk, result = pcall(base, prepared and prepared.args or args)
+        if not baseOk then inventorySources = nil; error(result, 0) end
         inventorySources = nil
         result = inventory.placeRefill(prepared, result)
         result = inventory.order(prepared, result)
@@ -147,7 +149,7 @@ function hooks.attach(module, session, getState, report, room, route)
         end
         local prior = refillScope
         refillScope = active and {
-            index = index, kitId = kitId,
+            kind = "shop", index = index, kitId = kitId,
             groupIndex = refill and refill.groupIndex,
         } or nil
         local ok, result = pcall(base, index, kitId, args)
@@ -208,6 +210,7 @@ function hooks.attach(module, session, getState, report, room, route)
     return {
         find = function(objectId) return worldItemsById[objectId] end,
         forget = function(objectId) worldItemsById[objectId] = nil end,
+        setWellRefillScope = function(scope) wellRefillScope = scope end,
     }
 end
 
