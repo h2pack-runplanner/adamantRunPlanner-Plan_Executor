@@ -1,7 +1,7 @@
 {
   "format": "run-planner-execution",
   "protocolVersion": 21,
-  "catalogVersion": "0.54.0-required-boss-rewards",
+  "catalogVersion": "0.55.0-anvil-of-fates",
   "projectId": "golden-fg",
   "routeKey": "Underworld",
   "startingLoadout": {
@@ -3344,5 +3344,5 @@
       }
     }
   ],
-  "planFingerprint": "9e415151"
+  "planFingerprint": "dae29b06"
 }

@@ -165,7 +165,7 @@ local function minimalPlan(transactions)
     local plan = tagged({
         format = "run-planner-execution",
         protocolVersion = 21,
-        catalogVersion = "0.54.0-required-boss-rewards",
+        catalogVersion = "0.55.0-anvil-of-fates",
         projectId = "test-project",
         planFingerprint = "00000000",
         routeKey = "Underworld",
