@@ -56,7 +56,7 @@ local function acquisition(value, label)
     local record, errorMessage = p.exact(
         value,
         { "kind", "owner", "sourceOwner", "reward", "producerLifecycleKey", "roles", "window" },
-        {},
+        { "hermesShrineSourceKey" },
         label
     )
     if not record then return nil, errorMessage end
@@ -65,6 +65,10 @@ local function acquisition(value, label)
     if not p.str(record.sourceOwner, label .. ".sourceOwner", p.MAX_OWNER_STRING)
         or not p.str(record.producerLifecycleKey, label .. ".producerLifecycleKey") then
         return p.fail(label .. " has invalid acquisition identity")
+    end
+    if record.hermesShrineSourceKey ~= nil
+        and not p.str(record.hermesShrineSourceKey, label .. ".hermesShrineSourceKey", p.MAX_OWNER_STRING) then
+        return p.fail(label .. " has invalid Shrine source")
     end
     local _, rewardError = rewards.reward(record.reward, label .. ".reward")
     if rewardError then return nil, rewardError end

@@ -61,6 +61,33 @@ function TestTimelineBindings.testWellRefillAndReplacementPurchaseUseDistinctCon
         "initial")
 end
 
+function TestTimelineBindings.testShrineDeliveriesUseExactSourceKeysWhenGenerationsRepeat()
+    local item = occurrence()
+    item.transactionsByOwner = {
+        first = {
+            owner = "first", kind = "acquisition", hermesShrineSourceKey = "source-one:initial:first",
+            sourceOwner = "host-one", window = { kind = "standard", phase = "afterCombat" },
+        },
+        second = {
+            owner = "second", kind = "acquisition", hermesShrineSourceKey = "source-two:initial:first",
+            sourceOwner = "host-two", window = { kind = "standard", phase = "afterCombat" },
+        },
+    }
+    local index = assert(bindings.index(item))
+    lu.assertEquals(
+        bindings.resolve(index, {
+            kind = "hermesShrineDelivery", sourceKey = "source-one:initial:first",
+        }).transaction.owner,
+        "first"
+    )
+    lu.assertEquals(
+        bindings.resolve(index, {
+            kind = "hermesShrineDelivery", sourceKey = "source-two:initial:first",
+        }).transaction.owner,
+        "second"
+    )
+end
+
 function TestTimelineBindings.testKeepsakeReplayUsesItsOwnCarrierNamespace()
     local item = occurrence()
     item.transactionsByOwner = {

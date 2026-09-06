@@ -11,7 +11,7 @@ local loadout = type(import) == "function" and import("mods/protocol/loadout.lua
 
 local protocol = {
     FORMAT = "run-planner-execution",
-    VERSION = 23,
+    VERSION = 24,
     CATALOG_VERSION = "0.55.0-anvil-of-fates",
     MAX_ITEMS = p.MAX_ITEMS,
     MAX_STRING = p.MAX_STRING,

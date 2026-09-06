@@ -164,7 +164,7 @@ local function minimalPlan(transactions)
     end
     local plan = tagged({
         format = "run-planner-execution",
-        protocolVersion = 23,
+        protocolVersion = 24,
         catalogVersion = "0.55.0-anvil-of-fates",
         projectId = "test-project",
         planFingerprint = "00000000",
@@ -191,6 +191,58 @@ local function minimalPlan(transactions)
     })
     refreshFingerprint(plan)
     return plan
+end
+
+local function minimalShrinePlan()
+    local plan = minimalPlan({})
+    plan.occurrences[1].overview.hermesShrine = tagged({
+        offers = {
+            {
+                generationKey = "initial:first", optionKey = "Heal", rewardType = "HealBigDrop",
+                slotIndex = 1, purchase = { roomDelay = 2, rushed = true },
+                deliverySourceKey = "hermesShrineDelivery:source:first",
+            },
+            {
+                generationKey = "initial:secondLeft", optionKey = "Health", rewardType = "MaxHealthDrop",
+                slotIndex = 2,
+            },
+            {
+                generationKey = "initial:secondRight", optionKey = "Mana", rewardType = "MaxManaDrop",
+                slotIndex = 3,
+            },
+        },
+        travelDealRefill = {
+            sourceGenerationKey = "initial:first", slotIndex = 1,
+            optionKey = "Armor", rewardType = "ArmorDrop",
+            purchase = { roomDelay = 8, rushed = false },
+            deliverySourceKey = "hermesShrineDelivery:source:refill",
+        },
+    })
+    refreshFingerprint(plan)
+    return plan
+end
+
+function TestProtocol.testHermesShrinePurchaseRequiresDeliverySourcePair()
+    local mutations = {
+        function(plan)
+            plan.occurrences[1].overview.hermesShrine.offers[1].deliverySourceKey = nil
+        end,
+        function(plan)
+            plan.occurrences[1].overview.hermesShrine.offers[1].purchase = nil
+        end,
+        function(plan)
+            plan.occurrences[1].overview.hermesShrine.travelDealRefill.deliverySourceKey = nil
+        end,
+        function(plan)
+            plan.occurrences[1].overview.hermesShrine.travelDealRefill.purchase = nil
+        end,
+    }
+    for _, mutate in ipairs(mutations) do
+        local plan = minimalShrinePlan()
+        mutate(plan)
+        refreshFingerprint(plan)
+        lu.assertNil(protocol.decode(plan))
+    end
 end
 
 function TestProtocol.testArtificerRoleCarriesSourceOwnedReplacement()
@@ -436,7 +488,7 @@ function TestProtocol.testAllGateA2VectorsDecodeAndExpandDiagnostics()
     for _, name in ipairs({ "f-opening", "fg", "fg-ixion-chaos", "fg-anomaly", "automatic-boss" }) do
         local plan, errorMessage = protocol.decode(decode(name))
         lu.assertNotNil(plan, errorMessage)
-        lu.assertEquals(plan.protocolVersion, 23)
+        lu.assertEquals(plan.protocolVersion, 24)
         lu.assertNotNil(plan.occurrences[1].diagnostics.roomEntered)
     end
 end

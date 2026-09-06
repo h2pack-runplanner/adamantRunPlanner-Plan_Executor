@@ -12,6 +12,261 @@ local fakePayload, attachFeatureHooks = support.fakePayload, support.attachFeatu
 
 TestFeatureInteractionHooks = {}
 
+function TestFeatureInteractionHooks.testShrinePublishesAllThreeOffersAndKeepsUnpurchasedRowsVisible()
+    local module, _, callbacks = capture()
+    local mismatches = {}
+    local active = opaque({
+        occurrence = { overview = { hermesShrine = {
+            offers = {
+                {
+                    generationKey = "initial:first", optionKey = "BoonA",
+                    rewardType = "BoonA", slotIndex = 1,
+                    purchase = { roomDelay = 6, rushed = true },
+                },
+                {
+                    generationKey = "initial:secondLeft", optionKey = "BoonB",
+                    rewardType = "BoonB", slotIndex = 2,
+                },
+                {
+                    generationKey = "initial:secondRight", optionKey = "BoonC",
+                    rewardType = "BoonC", slotIndex = 3,
+                },
+            },
+        } } },
+    }, function() return nil end)
+    local session = stub()
+    session.current = function() return active end
+    session.mismatch = function(_, checkpoint, expected, observed)
+        mismatches[#mismatches + 1] = { checkpoint = checkpoint, expected = expected, observed = observed }
+    end
+    attachFeatureHooks(module, session, function() return {} end, function() end, session)
+
+    local generated = callbacks.FillInShopOptions(nil, {}, function(args)
+        local options = {}
+        for _, group in ipairs(args.StoreData.GroupsOf) do
+            for _, option in ipairs(group.OptionsData or {}) do options[#options + 1] = option end
+        end
+        return { StoreOptions = options }
+    end, { StoreData = { GroupsOf = {
+        { Offers = 3, OptionsData = {
+            { Name = "BoonA" }, { Name = "BoonB" }, { Name = "BoonC" }, { Name = "OffPlan" },
+        } },
+    } } })
+
+    lu.assertEquals(#generated.StoreOptions, 3)
+    lu.assertEquals(generated.StoreOptions[1].__runPlannerGenerationKey, "initial:first")
+    lu.assertEquals(generated.StoreOptions[2].__runPlannerGenerationKey, "initial:secondLeft")
+    lu.assertEquals(generated.StoreOptions[3].__runPlannerGenerationKey, "initial:secondRight")
+    lu.assertEquals(mismatches, {})
+end
+
+function TestFeatureInteractionHooks.testShrineRushUsesNativeSecondContactAndExactRoomDelay()
+    local module, _, callbacks = capture()
+    local calls, mismatches = 0, {}
+    local active = opaque({
+        occurrence = { overview = { hermesShrine = {
+            offers = {
+                {
+                    generationKey = "initial:first", optionKey = "BoonA",
+                    rewardType = "BoonA", slotIndex = 1,
+                    purchase = { roomDelay = 4, rushed = true },
+                },
+                {
+                    generationKey = "initial:secondLeft", optionKey = "BoonB",
+                    rewardType = "BoonB", slotIndex = 2,
+                },
+                {
+                    generationKey = "initial:secondRight", optionKey = "BoonC",
+                    rewardType = "BoonC", slotIndex = 3,
+                },
+            },
+        } } },
+    }, function() return nil end)
+    local session = stub()
+    session.current = function() return active end
+    session.mismatch = function(_, checkpoint, expected, observed)
+        mismatches[#mismatches + 1] = { checkpoint = checkpoint, expected = expected, observed = observed }
+    end
+    attachFeatureHooks(module, session, function() return {} end, function() end, session)
+    local item = {
+        Name = "BoonA", RoomDelay = 99, __runPlannerGenerationKey = "initial:first",
+    }
+    local button = { Data = item, Index = 1 }
+    local function native()
+        calls = calls + 1
+        lu.assertEquals(item.RoomDelay, 4)
+        item.Purchased = true
+        return true
+    end
+
+    callbacks.HandleSurfaceShopAction(nil, {}, native, {}, button, {})
+    lu.assertEquals(calls, 1)
+    lu.assertEquals(mismatches, {})
+    callbacks.HandleSurfaceShopAction(nil, {}, native, {}, button, {})
+    lu.assertEquals(calls, 2)
+    lu.assertEquals(mismatches, {})
+end
+
+local function runShrineRefillPlacementWitness(sourceGenerationKey, slotIndex)
+    local module, _, callbacks = capture()
+    local mismatches = {}
+    local active = opaque({
+        occurrence = { overview = { hermesShrine = {
+            offers = {
+                {
+                    generationKey = "initial:first", optionKey = "FirstOption",
+                    rewardType = "FirstReward", slotIndex = 1,
+                },
+                {
+                    generationKey = "initial:secondLeft", optionKey = "SourceOption",
+                    rewardType = "SourceReward", slotIndex = 2,
+                    purchase = { roomDelay = 5, rushed = sourceGenerationKey == "initial:secondLeft" },
+                },
+                {
+                    generationKey = "initial:secondRight", optionKey = "SourceOption",
+                    rewardType = "SourceReward", slotIndex = 3,
+                    purchase = { roomDelay = 5, rushed = sourceGenerationKey == "initial:secondRight" },
+                },
+            },
+            travelDealRefill = {
+                sourceGenerationKey = sourceGenerationKey,
+                slotIndex = slotIndex,
+                optionKey = "RefillOption",
+                rewardType = "RefillReward",
+                purchase = { roomDelay = 4, rushed = false },
+                deliverySourceKey = "refill-source:" .. sourceGenerationKey,
+            },
+        } } },
+    }, function() return nil end)
+    local session = stub()
+    session.current = function() return active end
+    session.mismatch = function(_, checkpoint, expected, observed)
+        mismatches[#mismatches + 1] = { checkpoint = checkpoint, expected = expected, observed = observed }
+    end
+    attachFeatureHooks(module, session, function() return {} end, function() end, session)
+
+    local item = { Name = "SourceOption", __runPlannerGenerationKey = sourceGenerationKey }
+    local button = { Data = item, Index = slotIndex }
+    local generated
+    local nativeCalls = 0
+    local function native()
+        nativeCalls = nativeCalls + 1
+        item.Purchased = true
+        if nativeCalls == 2 then
+            generated = callbacks.FillInShopOptions(nil, {}, function(args)
+                lu.assertEquals(#args.StoreData.GroupsOf, 1)
+                lu.assertEquals(args.StoreData.GroupsOf[1].Offers, 1)
+                local options = {}
+                for _, group in ipairs(args.StoreData.GroupsOf) do
+                    for _, option in ipairs(group.OptionsData or {}) do options[#options + 1] = option end
+                end
+                return { StoreOptions = options }
+            end, { StoreData = { GroupsOf = {
+                { Offers = 2, OptionsData = { { Name = "OtherA" }, { Name = "OtherB" } } },
+                { Offers = 2, OptionsData = {
+                    { Name = "RefillOption" }, { Name = "OtherC" },
+                } },
+            } } })
+        end
+        return true
+    end
+
+    callbacks.HandleSurfaceShopAction(nil, {}, native, {}, button, {})
+    callbacks.HandleSurfaceShopAction(nil, {}, native, {}, button, {})
+    lu.assertEquals(nativeCalls, 2)
+    lu.assertNotNil(generated)
+    lu.assertNil(generated.StoreOptions[1])
+    lu.assertEquals(generated.StoreOptions[slotIndex].Name, "RefillOption")
+    lu.assertEquals(generated.StoreOptions[slotIndex].__runPlannerGenerationKey, "travelDealRefill")
+    lu.assertEquals(mismatches, {})
+end
+
+function TestFeatureInteractionHooks.testShrineSecondLeftTravelDealRefillUsesNativePlacement()
+    runShrineRefillPlacementWitness("initial:secondLeft", 2)
+end
+
+function TestFeatureInteractionHooks.testShrineSecondRightTravelDealRefillUsesNativePlacement()
+    runShrineRefillPlacementWitness("initial:secondRight", 3)
+end
+
+function TestFeatureInteractionHooks.testShrineDeliveryBindsExactSourceWithoutBeginningAcquisition()
+    local module, _, callbacks = capture()
+    local begun = 0
+    local delivery = {
+        owner = "shrine-delivery", kind = "acquisition",
+        hermesShrineSourceKey = "source-one:initial:first",
+    }
+    local active = opaque({
+        occurrence = { overview = { hermesShrine = {
+            offers = {
+                { generationKey = "initial:first", optionKey = "BoonA", rewardType = "BoonA", slotIndex = 1 },
+                { generationKey = "initial:secondLeft", optionKey = "BoonB", rewardType = "BoonB", slotIndex = 2 },
+                { generationKey = "initial:secondRight", optionKey = "BoonC", rewardType = "BoonC", slotIndex = 3 },
+            },
+        } } },
+    }, function(contact)
+        if contact.kind == "hermesShrineDelivery"
+            and contact.sourceKey == "source-one:initial:first" then
+            return { transaction = delivery }
+        end
+    end)
+    local session = stub()
+    session.current = function() return active end
+    session.begin = function() begun = begun + 1 end
+    local bindings = attachFeatureHooks(module, session, function() return {} end, function() end, session)
+    local priorRun = _G.CurrentRun
+    _G.CurrentRun = { CurrentRoom = {} }
+    local item = {
+        Name = "MysteryBoon", __runPlannerShrine = true,
+        __runPlannerShrineSourceKey = "source-one:initial:first",
+    }
+    callbacks.SpawnStoreItemInWorld(nil, {}, function() return { ObjectId = 91 } end, item, 10)
+    local binding = bindings.find(91)
+    lu.assertNotNil(binding)
+    lu.assertEquals(fakePayload(binding.handle).transaction.owner, "shrine-delivery")
+    lu.assertEquals(begun, 0)
+    _G.CurrentRun = priorRun
+end
+
+function TestFeatureInteractionHooks.testUnpublishedShrinePurchaseReportsWithoutTimelineParticipation()
+    local module, _, callbacks = capture()
+    local mismatches = {}
+    local active = opaque({
+        occurrence = { overview = { hermesShrine = {
+            offers = {
+                {
+                    generationKey = "initial:first", optionKey = "HealBigDrop",
+                    rewardType = "HealBigDrop", slotIndex = 1,
+                },
+                {
+                    generationKey = "initial:secondLeft", optionKey = "SpellDrop",
+                    rewardType = "SpellDrop", slotIndex = 2,
+                },
+                {
+                    generationKey = "initial:secondRight", optionKey = "TalentDrop",
+                    rewardType = "TalentDrop", slotIndex = 3,
+                },
+            },
+        } } },
+    }, function() return nil end)
+    local session = stub()
+    session.current = function() return active end
+    session.mismatch = function(_, checkpoint, expected, observed)
+        mismatches[#mismatches + 1] = { checkpoint = checkpoint, expected = expected, observed = observed }
+    end
+    attachFeatureHooks(module, session, function() return {} end, function() end, session)
+    local item = { Name = "HealBigDrop", __runPlannerGenerationKey = "initial:first" }
+    local button = { Data = item, Index = 1 }
+    callbacks.HandleSurfaceShopAction(nil, {}, function()
+        item.Purchased = true
+        return true
+    end, {}, button, {})
+    lu.assertEquals(mismatches, {
+        { checkpoint = "shrine-purchase-disposition", expected = "published purchase", observed = "initial:first" },
+    })
+    lu.assertTrue(item.Purchased)
+end
+
 function TestFeatureInteractionHooks.testUninteractedPoolLeavesNativeSaleMenuUntouched()
     local module, _, callbacks = capture()
     local nativeOptions = { { Name = "TraitA" }, { Name = "TraitB" } }

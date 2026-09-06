@@ -10,6 +10,11 @@ local generationKeys = {
     ["initial:secondRight"] = true,
     travelDealRefill = true,
 }
+local shrineGenerationKeys = {
+    ["initial:first"] = true,
+    ["initial:secondLeft"] = true,
+    ["initial:secondRight"] = true,
+}
 
 local function shop(value, label)
     local record, errorMessage = p.exact(
@@ -97,6 +102,92 @@ local function stygianWell(value, label)
             return p.fail(label .. " has invalid Well offer")
         end
         seen[row.generationKey] = true
+    end
+    return record
+end
+
+local function shrinePurchase(value, label)
+    local row, errorMessage = p.exact(value, { "roomDelay", "rushed" }, {}, label)
+    if not row then return nil, errorMessage end
+    if not p.int(row.roomDelay, label .. ".roomDelay", 2)
+        or row.roomDelay > 8
+        or not p.bool(row.rushed, label .. ".rushed") then
+        return p.fail(label .. " has invalid purchase disposition")
+    end
+    return row
+end
+
+local function hermesShrine(value, label)
+    local record, errorMessage = p.exact(value, { "offers" }, { "travelDealRefill" }, label)
+    if not record then return nil, errorMessage end
+    local offers, offersError = p.arr(record.offers, label .. ".offers")
+    if not offers then return nil, offersError end
+    if #offers ~= 3 then return p.fail(label .. " must publish three offers") end
+    local seen = {}
+    for index, valueRow in ipairs(offers) do
+        local row, rowError = p.exact(
+            valueRow,
+            { "generationKey", "optionKey", "rewardType", "slotIndex" },
+            { "purchase", "deliverySourceKey" },
+            label .. ".offers[" .. index .. "]"
+        )
+        if not row then return nil, rowError end
+        if not p.one(row.generationKey, shrineGenerationKeys, label .. ".generationKey")
+            or seen[row.generationKey]
+            or row.generationKey ~= ({
+                [1] = "initial:first", [2] = "initial:secondLeft", [3] = "initial:secondRight",
+            })[index]
+            or row.slotIndex ~= index
+            or not p.int(row.slotIndex, label .. ".slotIndex", 1)
+            or row.slotIndex > 3
+            or not p.str(row.optionKey, label .. ".optionKey")
+            or not p.str(row.rewardType, label .. ".rewardType") then
+            return p.fail(label .. " has invalid Shrine offer")
+        end
+        if row.deliverySourceKey ~= nil
+            and not p.str(row.deliverySourceKey, label .. ".deliverySourceKey", p.MAX_OWNER_STRING) then
+            return p.fail(label .. " has invalid Shrine delivery source")
+        end
+        if (row.purchase == nil) ~= (row.deliverySourceKey == nil) then
+            return p.fail(label .. " purchase and delivery source must be paired")
+        end
+        if row.purchase ~= nil then
+            local _, purchaseError = shrinePurchase(row.purchase, label .. ".offers[" .. index .. "].purchase")
+            if purchaseError then return nil, purchaseError end
+        end
+        seen[row.generationKey] = true
+    end
+    if record.travelDealRefill ~= nil then
+        local refill, refillError = p.exact(
+            record.travelDealRefill,
+            { "sourceGenerationKey", "slotIndex", "optionKey", "rewardType" },
+            { "purchase", "deliverySourceKey" },
+            label .. ".travelDealRefill"
+        )
+        if not refill then return nil, refillError end
+        local expectedSlot = ({
+            ["initial:first"] = 1, ["initial:secondLeft"] = 2, ["initial:secondRight"] = 3,
+        })
+            [refill.sourceGenerationKey]
+        if not p.one(refill.sourceGenerationKey, shrineGenerationKeys, label .. ".sourceGenerationKey")
+            or not p.int(refill.slotIndex, label .. ".slotIndex", 1)
+            or refill.slotIndex > 3
+            or refill.slotIndex ~= expectedSlot
+            or not p.str(refill.optionKey, label .. ".optionKey")
+            or not p.str(refill.rewardType, label .. ".rewardType") then
+            return p.fail(label .. " has invalid Travel Deal refill")
+        end
+        if refill.deliverySourceKey ~= nil
+            and not p.str(refill.deliverySourceKey, label .. ".deliverySourceKey", p.MAX_OWNER_STRING) then
+            return p.fail(label .. " has invalid refill delivery source")
+        end
+        if (refill.purchase == nil) ~= (refill.deliverySourceKey == nil) then
+            return p.fail(label .. " purchase and delivery source must be paired")
+        end
+        if refill.purchase ~= nil then
+            local _, purchaseError = shrinePurchase(refill.purchase, label .. ".purchase")
+            if purchaseError then return nil, purchaseError end
+        end
     end
     return record
 end
@@ -189,7 +280,8 @@ function overview.decode(value, label)
         value,
         { "encounterPhases", "requiredObjects" },
         {
-            "incomingReward", "effectNeutralRequiredReward", "shop", "stygianWell", "purgingPool", "keepsakeRack",
+            "incomingReward", "effectNeutralRequiredReward", "shop", "hermesShrine", "stygianWell",
+            "purgingPool", "keepsakeRack",
             "fountain", "resources", "additional",
         },
         label
@@ -230,6 +322,10 @@ function overview.decode(value, label)
     if record.shop ~= nil then
         local _, shopError = shop(record.shop, label .. ".shop")
         if shopError then return nil, shopError end
+    end
+    if record.hermesShrine ~= nil then
+        local _, shrineError = hermesShrine(record.hermesShrine, label .. ".hermesShrine")
+        if shrineError then return nil, shrineError end
     end
     if record.stygianWell ~= nil then
         local _, wellError = stygianWell(record.stygianWell, label .. ".stygianWell")

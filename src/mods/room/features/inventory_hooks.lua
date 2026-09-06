@@ -32,6 +32,7 @@ end
 function hooks.attach(module, session, getState, report, room, route)
     local inventorySources
     local refillScope
+    local shrineRefillScope
     local wellRefillScope
     local contractScope
     local worldItemsById = {}
@@ -39,6 +40,7 @@ function hooks.attach(module, session, getState, report, room, route)
     local bindingFields = {
         "__runPlannerOfferKey", "__runPlannerGenerationKey", "__runPlannerTwistResultKey",
         "__runPlannerSourceOwner", "__runPlannerContractSourceOwner", "__runPlannerPaidShopOffer",
+        "__runPlannerShrine", "__runPlannerShrineSourceKey",
     }
 
     local function captureStoreBindings()
@@ -74,7 +76,7 @@ function hooks.attach(module, session, getState, report, room, route)
         local state = getState(runtime)
         local active = current(session, state, room, route)
         local prepared, errorValue = inventory.prepare(active and active.occurrence, args,
-            wellRefillScope or refillScope, contractScope ~= nil)
+            shrineRefillScope or wellRefillScope or refillScope, contractScope ~= nil)
         if errorValue then mismatch(session, state, errorValue); report(runtime); return base(args) end
         inventorySources = {}
         for _, offer in ipairs(prepared and prepared.expected or {}) do
@@ -135,6 +137,36 @@ function hooks.attach(module, session, getState, report, room, route)
         return result
     end)
 
+    module.hooks.wrap("CreateSurfaceShopButtons", "run-planner-shrine-disposition", function(_, runtime, base,
+        screen, ...)
+        local bindings = captureStoreBindings()
+        local result = base(screen, ...)
+        restoreStoreBindings(bindings, screen)
+        local state = getState(runtime)
+        local active = current(session, state, room, route)
+        local shrine = active and active.occurrence.overview.hermesShrine
+        local options = _G.CurrentRun and _G.CurrentRun.CurrentRoom
+            and _G.CurrentRun.CurrentRoom.Store and _G.CurrentRun.CurrentRoom.Store.StoreOptions
+        for _, offer in ipairs(shrine and shrine.offers or {}) do
+            local option = options and options[offer.slotIndex]
+            local button = type(screen) == "table" and type(screen.Components) == "table"
+                and screen.Components["PurchaseButton" .. offer.slotIndex] or nil
+            if type(option) == "table" and offer.purchase ~= nil then
+                option.RoomDelay = offer.purchase.roomDelay
+            end
+            if type(button) == "table" and type(button.Data) == "table" and offer.purchase ~= nil then
+                button.Data.RoomDelay = offer.purchase.roomDelay
+            end
+        end
+        local refill = shrine and shrine.travelDealRefill
+        local refillOption = refill and options and options[refill.slotIndex]
+        if type(refillOption) == "table" and refill.purchase ~= nil then
+            refillOption.RoomDelay = refill.purchase.roomDelay
+        end
+        report(runtime)
+        return result
+    end)
+
     module.hooks.wrap("RestockWorldItem", "run-planner-travel-deal-refill", function(_, runtime, base, index, kitId,
         args)
         local state = getState(runtime)
@@ -179,7 +211,12 @@ function hooks.attach(module, session, getState, report, room, route)
             local generationKey = itemData.__runPlannerGenerationKey
             local bindingKey = itemData.__runPlannerOfferKey or itemData.Name or itemData.ItemName
             local itemKey = itemData.Name or itemData.ItemName or bindingKey
-            local handle = itemData.__runPlannerSourceOwner and room.resolve(state, active,
+            local shrineDelivery = itemData.__runPlannerShrine == true
+                and itemData.__runPlannerShrineSourceKey ~= nil
+            local sourceKey = itemData.__runPlannerShrineSourceKey
+            local handle = shrineDelivery and room.resolve(state, active,
+                { kind = "hermesShrineDelivery", sourceKey = sourceKey })
+                or itemData.__runPlannerSourceOwner and room.resolve(state, active,
                 { kind = "source", sourceOwner = itemData.__runPlannerSourceOwner })
                 or itemData.__runPlannerContractSourceOwner and room.resolve(state, active,
                 { kind = "source", sourceOwner = itemData.__runPlannerContractSourceOwner })
@@ -191,7 +228,7 @@ function hooks.attach(module, session, getState, report, room, route)
             -- A Travel Deal refill materializes during the source purchase,
             -- before its acquisition dependency can be ready. Preserve the
             -- exact native-object binding; the pickup adapter begins it later.
-            local payload = itemData.__runPlannerSourceOwner == nil
+            local payload = not shrineDelivery and itemData.__runPlannerSourceOwner == nil
                 and handle and room.begin(state, handle) or nil
             if payload and payload.transaction.kind == "wellRefill" then session.complete(state, handle) end
             local paid = itemData.__runPlannerPaidShopOffer == true
@@ -199,7 +236,7 @@ function hooks.attach(module, session, getState, report, room, route)
             if type(result) == "table" and result.ObjectId ~= nil and (handle ~= nil or paid) then
                 worldItemsById[result.ObjectId] = {
                     handle = handle, bindingKey = bindingKey, itemKey = itemKey,
-                    paid = paid, sourceOwned = sourceOwned,
+                    paid = paid, sourceOwned = sourceOwned, shrineDelivery = shrineDelivery,
                 }
             end
         end
@@ -211,6 +248,7 @@ function hooks.attach(module, session, getState, report, room, route)
         find = function(objectId) return worldItemsById[objectId] end,
         forget = function(objectId) worldItemsById[objectId] = nil end,
         setWellRefillScope = function(scope) wellRefillScope = scope end,
+        setShrineRefillScope = function(scope) shrineRefillScope = scope end,
     }
 end
 

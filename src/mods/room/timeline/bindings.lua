@@ -14,7 +14,8 @@ end
 
 function bindings.index(occurrence)
     local index = {
-        owner = {}, producer = {}, offer = {}, generation = {}, wellPurchase = {}, wellRefill = {}, source = {},
+        owner = {}, producer = {}, offer = {}, generation = {}, hermesShrineSource = {},
+        wellPurchase = {}, wellRefill = {}, source = {},
         slot = {}, keepsake = {}, automatic = {}, encounterInteraction = {}, interaction = {}, produced = {},
         materialized = {}, keepsakeReplay = {},
     }
@@ -36,6 +37,10 @@ function bindings.index(occurrence)
             ok, errorValue = add(index, "offer", transaction.offerKey, transaction)
             if not ok then return nil, errorValue end
             ok, errorValue = add(index, "generation", transaction.generationKey, transaction)
+            if not ok then return nil, errorValue end
+        end
+        if transaction.hermesShrineSourceKey ~= nil then
+            ok, errorValue = add(index, "hermesShrineSource", transaction.hermesShrineSourceKey, transaction)
             if not ok then return nil, errorValue end
         end
         if transaction.kind == "encounterInteraction" then
@@ -87,6 +92,8 @@ function bindings.resolve(index, contact, source)
     if contact.kind == "offer" then return indexed(index, "offer", contact.offerKey)
     elseif contact.kind == "generation" then return indexed(index, "generation", contact.generationKey)
     elseif contact.kind == "wellPurchase" then return indexed(index, "wellPurchase", contact.generationKey)
+    elseif contact.kind == "hermesShrineDelivery" then
+        return indexed(index, "hermesShrineSource", contact.sourceKey)
     elseif contact.kind == "wellRefill" then return indexed(index, "wellRefill", contact.generationKey)
     elseif contact.kind == "source" then return indexed(index, "source", contact.sourceOwner)
     elseif contact.kind == "encounterInteraction" then

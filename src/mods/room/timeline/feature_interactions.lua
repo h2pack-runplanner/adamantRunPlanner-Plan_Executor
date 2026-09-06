@@ -52,6 +52,17 @@ local function storeButtonIndex(button, item)
     return nil
 end
 
+local function shrineDisposition(shrine, generationKey)
+    if shrine == nil or generationKey == nil then return nil end
+    if generationKey == "travelDealRefill" then
+        return shrine.travelDealRefill and shrine.travelDealRefill.purchase
+    end
+    for _, offer in ipairs(shrine.offers or {}) do
+        if offer.generationKey == generationKey then return offer.purchase end
+    end
+    return nil
+end
+
 function hooks.attach(module, session, getState, report, room, inventoryBindings)
     local materializationScope
     local activeWellTwist
@@ -63,6 +74,52 @@ function hooks.attach(module, session, getState, report, room, inventoryBindings
         phialTraitKey = nativeBindings.conformance.keepsakeTraits.phial,
     })
     local anvilScope = anvil.attach(module, session, report)
+
+    module.hooks.wrap("HandleSurfaceShopAction", "run-planner-shrine-purchase", function(_, runtime, base,
+        screen, button, args)
+        local state = getState(runtime)
+        local active = current(state, room)
+        local shrine = active and active.occurrence.overview.hermesShrine
+        local item = type(button) == "table" and (button.Data or button) or nil
+        local generationKey = item and item.__runPlannerGenerationKey
+        local disposition = shrineDisposition(shrine, generationKey)
+        local refill = shrine and shrine.travelDealRefill
+        local wasPurchased = type(item) == "table" and item.Purchased == true
+        if type(item) == "table" and disposition ~= nil then
+            item.RoomDelay = disposition.roomDelay
+            if type(button.Data) == "table" then button.Data.RoomDelay = disposition.roomDelay end
+        end
+        local function invoke(withRefillScope)
+            if withRefillScope and inventoryBindings and inventoryBindings.setShrineRefillScope then
+                inventoryBindings.setShrineRefillScope({
+                    kind = "shrine", slotIndex = refill.slotIndex,
+                    sourceGenerationKey = refill.sourceGenerationKey,
+                })
+            end
+            local ok, result = pcall(base, screen, button, args)
+            if withRefillScope and inventoryBindings and inventoryBindings.setShrineRefillScope then
+                inventoryBindings.setShrineRefillScope(nil)
+            end
+            if not ok then error(result, 0) end
+            return result
+        end
+        local sourceRush = refill ~= nil and generationKey == refill.sourceGenerationKey
+            and wasPurchased
+        if disposition ~= nil and wasPurchased and not disposition.rushed then
+            session.mismatch(state, "shrine-rush-disposition", "delayed", "rushed")
+        end
+        local result = invoke(sourceRush)
+        if shrine ~= nil and disposition == nil and not wasPurchased
+            and type(item) == "table" and item.Purchased == true then
+            -- An authored Shrine inventory is complete, but only rows with a
+            -- purchase disposition participate in the execution contract.
+            -- Keep native purchase behavior while reporting this off-plan use;
+            -- no Timeline transaction is created for it.
+            session.mismatch(state, "shrine-purchase-disposition", "published purchase", generationKey)
+        end
+        report(runtime)
+        return result
+    end)
 
     module.hooks.wrap("HandleStorePurchase", "run-planner-store-purchase", function(_, runtime, base, screen,
         button, args)
