@@ -1,6 +1,6 @@
 -- luacheck: globals TestAromaticPhial
 local lu = require("luaunit")
-local interactions = require("mods.room.timeline.feature_interactions")
+local fountain = require("mods.room.timeline.interactions.fountain")
 
 TestAromaticPhial = {}
 
@@ -34,10 +34,7 @@ local function attach(transaction)
             }
         end,
     }
-    interactions.attach(module, session, function() return state end, function() reports = reports + 1 end, room, {
-        find = function() end,
-        forget = function() end,
-    })
+    fountain.attach(module, session, function() return state end, function() reports = reports + 1 end, room)
     return callbacks, function() return completed end, function() return mismatches end,
         function() return reports end
 end
