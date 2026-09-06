@@ -46,10 +46,12 @@ function runtime.status(state)
 end
 
 function runtime.mismatch(state, checkpoint, expected, observed)
+    if state.state ~= "desynchronized" and state.room ~= nil then room.dispose(state) end
     return fail(state, checkpoint, expected, observed)
 end
 
 function runtime.start(state, inbox, phase)
+    if state.room ~= nil then room.dispose(state) end
     state.initialized = true
     local loaded, plan = inbox.load()
     if not loaded or type(plan) ~= "table" or plan.kind ~= "ready" then
@@ -67,7 +69,7 @@ function runtime.start(state, inbox, phase)
     state.plan = plan
     state.route = route.new(plan)
     state.room = room.new(plan, function(errorValue, expected, observed)
-        return fail(state, errorValue, expected, observed)
+        return runtime.mismatch(state, errorValue, expected, observed)
     end, {
         readConformance = function(kind, currentRun, gameState, expected)
             return conformance.read(kind, currentRun, gameState, expected)

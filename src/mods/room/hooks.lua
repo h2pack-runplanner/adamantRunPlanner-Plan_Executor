@@ -5,13 +5,25 @@ local function roomName(value)
     return type(value) == "table" and (value.GenusName or value.Name) or nil
 end
 
-function hooks.attach(module, session, getState, report, route, room, featureScope, navigation)
+function hooks.attach(module, session, getState, report, route, room, featureScope, navigation, loadoutScope)
+    assert(type(loadoutScope) == "table"
+        and type(loadoutScope.synchronizeStartingRoom) == "function",
+        "starting-room loadout scope is required")
     module.hooks.wrap("ChooseStartingRoom", "run-planner-starting-room", function(_, runtime, base, currentRun,
         args)
         local state = getState(runtime)
         if state == nil then return base(currentRun, args) end
         if state.state ~= "starting" then report(runtime); return base(currentRun, args) end
+        if not loadoutScope.synchronizeStartingRoom(runtime) then
+            report(runtime)
+            return base(currentRun, args)
+        end
         local occurrence = route.expected(state.route)
+        if occurrence == nil or room.prepare(state, occurrence) == nil
+            or state.state ~= "synchronized" then
+            report(runtime)
+            return base(currentRun, args)
+        end
         local gameValue = _G.game or game
         local data = occurrence and room.realize(state, occurrence, gameValue) or nil
         if data ~= nil then data = navigation.realizeIncomingReward(occurrence, data) end

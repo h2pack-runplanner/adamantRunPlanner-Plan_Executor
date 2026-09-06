@@ -10,12 +10,25 @@ TestRouteRoomSessions = {}
 
 local handlesBySession = setmetatable({}, { __mode = "k" })
 
+function TestRouteRoomSessions.testRoomSessionsOwnTheirInnerTimelineState()
+    local empty = {
+        transactionsByOwner = {},
+        timeline = { transactions = {}, dependencies = {}, obligations = {} },
+    }
+    local first = room.new(empty)
+    local second = room.new(empty)
+    lu.assertFalse(rawequal(first._timeline, second._timeline))
+    room.dispose(first)
+    lu.assertNotNil(second._timeline)
+    lu.assertNil(first._timeline)
+end
+
 local function newSession(entry)
     for owner, transaction in pairs(entry.transactionsByOwner) do
         transaction.generationKey = transaction.generationKey or "test:" .. owner
     end
-    local port = timeline.new(entry, assert(bindings.index(entry)))
-    local envelope = room.new(entry, nil, port)
+    local envelope = room.new(entry, assert(bindings.index(entry)))
+    local port = envelope._timeline
     local handles = {}
     for owner, transaction in pairs(entry.transactionsByOwner) do
         handles[owner] = assert(timeline.resolve(port, bindings.resolve,
@@ -302,13 +315,12 @@ function TestRouteRoomSessions.testDeclaredInteractionContactResolvesWithoutTran
         },
     }
     entry.timeline = { dependencies = {}, obligations = {} }
-    local port = timeline.new(entry, assert(bindings.index(entry)))
+    local session = room.new(entry, assert(bindings.index(entry)))
+    local port = session._timeline
     local handle = assert(timeline.resolve(port, bindings.resolve,
         { kind = "interaction", interactionKey = "fountain" }))
     local nativeSource = {}
     local bound = assert(timeline.bind(port, handle, nativeSource))
-    local session = room.new(entry, nil, port)
-
     lu.assertTrue(room.openWindow(session, "postOutgoing"))
     lu.assertTrue(rawequal(timeline.bound(port, nativeSource), bound))
     lu.assertEquals(room.begin(session, bound).transaction.owner, "fountain")
@@ -319,11 +331,11 @@ function TestRouteRoomSessions.testCompletedOwnerRetiresEveryHandleWithoutMismat
     local entry = occurrence()
     local transaction = entry.transactionsByOwner.required
     transaction.offerKey, transaction.generationKey = "required", "required"
-    local port = timeline.new(entry, assert(bindings.index(entry)))
+    local session = room.new(entry, assert(bindings.index(entry)))
+    local port = session._timeline
     local offer = assert(timeline.resolve(port, bindings.resolve, { kind = "offer", offerKey = "required" }))
     local generation = assert(timeline.resolve(port, bindings.resolve,
         { kind = "generation", generationKey = "required" }))
-    local session = room.new(entry, nil, port)
     lu.assertTrue(room.complete(session, offer))
     lu.assertTrue(room.complete(session, generation))
     lu.assertNil(room.begin(session, offer))
@@ -555,14 +567,13 @@ function TestRouteRoomSessions.testMultiContactOwnerCompletesOnlyAtItsTerminalPr
     }
     entry.transactionsByOwner = { delivery = transaction }
     entry.timeline = { dependencies = {}, obligations = { { owner = "delivery", checkpoint = "roomExit" } } }
-    local port = timeline.new(entry, assert(bindings.index(entry)))
+    local session = room.new(entry, assert(bindings.index(entry)))
+    local port = session._timeline
     local source = assert(timeline.resolve(port, bindings.resolve, { kind = "offer", offerKey = "delivery" }))
     local first = assert(timeline.resolve(port, bindings.resolve,
         { kind = "materialized", gameName = "BlindBoxLoot" }, source))
     local terminal = assert(timeline.resolve(port, bindings.resolve,
         { kind = "materialized", gameName = "HeraUpgrade" }, source))
-    local session = room.new(entry, nil, port)
-
     lu.assertFalse(rawequal(first, terminal))
     lu.assertNotNil(room.begin(session, first))
     lu.assertNotNil(room.begin(session, terminal))

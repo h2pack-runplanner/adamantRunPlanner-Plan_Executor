@@ -1,11 +1,11 @@
 -- luacheck: globals TestPathAcquisitions
 local lu = require("luaunit")
+local seaStar = require("mods.room.timeline.acquisitions.sea_star").create()
 local path = require("mods.room.timeline.acquisitions.path.hooks")
-local seaStar = require("mods.room.timeline.acquisitions.sea_star")
 
 TestPathAcquisitions = {}
 
-local function capture(payload, bound, installSeaStar)
+local function capture(payload, bound, installSeaStar, pathAdapter, seaStarAdapter)
     local callbacks = {}
     local module = { hooks = { wrap = function(name, _, callback) callbacks[name] = callback end } }
     local item = { Name = payload.detail.gameName, UseFunctionName = "OpenTalentScreen" }
@@ -34,8 +34,11 @@ local function capture(payload, bound, installSeaStar)
             mismatches[#mismatches + 1] = { checkpoint, expected, observed }
         end,
     }
-    path.attach(module, session, function() return state end, function() reports = reports + 1 end, room)
-    if installSeaStar then seaStar.attach(module) end
+    pathAdapter = pathAdapter or path
+    seaStarAdapter = seaStarAdapter or seaStar
+    pathAdapter.attach(module, session, function() return state end,
+        function() reports = reports + 1 end, room, seaStarAdapter)
+    if installSeaStar then seaStarAdapter.attach(module) end
     return callbacks, item, function() return began end, completed, mismatches, function() return reports end
 end
 
@@ -81,10 +84,12 @@ function TestPathAcquisitions.testUnboundPathPickupClaimsOnlyAfterNativeAcceptan
     lu.assertEquals(#completed, 1)
 end
 
-function TestPathAcquisitions.testUnboundTalentKeepsItsSeaStarScopeThroughAcceptedClaim()
+function TestPathAcquisitions.testFreshImportedPathCarrierUsesProvidedSeaStarThroughAcceptedClaim()
     local row = payload("TalentDrop")
     row.detail.seaStarResult = { kind = "proc" }
-    local callbacks, item, _, completed = capture(row, false, true)
+    local freshSeaStar = assert(loadfile("src/mods/room/timeline/acquisitions/sea_star.lua"))().create()
+    local freshPath = assert(loadfile("src/mods/room/timeline/acquisitions/path/hooks.lua"))()
+    local callbacks, item, _, completed = capture(row, false, true, freshPath, freshSeaStar)
     local chance = {}
     local result = callbacks.UseConsumableItem(nil, {}, function(source)
         callbacks.ConsumableUsedPresentation(nil, {}, function() return true end, {}, source, {})

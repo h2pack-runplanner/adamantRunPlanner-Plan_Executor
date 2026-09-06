@@ -1,6 +1,8 @@
 local ui = {}
 
-function ui.bind(data)
+function ui.bind(inbox)
+    assert(type(inbox) == "table" and type(inbox.load) == "function"
+        and type(inbox.status) == "function", "status UI inbox dependency is required")
     local function logInspectionFailure(status)
         if not status.error or not rom or not rom.log or not rom.log.info then return end
         rom.log.info(
@@ -14,10 +16,10 @@ function ui.bind(data)
         local drawApi = ctx.draw
         drawApi.widgets.text("Published file: active.runplanner.json")
         if drawApi.widgets.button("Inspect Published Plan (Future Run)", { id = "plan_executor_inspect" }) then
-            data.inbox.load()
-            logInspectionFailure(data.inbox.status())
+            inbox.load()
+            logInspectionFailure(inbox.status())
         end
-        local inboxStatus = data.inbox.status()
+        local inboxStatus = inbox.status()
         drawApi.widgets.text(
             "File: " .. tostring(inboxStatus.inspection)
                 .. " | Protocol: " .. tostring(inboxStatus.protocol))

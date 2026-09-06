@@ -3,7 +3,7 @@
 local lu = require("luaunit")
 local bindings = require("mods.room.timeline.bindings")
 local lifecycle = require("mods.room.timeline.lifecycle")
-local phases = require("mods.room.timeline.encounters.phases")
+local phases = require("mods.room.timeline.encounters.phases").create()
 local encounterHooks = require("mods.room.timeline.encounters.hooks")
 local boss = require("mods.room.timeline.encounters.boss")
 
@@ -32,6 +32,17 @@ function TestEncounters.testNativeEncounterObjectsBindDuplicateNamesToDifferentP
     lu.assertEquals(phases.forNative(first).phase.slotKey, "first")
     lu.assertEquals(phases.forNative(second).phase.slotKey, "second")
     lu.assertNotEquals(phases.forNative(first).phase, phases.forNative(second).phase)
+end
+
+function TestEncounters.testCreatedPhaseRegistriesDoNotShareNativeBindings()
+    local other = require("mods.room.timeline.encounters.phases").create()
+    local native = {}
+    local occurrence = {
+        id = "room",
+        overview = { encounterPhases = { { slotKey = "first", encounterKey = "Encounter" } } },
+    }
+    lu.assertNotNil(phases.bind(occurrence, native, "first"))
+    lu.assertNil(other.forNative(native))
 end
 
 function TestEncounters.testBossArcanaAdmitsAnExactEternityOutcome()

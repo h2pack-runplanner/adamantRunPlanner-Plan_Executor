@@ -1,8 +1,6 @@
 -- Path of Stars accepts only its exact native consumable, then leaves all
 -- point accounting, node choice, and closure to the writable Talent screen.
 local path = {}
-local seaStar = type(import) == "function" and import("mods/room/timeline/acquisitions/sea_star.lua")
-    or require("mods.room.timeline.acquisitions.sea_star")
 
 local pathNames = {
     MinorTalentDrop = true,
@@ -42,7 +40,8 @@ local function boundScope(room, state, item, claimReady)
     return { state = state, current = current, handle = handle, item = item }
 end
 
-function path.attach(module, session, getState, report, room)
+function path.attach(module, session, getState, report, room, seaStar)
+    assert(type(seaStar) == "table", "Path of Stars Sea Star instance is required")
     local acceptedUses = setmetatable({}, { __mode = "k" })
     local routedSpellDrops = setmetatable({}, { __mode = "k" })
 

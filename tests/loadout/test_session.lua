@@ -2,8 +2,8 @@ local lu = require("luaunit")
 local native = require("mods/loadout/native")
 local session = require("mods/loadout/session")
 local roomHooks = require("mods.room.hooks")
-local loadoutHooks = require("mods/loadout/hooks")
-local hexTree = require("mods.spells.hex_tree")
+local hexTree = require("mods.spells.hex_tree").create()
+local loadoutHooks = require("mods.loadout.hooks")
 local loadoutProtocol = require("mods.protocol.loadout")
 local json = require("mods/protocol/json")
 
@@ -21,7 +21,7 @@ local function expected(hex)
     }
 end
 
-local function captureLoadoutHooks(state)
+local function captureLoadoutHooks(state, treeAdapter, loadoutAdapter)
     local priorImport = _G.import
     _G.import = function(path)
         return require((path:gsub("%.lua$", ""):gsub("/", ".")))
@@ -40,11 +40,14 @@ local function captureLoadoutHooks(state)
         end,
     }
     local getState = type(state) == "function" and state or function() return state end
-    hexTree.attach(module)
-    loadoutHooks.attach(module, { session = sessionAdapter, loadout = session, inbox = {} }, getState,
-        function() end, sessionAdapter)
+    treeAdapter = treeAdapter or hexTree
+    loadoutAdapter = loadoutAdapter or loadoutHooks
+    treeAdapter.attach(module)
+    local scope = loadoutAdapter.attach(module,
+        { session = sessionAdapter, loadout = session, inbox = {} }, getState,
+        function() end, sessionAdapter, treeAdapter)
     _G.import = priorImport
-    return callbacks
+    return callbacks, scope
 end
 
 function TestLoadoutSession.testStartHookNeverReadsCacheBeforeCurrentRunExists()
@@ -93,6 +96,36 @@ function TestLoadoutSession.testCreateNewHeroInitializesCurrentRunSession()
     _G.GameState, _G.CurrentRun, _G.GetEquippedWeapon, _G.TraitRarityData, _G.MetaUpgradeCardData =
         priorGame, priorRun, priorWeapon, priorRarity, priorCards
     lu.assertEquals(result, { started = true })
+    lu.assertEquals(state.state, "synchronized")
+end
+
+function TestLoadoutSession.testCompletedLoadoutCanSynchronizeBeforeNativeStartingRoomCreation()
+    local priorGame, priorRun, priorWeapon, priorRarity, priorCards = _G.GameState, _G.CurrentRun,
+        _G.GetEquippedWeapon, _G.TraitRarityData, _G.MetaUpgradeCardData
+    _G.GameState = {
+        LastWeaponUpgradeName = { WeaponStaffSwing = "BaseStaffAspect" },
+        LastAwardTrait = "ManaOverTimeRefundKeepsake", ShrineUpgrades = {}, MetaUpgradeState = {},
+    }
+    _G.CurrentRun = { Hero = { TraitDictionary = { BaseStaffAspect = true } } }
+    _G.GetEquippedWeapon = function() return "WeaponStaffSwing" end
+    _G.TraitRarityData, _G.MetaUpgradeCardData =
+        { RarityUpgradeOrder = { "Common", "Rare", "Epic" } }, {}
+    local state = { plan = expected(nil), initialized = false, state = "inactive" }
+    state.plan.startingLoadout.arcana = {}
+    state.plan.startingLoadout.fear = { configuredRanks = {}, effectiveRanks = {} }
+    local callbacks, scope = captureLoadoutHooks(state)
+    local stateDuringRoomChoice
+    callbacks.StartNewRun(nil, {}, function()
+        callbacks.CreateNewHero(nil, {}, function() return {} end, nil, {})
+        callbacks.EquipKeepsake(nil, {}, function() return true end, {},
+            "ManaOverTimeRefundKeepsake", {})
+        lu.assertTrue(scope.synchronizeStartingRoom({}))
+        stateDuringRoomChoice = state.state
+        return { started = true }
+    end, nil, {})
+    _G.GameState, _G.CurrentRun, _G.GetEquippedWeapon, _G.TraitRarityData, _G.MetaUpgradeCardData =
+        priorGame, priorRun, priorWeapon, priorRarity, priorCards
+    lu.assertEquals(stateDuringRoomChoice, "synchronized")
     lu.assertEquals(state.state, "synchronized")
 end
 
@@ -230,7 +263,7 @@ function TestLoadoutSession.testAttachedKeepsakeContactsSteerExactHammerAndEmbry
     _G.GameState, _G.CurrentRun, _G.GetEquippedWeapon = priorGame, priorRun, priorWeapon
 end
 
-function TestLoadoutSession.testAttachedSeleneTreeForcesOnlySpecialPools()
+function TestLoadoutSession.testFreshImportedLoadoutUsesTheProvidedSeleneTree()
     local priorGame, priorRun, priorWeapon, priorSpell, priorTrait = _G.GameState, _G.CurrentRun, _G.GetEquippedWeapon, _G.SpellData, _G.TraitData
     _G.GameState = { LastWeaponUpgradeName = { WeaponSuit = "SuitHexAspect" }, LastAwardTrait = "ManaOverTimeRefundKeepsake", ShrineUpgrades = {}, MetaUpgradeState = {} }
     _G.GetEquippedWeapon = function() return "WeaponSuit" end
@@ -240,7 +273,9 @@ function TestLoadoutSession.testAttachedSeleneTreeForcesOnlySpecialPools()
     local hex = { spellTraitKey = "SpellMoonBeamTrait", layoutKey = "ExpectedLayout", rareTalentKeys = { "RareExpected" }, epicTalentKeys = { "EpicExpected" }, godSent = { olympianTalentKey = "DuoExpected", lineageTalentKey = "OlympianSpellCountTalent" } }
     local state, callbacks = startState("ManaOverTimeRefundKeepsake", nil, hex), nil
     state.plan.startingLoadout.weaponKey, state.plan.startingLoadout.aspectKey = "WeaponSuit", "SuitHexAspect"
-    callbacks = captureLoadoutHooks(state)
+    local freshTree = assert(loadfile("src/mods/spells/hex_tree.lua"))().create()
+    local freshLoadoutHooks = assert(loadfile("src/mods/loadout/hooks.lua"))()
+    callbacks = captureLoadoutHooks(state, freshTree, freshLoadoutHooks)
     local result = callbacks.StartNewRun(nil, {}, function()
         callbacks.CreateNewHero(nil, {}, function()
             local tree = callbacks.CreateTalentTree(nil, {}, function()
@@ -368,6 +403,11 @@ function TestLoadoutSession.testStartingRoomIsOptimisticallyRealizedDuringLoadou
     local occurrence = { id = "opening", gameName = "F_Opening01" }
     local route = { expected = function() return occurrence end }
     local roomSession = {
+        prepare = function(_, value)
+            lu.assertEquals(state.state, "synchronized")
+            lu.assertEquals(value, occurrence)
+            return true
+        end,
         realize = function(_, value)
             lu.assertEquals(value, occurrence)
             realized = true
@@ -378,6 +418,11 @@ function TestLoadoutSession.testStartingRoomIsOptimisticallyRealizedDuringLoadou
         route, roomSession, nil, {
             realizeIncomingReward = function(_, nativeRoom) return nativeRoom end,
             proveIncomingReward = function() return true end,
+        }, {
+            synchronizeStartingRoom = function()
+                state.state = "synchronized"
+                return true
+            end,
         })
     local result = callbacks.ChooseStartingRoom(nil, {}, function() nativeStarted = true; return { Name = "Native" } end, {}, {})
     lu.assertEquals(result, { Name = "F_Opening01" })

@@ -3,8 +3,10 @@ local lu = require("luaunit")
 local roomCoordinatorModule = require("mods.room.coordinator")
 local json = require("mods.protocol.json")
 local mysteryAcquisitions = require("mods.room.timeline.acquisitions.mystery.hooks")
+local traitSeaStar = require("mods.room.timeline.acquisitions.sea_star").create()
 local traitAcquisitions = require("mods.room.timeline.acquisitions.traits.hooks")
-local logic = require("mods.runtime.composition")
+local loadoutHexTree = require("mods.spells.hex_tree").create()
+local loadoutHooks = require("mods.loadout.hooks")
 local runtimeSession = require("mods.runtime.session")
 local support = require("tests.harness.hook_composition")
 local capture, stub, opaque = support.capture, support.stub, support.opaque
@@ -377,9 +379,10 @@ function TestFeatureInteractionHooks.testSuccessfulNativeKeepsakeEquipCompletesT
     end
     local priorImport = _G.import
     _G.import = function(path)
-        return require((path:gsub("%.lua$", ""):gsub("/", ".")))
+        return assert(loadfile("src/" .. path))()
     end
-    logic.attach(module, { session = session })
+    loadoutHooks.attach(module, { inbox = {}, session = session, loadout = {} },
+        session.get, function() end, roomCoordinatorModule, loadoutHexTree)
     callbacks.EquipKeepsake(nil, {}, function() return true end, {}, "GoldifyKeepsake", {})
     _G.import = priorImport
 
@@ -453,7 +456,8 @@ function TestFeatureInteractionHooks.testMysteryBoonPurchaseWaitsForItsTraitReso
         GiveLoot = callbacks.GiveLoot,
     }
     for name, callback in pairs(mysteryCallbacks) do callbacks[name] = callback end
-    traitAcquisitions.attach(module, session, function() return state end, function() end, roomCoordinatorModule)
+    traitAcquisitions.attach(module, session, function() return state end,
+        function() end, roomCoordinatorModule, traitSeaStar)
 
     callbacks.UseConsumableItem(nil, {}, function(nativeItem)
         lu.assertTrue(callbacks.ConsumableUsedPresentation(nil, {}, function() return true end,

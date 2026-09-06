@@ -1,10 +1,26 @@
 local lu = require("luaunit")
-local tree = require("mods.spells.hex_tree")
+local tree = require("mods.spells.hex_tree").create()
 local spell = require("mods.room.timeline.acquisitions.spell.hooks")
 
 TestSpellAcquisitions = {}
 
-local function capture(state, payload)
+function TestSpellAcquisitions.testCreatedHexTreesDoNotSharePendingScopes()
+    local definition = require("mods.spells.hex_tree")
+    local first, second = definition.create(), definition.create()
+    local firstCallbacks, secondCallbacks = {}, {}
+    first.attach({ hooks = { wrap = function(name, _, callback) firstCallbacks[name] = callback end } })
+    second.attach({ hooks = { wrap = function(name, _, callback) secondCallbacks[name] = callback end } })
+    local mismatches = {}
+    local scope = first.prepare({
+        layoutKey = "FirstLayout", rareTalentKeys = {}, epicTalentKeys = {},
+    }, function(checkpoint) mismatches[#mismatches + 1] = checkpoint end)
+    lu.assertEquals(secondCallbacks.CreateTalentTree(nil, {}, function() return "native" end, {}), "native")
+    first.clear(scope)
+    lu.assertEquals(mismatches, { "hex-tree-contact" })
+    lu.assertNotNil(firstCallbacks.CreateTalentTree)
+end
+
+local function capture(state, payload, treeAdapter, spellAdapter)
     local callbacks = {}
     local module = { hooks = { wrap = function(name, _, callback)
         local prior = callbacks[name]
@@ -30,12 +46,14 @@ local function capture(state, payload)
             mismatches[#mismatches + 1] = { checkpoint, expected, observed }
         end,
     }
-    tree.attach(module)
-    spell.attach(module, session, function() return state end, function() end, room)
+    treeAdapter = treeAdapter or tree
+    spellAdapter = spellAdapter or spell
+    treeAdapter.attach(module)
+    spellAdapter.attach(module, session, function() return state end, function() end, room, treeAdapter)
     return callbacks, completed, mismatches
 end
 
-function TestSpellAcquisitions.testSteersEverySpellPositionAndLetsNativeInstallApplyItsBonus()
+function TestSpellAcquisitions.testFreshImportedSpellAdapterUsesTheProvidedHexTree()
     local prior = _G.SpellData
     _G.SpellData = {
         SpellOne = { TraitName = "SpellOneTrait" }, SpellTwo = { TraitName = "SpellTwoTrait" },
@@ -50,7 +68,9 @@ function TestSpellAcquisitions.testSteersEverySpellPositionAndLetsNativeInstallA
             },
             hexTree = { layoutKey = "Lung", rareTalentKeys = { "Rare" }, epicTalentKeys = { "Epic" } },
         } } }
-        local callbacks, completed, mismatches = capture(state, payload)
+        local freshTree = assert(loadfile("src/mods/spells/hex_tree.lua"))().create()
+        local freshSpell = assert(loadfile("src/mods/room/timeline/acquisitions/spell/hooks.lua"))()
+        local callbacks, completed, mismatches = capture(state, payload, freshTree, freshSpell)
         local item, screen = { Name = "SpellDrop" }, nil
         local pregenerated = callbacks.PregenerateSpells(nil, nil, function()
             local values, rows = { "Other", "SpellThree", "SpellOne", "SpellTwo" }, {}

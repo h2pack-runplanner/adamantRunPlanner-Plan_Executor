@@ -50,11 +50,10 @@ function hooks.attach(module, session, getState, report, room)
         local phase
         if encounterIndex ~= nil then
             encounterIndex = encounterIndex + 1
-            phase = room.encounterAt(state, encounterIndex)
+            phase = room.encounterAt(state, encounterIndex, nativeRoom)
         else
-            local active = room.current(state)
-            local first = active and room.encounterAt(state, 1) or nil
-            phase = first and room.encounterAt(state, 2) == nil and first or nil
+            local first = room.encounterAt(state, 1, nativeRoom)
+            phase = first and room.encounterAt(state, 2, nativeRoom) == nil and first or nil
         end
         local declaration
         if phase ~= nil then
@@ -66,7 +65,7 @@ function hooks.attach(module, session, getState, report, room)
             and chooseForcedEncounter(base, currentRun, nativeRoom, args, declaration)
             or base(currentRun, nativeRoom, args)
         if phase ~= nil and type(result) == "table" then
-            room.bindEncounter(state, result, phase.slotKey)
+            room.bindEncounter(state, result, phase.slotKey, nativeRoom)
         end
         return result
     end)

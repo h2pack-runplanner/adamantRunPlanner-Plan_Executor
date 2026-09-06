@@ -1,8 +1,8 @@
 -- luacheck: globals TestLevelAcquisitions
 local lu = require("luaunit")
-local levels = require("mods.room.timeline.acquisitions.levels.hooks")
 local binding = require("mods.room.timeline.acquisitions.binding")
-local seaStar = require("mods.room.timeline.acquisitions.sea_star")
+local seaStar = require("mods.room.timeline.acquisitions.sea_star").create()
+local levels = require("mods.room.timeline.acquisitions.levels.hooks")
 
 TestLevelAcquisitions = {}
 
@@ -12,7 +12,7 @@ local function capture()
     return module, callbacks
 end
 
-local function harness(row, native, isBound, installSeaStar)
+local function harness(row, native, isBound, installSeaStar, levelAdapter, seaStarAdapter)
     local module, callbacks = capture()
     local state = { state = "synchronized" }
     local begins, completions, mismatches, releases = 0, {}, {}, 0
@@ -46,8 +46,10 @@ local function harness(row, native, isBound, installSeaStar)
             completions[#completions + 1] = { handle = value }
         end,
     }
-    levels.attach(module, session, function() return state end, function() end, room)
-    if installSeaStar then seaStar.attach(module) end
+    levelAdapter = levelAdapter or levels
+    seaStarAdapter = seaStarAdapter or seaStar
+    levelAdapter.attach(module, session, function() return state end, function() end, room, seaStarAdapter)
+    if installSeaStar then seaStarAdapter.attach(module) end
     return callbacks, room, state, handle, function() return begins end, completions, mismatches,
         function() return releases end
 end
@@ -131,12 +133,15 @@ function TestLevelAcquisitions.testVisibleSelectionUsesNativeSortedIdentityAndNo
     _G.CurrentRun = priorRun
 end
 
-function TestLevelAcquisitions.testVisibleFreshPomForcesSeaStarBeforeItsSelectionCompletion()
+function TestLevelAcquisitions.testFreshImportedLevelCarrierUsesProvidedSeaStarBeforeCompletion()
     local row = levelRow("StackUpgrade", 1, "Target")
     row.detail.levelResolution.offeredTargets = { "Target" }
     row.detail.seaStarResult = { kind = "proc" }
     local loot = { Name = "StackUpgrade", UpgradeOptions = {} }
-    local callbacks, _, _, _, _, completions = harness(row, loot, nil, true)
+    local freshSeaStar = assert(loadfile("src/mods/room/timeline/acquisitions/sea_star.lua"))().create()
+    local freshLevels = assert(loadfile("src/mods/room/timeline/acquisitions/levels/hooks.lua"))()
+    local callbacks, _, _, _, _, completions = harness(row, loot, nil, true,
+        freshLevels, freshSeaStar)
     callbacks.HandleLootPickup(nil, {}, function() end, {}, loot, {})
     callbacks.CreateBoonLootButtons(nil, {}, function() end, {}, loot, false, {})
     local chance = {}

@@ -1,8 +1,8 @@
 -- Residual automatic and resource native-contact witnesses.
 -- luacheck: globals TestResidualNativeContacts
 local lu = require("luaunit")
-local runtimeSession = require("mods.runtime.session")
 local coordinator = require("mods.room.coordinator")
+local runtimeSession = require("mods.runtime.session")
 local automatic = require("mods.room.timeline.encounters.automatic")
 local boss = require("mods.room.timeline.encounters.boss")
 local resources = require("mods.room.timeline.interactions.resources")

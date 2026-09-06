@@ -1,8 +1,8 @@
 -- luacheck: globals TestDirectPickupAcquisitions
 local lu = require("luaunit")
 local binding = require("mods.room.timeline.acquisitions.binding")
+local seaStar = require("mods.room.timeline.acquisitions.sea_star").create()
 local pickups = require("mods.room.timeline.acquisitions.pickups.hooks")
-local seaStar = require("mods.room.timeline.acquisitions.sea_star")
 
 TestDirectPickupAcquisitions = {}
 
@@ -20,7 +20,7 @@ local function acquisitionRow(gameName, kind)
     return { transaction = { owner = "pickup", kind = "acquisition", roles = { detail } }, detail = detail }
 end
 
-local function harness(row, item, isBound, installSeaStar)
+local function harness(row, item, isBound, installSeaStar, pickupAdapter, seaStarAdapter)
     local module, callbacks = capture()
     local state = { state = "synchronized" }
     local active = { occurrence = { overview = {} } }
@@ -51,8 +51,11 @@ local function harness(row, item, isBound, installSeaStar)
             completions[#completions + 1] = { handle = value }
         end,
     }
-    pickups.attach(module, session, function() return state end, function() reports = reports + 1 end, room)
-    if installSeaStar then seaStar.attach(module) end
+    pickupAdapter = pickupAdapter or pickups
+    seaStarAdapter = seaStarAdapter or seaStar
+    pickupAdapter.attach(module, session, function() return state end,
+        function() reports = reports + 1 end, room, seaStarAdapter)
+    if installSeaStar then seaStarAdapter.attach(module) end
     return callbacks, handle, function() return begins end, completions, function() return reports end,
         function() return releases end
 end
@@ -128,12 +131,15 @@ function TestDirectPickupAcquisitions.testUnboundSameNameConsumableClaimsAtAccep
     lu.assertEquals(completions[1].handle, handle)
 end
 
-function TestDirectPickupAcquisitions.testUnboundGeneratedPickupForcesBothSeaStarOutcomesAndReleasesProcObject()
+function TestDirectPickupAcquisitions.testFreshImportedPickupCarrierUsesTheProvidedSeaStar()
     for _, expected in ipairs({ "proc", "noProc" }) do
         local item = { Name = "RoomMoneyDrop" }
         local row = acquisitionRow(item.Name, "resource")
         row.detail.seaStarResult = { kind = expected }
-        local callbacks, _, _, completions, _, releases = harness(row, item, false, true)
+        local freshSeaStar = assert(loadfile("src/mods/room/timeline/acquisitions/sea_star.lua"))().create()
+        local freshPickups = assert(loadfile("src/mods/room/timeline/acquisitions/pickups/hooks.lua"))()
+        local callbacks, _, _, completions, _, releases = harness(row, item, false, true,
+            freshPickups, freshSeaStar)
         local chance = {}
         acceptedUse(callbacks, item, function()
             chance.value = callbacks.GetTotalHeroTraitValue(nil, {}, function() return 0 end,
@@ -163,7 +169,7 @@ function TestDirectPickupAcquisitions.testUnselectedGeneratedPickupPassesThrough
     }
     local session = { complete = function() completions = completions + 1 end }
     pickups.attach(module, session, function() return { state = "synchronized" } end,
-        function() reports = reports + 1 end, room)
+        function() reports = reports + 1 end, room, seaStar)
     local nativeApplied = false
     lu.assertEquals(acceptedUse(callbacks, item, function() nativeApplied = true end), "native-result")
     lu.assertTrue(nativeApplied)
@@ -206,7 +212,7 @@ function TestDirectPickupAcquisitions.testSameIdentityGeneratedPickupsClaimReady
     local session = {
         complete = function(_, handle) completions[#completions + 1] = handle end,
     }
-    pickups.attach(module, session, function() return state end, function() end, room)
+    pickups.attach(module, session, function() return state end, function() end, room, seaStar)
 
     local firstPhysical, secondPhysical = { Name = "RoomMoneyTinyDrop" }, { Name = "RoomMoneyTinyDrop" }
     lu.assertEquals(acceptedUse(callbacks, secondPhysical), "native-result")

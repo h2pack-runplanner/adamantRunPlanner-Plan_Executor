@@ -3,23 +3,24 @@
 -- responsibilities. Incoming transition rewards remain navigation-owned.
 local session = type(import) == "function" and import("mods/room/session.lua")
     or require("mods.room.session")
-local timelineSession = type(import) == "function" and import("mods/room/timeline/session.lua")
-    or require("mods.room.timeline.session")
 local timelineBindings = type(import) == "function" and import("mods/room/timeline/bindings.lua")
     or require("mods.room.timeline.bindings")
 local overview = type(import) == "function" and import("mods/room/overview.lua")
     or require("mods.room.overview")
-local encounterPhases = type(import) == "function" and import("mods/room/timeline/encounters/phases.lua")
-    or require("mods.room.timeline.encounters.phases")
 local features = type(import) == "function" and import("mods/room/features/structure.lua")
     or require("mods.room.features.structure")
 local conformance = type(import) == "function" and import("mods/room/conformance/proof.lua")
     or require("mods.room.conformance.proof")
+local encounterPhaseFactory = type(import) == "function"
+    and import("mods/room/timeline/encounters/phases.lua")
+    or require("mods.room.timeline.encounters.phases")
 
 local coordinator = {}
-local ports = setmetatable({}, { __mode = "k" })
-
 local function stateOf(state) return state and state.room end
+local function encounterPhases(state)
+    local roomState = stateOf(state)
+    return roomState and roomState.encounterPhases or nil
+end
 
 local function fail(state, errorValue, expected, observed)
     local roomState = stateOf(state)
@@ -34,6 +35,7 @@ function coordinator.new(plan, onMismatch, capabilities)
     return {
         plan = plan, current = nil, prepared = nil,
         timelineIndex = capabilities.timelineIndex or timelineBindings.index,
+        encounterPhases = encounterPhaseFactory.create(),
         readConformance = capabilities.readConformance,
         onMismatch = onMismatch,
     }
@@ -57,8 +59,8 @@ function coordinator.prepare(state, occurrence)
     end
     local bindings, errorValue = roomState.timelineIndex(occurrence)
     if bindings == nil then return fail(state, errorValue) end
-    roomState.prepared = { occurrence = occurrence }
-    ports[roomState.prepared] = timelineSession.new(occurrence, bindings)
+    if roomState.prepared ~= nil then session.dispose(roomState.prepared) end
+    roomState.prepared = session.new(occurrence, bindings)
     return roomState.prepared
 end
 
@@ -82,18 +84,15 @@ function coordinator.enter(state, occurrence, nativeRoom)
     local prepared = roomState.prepared
     local active
     if prepared ~= nil and prepared.occurrence.id == occurrence.id then
-        active = session.new(occurrence, nil, ports[prepared])
-        ports[active] = ports[prepared]
-        ports[prepared] = nil
+        active = prepared
     else
+        if prepared ~= nil then session.dispose(prepared) end
         if type(roomState.timelineIndex) ~= "function" then
             return fail(state, "room timeline index capability is required")
         end
         local bindings, errorValue = roomState.timelineIndex(occurrence)
         if bindings == nil then return fail(state, errorValue) end
-        local port = timelineSession.new(occurrence, bindings)
-        active = session.new(occurrence, bindings, port)
-        ports[active] = port
+        active = session.new(occurrence, bindings)
     end
     roomState.prepared = nil
     roomState.current = active
@@ -106,7 +105,7 @@ function coordinator.proveEntry(state, nativeRoom, nativeContext)
     if active == nil then return nil end
     for _, proof in ipairs({
         function() return overview.prove(active.occurrence, nativeRoom) end,
-        function() return encounterPhases.prove(active.occurrence, nativeRoom) end,
+        function() return encounterPhases(state).prove(active.occurrence, nativeRoom) end,
         function() return features.prove(active.occurrence, nativeRoom, nativeContext) end,
     }) do
         local ok, errorValue = proof()
@@ -121,18 +120,33 @@ end
 
 function coordinator.chooseEncounter(state, slotKey)
     local active = coordinator.current(state)
-    return active and encounterPhases.choose(active.occurrence, slotKey) or nil
+    return active and encounterPhases(state).choose(active.occurrence, slotKey) or nil
 end
 
-function coordinator.encounterAt(state, index)
+-- Native encounter generation can precede StartRoom for a selected destination
+-- or an additional-exit room. Its stamped occurrence owns the encounter facts;
+-- Timeline operations below still require an active or prepared room session.
+local function encounterOccurrence(state, nativeRoom)
+    local roomState = stateOf(state)
+    if roomState == nil then return nil end
+    local id = type(nativeRoom) == "table" and nativeRoom.__runPlannerExecutionRoomId or nil
     local active = coordinator.current(state)
-    return active and encounterPhases.at(active.occurrence, index) or nil
+    if id == nil then return active and active.occurrence or nil end
+    if active ~= nil and active.occurrence.id == id then return active.occurrence end
+    local prepared = roomState.prepared
+    if prepared ~= nil and prepared.occurrence.id == id then return prepared.occurrence end
+    return state.plan and state.plan.occurrencesById[id] or nil
 end
 
-function coordinator.bindEncounter(state, nativeEncounter, slotKey)
-    local active = coordinator.current(state)
-    if active == nil then return nil end
-    local phase, errorValue = encounterPhases.bind(active.occurrence, nativeEncounter, slotKey)
+function coordinator.encounterAt(state, index, nativeRoom)
+    local occurrence = encounterOccurrence(state, nativeRoom)
+    return occurrence and encounterPhases(state).at(occurrence, index) or nil
+end
+
+function coordinator.bindEncounter(state, nativeEncounter, slotKey, nativeRoom)
+    local occurrence = encounterOccurrence(state, nativeRoom)
+    if occurrence == nil then return nil end
+    local phase, errorValue = encounterPhases(state).bind(occurrence, nativeEncounter, slotKey)
     if phase == nil then return fail(state, errorValue) end
     return phase
 end
@@ -140,7 +154,7 @@ end
 function coordinator.encounterPhase(state, nativeEncounter)
     local active = coordinator.current(state)
     if active == nil then return nil end
-    local binding = encounterPhases.forNative(nativeEncounter)
+    local binding = encounterPhases(state).forNative(nativeEncounter)
     if binding == nil or binding.occurrenceId ~= active.occurrence.id then return nil end
     return binding.phase
 end
@@ -148,7 +162,7 @@ end
 function coordinator.startEncounter(state, nativeEncounter)
     local active = coordinator.current(state)
     if active == nil then return nil end
-    local binding = encounterPhases.forNative(nativeEncounter)
+    local binding = encounterPhases(state).forNative(nativeEncounter)
     if binding == nil or binding.occurrenceId ~= active.occurrence.id then return nil end
     local ok, errorValue = session.startEncounter(active)
     if not ok then return fail(state, errorValue) end
@@ -158,9 +172,9 @@ end
 function coordinator.encounterIsFinal(state, nativeEncounter)
     local active = coordinator.current(state)
     if active == nil then return false end
-    local binding = encounterPhases.forNative(nativeEncounter)
+    local binding = encounterPhases(state).forNative(nativeEncounter)
     if binding == nil or binding.occurrenceId ~= active.occurrence.id then return false end
-    return encounterPhases.isFinal(active.occurrence, binding.phase)
+    return encounterPhases(state).isFinal(active.occurrence, binding.phase)
 end
 
 function coordinator.encounterHandle(state, source)
@@ -215,13 +229,11 @@ local function bindingContext(state, context)
     return nil
 end
 
-local function portFor(context) return context and ports[context] or nil end
-
 function coordinator.resolve(state, context, contact)
     local owner = bindingContext(state, context)
     if owner == nil then return fail(state, "timeline-handle", "active or prepared occurrence", "unbound") end
     local source = contact and contact.source
-    local handle, errorValue = timelineSession.resolve(portFor(owner), timelineBindings.resolve, contact, source)
+    local handle, errorValue = session.resolve(owner, timelineBindings.resolve, contact, source)
     if handle == nil and errorValue ~= nil then return fail(state, errorValue) end
     return handle
 end
@@ -230,34 +242,33 @@ function coordinator.bind(state, context, handle, nativeObject)
     if handle == nil then return nil end
     local owner = bindingContext(state, context)
     if owner == nil then return fail(state, "timeline-binding", "active or prepared occurrence", "unbound") end
-    local bound, errorValue = timelineSession.bind(portFor(owner), handle, nativeObject)
+    local bound, errorValue = session.bind(owner, handle, nativeObject)
     if bound == nil then return fail(state, errorValue) end
     return bound
 end
 
 function coordinator.bound(state, context, nativeObject)
     local owner = bindingContext(state, context)
-    return owner and timelineSession.bound(portFor(owner), nativeObject) or nil
+    return owner and session.bound(owner, nativeObject) or nil
 end
 
 function coordinator.releaseCompletedBinding(state, context, handle, nativeObject)
     local owner = bindingContext(state, context)
     if owner == nil then return nil end
-    local ok, errorValue = timelineSession.releaseCompletedBinding(portFor(owner), handle, nativeObject)
+    local ok, errorValue = session.releaseCompletedBinding(owner, handle, nativeObject)
     if ok == nil and errorValue ~= nil then return fail(state, errorValue) end
     return ok
 end
 
 function coordinator.sourceRole(state, context, handle, gameName)
     local owner = bindingContext(state, context)
-    return owner and timelineSession.sourceRole(portFor(owner), handle, gameName) or nil
+    return owner and session.sourceRole(owner, handle, gameName) or nil
 end
 
 function coordinator.claimReady(state, context, contact, native, compatible)
     local owner = bindingContext(state, context)
     if owner == nil then return fail(state, "timeline-claim", "active or prepared occurrence", "unbound") end
-    local handle, payload, errorValue = timelineSession.claimReady(
-        portFor(owner), contact, native, compatible)
+    local handle, payload, errorValue = session.claimReady(owner, contact, native, compatible)
     if handle == nil and errorValue ~= nil then return fail(state, errorValue) end
     return handle, payload
 end
@@ -274,7 +285,7 @@ end
 function coordinator.peek(state, handle)
     local active = coordinator.current(state)
     if active == nil then return fail(state, "timeline-handle", "active occurrence", "none") end
-    local payload, errorValue = timelineSession.peek(portFor(active), handle)
+    local payload, errorValue = session.peek(active, handle)
     if payload == nil and errorValue ~= nil then return fail(state, errorValue) end
     return payload
 end
@@ -317,8 +328,16 @@ function coordinator.close(state, currentRun, gameState)
     end)
     if not ok then return fail(state, errorValue) end
     roomState.current = nil
-    ports[active] = nil
     return true
+end
+
+function coordinator.dispose(state)
+    local roomState = stateOf(state)
+    if roomState == nil then return end
+    session.dispose(roomState.current)
+    session.dispose(roomState.prepared)
+    roomState.current = nil
+    roomState.prepared = nil
 end
 
 return coordinator

@@ -15,8 +15,8 @@ lib = mods["adamant-ModpackLib"]
 local function initialize()
     import_as_fallback(rom.game)
     local data = import("mods/host/data.lua")
-    local logic = import("mods/runtime/composition.lua").bind(data, _PLUGIN.config_mod_folder_path)
-    local ui = import("mods/host/status_ui.lua").bind(data)
+    local runtime = import("mods/runtime/composition.lua").bind(_PLUGIN.config_mod_folder_path)
+    local ui = import("mods/host/status_ui.lua").bind(runtime.inboxInspection)
     local module = lib.createModule({
         pluginGuid = _PLUGIN.guid,
         modpack = "run-planner",
@@ -30,7 +30,7 @@ local function initialize()
     module.status.define(data.buildStatus())
     module.ui.tab(ui.drawTab)
     module.ui.quickContent(ui.drawQuickContent)
-    logic.attach(module, data)
+    runtime.attach(module)
     module.activate()
 end
 

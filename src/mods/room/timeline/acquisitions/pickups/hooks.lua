@@ -2,8 +2,6 @@
 -- Native UseConsumableItem owns every effect; this adapter only recognizes an
 -- accepted interaction and closes the published owner after native settlement.
 local pickups = {}
-local seaStar = type(import) == "function" and import("mods/room/timeline/acquisitions/sea_star.lua")
-    or require("mods.room.timeline.acquisitions.sea_star")
 
 local function detail(payload)
     return type(payload) == "table" and type(payload.detail) == "table" and payload.detail or nil
@@ -39,7 +37,8 @@ local function directPickupRole(transaction, contact)
     return nil
 end
 
-function pickups.attach(module, session, getState, report, room)
+function pickups.attach(module, session, getState, report, room, seaStar)
+    assert(type(seaStar) == "table", "direct pickup Sea Star instance is required")
     local activeUses = setmetatable({}, { __mode = "k" })
 
     module.hooks.wrap("UseConsumableItem", "run-planner-direct-pickup-use", function(_, runtime, base,

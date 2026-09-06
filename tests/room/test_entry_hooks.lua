@@ -3,14 +3,144 @@ local lu = require("luaunit")
 local navigation = require("mods.navigation.hooks")
 local roomHooks = require("mods.room.hooks")
 local roomCoordinatorModule = require("mods.room.coordinator")
+local routeSessionModule = require("mods.route.session")
 local encounterHooks = require("mods.room.timeline.encounters.hooks")
 local roomFeatureHooks = require("mods.room.features.hooks")
 local support = require("tests.harness.hook_composition")
 local capture, stub = support.capture, support.stub
 local attachRewardHooks = support.attachRewardHooks
 local navigationEntryStub = support.navigationEntryStub
+local unusedLoadoutScope = {
+    synchronizeStartingRoom = function()
+        error("starting-room loadout synchronization is outside this test")
+    end,
+}
 
 TestRoomEntryHooks = {}
+
+function TestRoomEntryHooks.testOpeningFinalizesLoadoutBeforeForcingNativeCreationFacts()
+    local module, _, callbacks = capture()
+    local transaction = {
+        owner = "opening-reward", kind = "acquisition", offerKey = "opening-reward",
+        window = { kind = "standard", phase = "beforeCombat" },
+    }
+    local occurrence = {
+        id = "opening", gameName = "F_Opening01", biomeKey = "F",
+        overview = {
+            encounterPhases = { { slotKey = "Encounter", encounterKey = "OpeningGeneratedF" } },
+            incomingReward = { rewardType = "WeaponUpgrade", source = "WeaponUpgrade" },
+            requiredObjects = {}, additional = {}, resources = {},
+        },
+        transactionsByOwner = { [transaction.owner] = transaction },
+        timeline = { transactions = { transaction }, dependencies = {}, obligations = {} },
+        doors = { kind = "terminal" }, roomExitConformance = { facts = {} },
+        conformanceExpected = {},
+    }
+    local plan = {
+        occurrences = { occurrence }, occurrencesById = { opening = occurrence },
+        selectedOccurrenceIds = { "opening" },
+    }
+    local state = {
+        state = "starting", plan = plan, route = routeSessionModule.new(plan), diagnostics = {},
+    }
+    state.room = roomCoordinatorModule.new(plan, function(errorValue)
+        state.firstMismatch = errorValue
+        state.state = "desynchronized"
+    end)
+    local session = stub()
+    session.mismatch = function(_, errorValue)
+        state.firstMismatch = errorValue
+        state.state = "desynchronized"
+    end
+    local loadoutScope = {
+        synchronizeStartingRoom = function()
+            state.state = "synchronized"
+            return true
+        end,
+    }
+    local navigationEntry = navigation.attach(module, session, function() return state end, function() end,
+        routeSessionModule, roomCoordinatorModule)
+    roomHooks.attach(module, session, function() return state end, function() end,
+        routeSessionModule, roomCoordinatorModule, nil, navigationEntry, loadoutScope)
+    encounterHooks.attach(module, session, function() return state end, function() end,
+        roomCoordinatorModule)
+
+    local priorGame, priorForce = _G.game, _G.ForceNextEncounter
+    local rewardBag = { { Name = "Boon" }, { Name = "WeaponUpgrade" } }
+    local currentRun = { RewardPriorities = {}, RewardStores = { RunProgress = rewardBag } }
+    _G.game = {
+        RoomData = { F_Opening01 = { Name = "F_Opening01" } },
+        EncounterData = { OpeningGeneratedF = { Name = "OpeningGeneratedF" } },
+    }
+    _G.game.CreateRoom = function(roomData, args)
+        return callbacks.CreateRoom(nil, {}, function(created)
+            -- Hostile native room creation attempts to replace every authored fact.
+            created.PickaxePointSuccess = true
+            created.FishingPointSuccess = true
+            callbacks.SetupRoomReward(nil, {}, function(_, nativeRoom)
+                nativeRoom.ForceLootName = "RandomUpgrade"
+            end, currentRun, created, nil, {})
+            created.ChosenRewardType = callbacks.ChooseRoomReward(nil, {},
+                function(run, nativeRoom, store)
+                    for index, reward in ipairs(run.RewardStores[store]) do
+                        if callbacks.IsRoomRewardEligible(nil, {}, function() return true end,
+                            run, nativeRoom, reward, {}, {}) then
+                            table.remove(run.RewardStores[store], index)
+                            return reward.Name
+                        end
+                    end
+                end, currentRun, created, "RunProgress", {}, {})
+            created.Encounter = callbacks.ChooseEncounter(nil, {}, function(run)
+                return { Name = run.ForceNextEncounterData and run.ForceNextEncounterData.Name or "Wrong" }
+            end, currentRun, created, args)
+            return created
+        end, roomData, args)
+    end
+
+    local nativeFallbackCalled = false
+    local result = callbacks.ChooseStartingRoom(nil, {}, function()
+        nativeFallbackCalled = true
+        return { Name = "NativeOpening" }
+    end, currentRun, {})
+    lu.assertEquals(state.state, "synchronized")
+    lu.assertFalse(nativeFallbackCalled)
+    lu.assertEquals(result.Name, "F_Opening01")
+    lu.assertEquals(result.ChosenRewardType, "WeaponUpgrade")
+    lu.assertEquals(result.ForceLootName, "WeaponUpgrade")
+    lu.assertEquals(rewardBag, { { Name = "Boon" } })
+    lu.assertEquals(result.Encounter.Name, "OpeningGeneratedF")
+    lu.assertFalse(result.PickaxePointSuccess)
+    lu.assertFalse(result.FishingPointSuccess)
+    lu.assertFalse(result.ExorcismPointSuccess)
+    lu.assertFalse(result.ShovelPointSuccess)
+
+    callbacks.StartRoom(nil, {}, function() return true end, currentRun, result)
+    local active = roomCoordinatorModule.current(state)
+    lu.assertNotNil(active)
+    local handle = assert(roomCoordinatorModule.resolve(state, active,
+        { kind = "offer", offerKey = "opening-reward" }))
+    lu.assertTrue(roomCoordinatorModule.complete(state, handle))
+    lu.assertNil(state.firstMismatch)
+    _G.game, _G.ForceNextEncounter = priorGame, priorForce
+end
+
+function TestRoomEntryHooks.testOpeningLoadoutMismatchReturnsToUnblockedNativeSelection()
+    local module, _, callbacks = capture()
+    local state = { state = "starting" }
+    local nativeRoom = { Name = "NativeOpening" }
+    roomHooks.attach(module, stub(), function() return state end, function() end,
+        { expected = function() error("route must remain untouched") end }, {}, nil,
+        navigationEntryStub, {
+            synchronizeStartingRoom = function()
+                state.state = "desynchronized"
+                return false
+            end,
+        })
+
+    local result = callbacks.ChooseStartingRoom(nil, {}, function() return nativeRoom end, {}, {})
+    lu.assertEquals(result, nativeRoom)
+    lu.assertEquals(state.state, "desynchronized")
+end
 
 function TestRoomEntryHooks.testRoomSessionStartsBeforeNativeFeatureSpawns()
     local module, _, callbacks = capture()
@@ -46,7 +176,7 @@ function TestRoomEntryHooks.testRoomSessionStartsBeforeNativeFeatureSpawns()
     local featureScope = roomFeatureHooks.attach(module, session, function() return state end, function() end,
         roomSession)
     roomHooks.attach(module, session, function() return state end, function() end,
-        route, roomSession, featureScope, navigationEntryStub)
+        route, roomSession, featureScope, navigationEntryStub, unusedLoadoutScope)
 
     local nativeRoom = { Name = "F_Opening01", __runPlannerExecutionRoomId = "opening" }
     local eligible
@@ -80,7 +210,7 @@ function TestRoomEntryHooks.testCreateRoomReappliesForcedAndSuppressedResourceOu
     local priorGame = _G.game
     _G.game = { RoomData = { F_Opening01 = { Name = "F_Opening01" } } }
     roomHooks.attach(module, stub(), function() return state end, function() end,
-        {}, roomCoordinatorModule, nil, navigationEntryStub)
+        {}, roomCoordinatorModule, nil, navigationEntryStub, unusedLoadoutScope)
 
     local result = callbacks.CreateRoom(nil, {}, function(roomData)
         lu.assertTrue(roomData.PickaxePointSuccess)
@@ -95,6 +225,8 @@ function TestRoomEntryHooks.testCreateRoomReappliesForcedAndSuppressedResourceOu
 
     lu.assertTrue(result.PickaxePointSuccess)
     lu.assertFalse(result.FishingPointSuccess)
+    lu.assertFalse(result.ExorcismPointSuccess)
+    lu.assertFalse(result.ShovelPointSuccess)
     lu.assertEquals(result.__runPlannerExecutionRoomId, "opening")
 end
 
@@ -123,7 +255,7 @@ function TestRoomEntryHooks.testIncomingRewardProofRemainsNavigationOwnedAtRoomE
         end,
     }
     roomHooks.attach(module, session, function() return state end, function() end,
-        route, roomSession, nil, navigationEntry)
+        route, roomSession, nil, navigationEntry, unusedLoadoutScope)
 
     callbacks.StartRoom(nil, {}, function() return true end, {}, {
         Name = "F_Opening01", __runPlannerExecutionRoomId = "opening",
@@ -179,7 +311,7 @@ function TestRoomEntryHooks.testZagreusContractRemainsAnAdditionalDoorDuringNorm
     local navigationEntry = navigation.attach(module, session, function() return state end, function() end,
         route, roomSession)
     roomHooks.attach(module, session, function() return state end, function() end,
-        route, roomSession, featureScope, navigationEntry)
+        route, roomSession, featureScope, navigationEntry, unusedLoadoutScope)
 
     local contractRoom
     local contractDoor = { ObjectId = 3 }
@@ -254,6 +386,41 @@ function TestRoomEntryHooks.testEncounterForcingKeepsNativeSetupAndGeneration()
     _G.game, _G.ForceNextEncounter = priorGame, priorGlobalForce
 end
 
+function TestRoomEntryHooks.testEncounterChoiceUsesStampedDestinationInsteadOfActiveSourceRoom()
+    local module, _, callbacks = capture()
+    local source = {
+        id = "source", gameName = "F_Source",
+        overview = { encounterPhases = { { slotKey = "Encounter", encounterKey = "SourceEncounter" } } },
+        transactionsByOwner = {}, timeline = { transactions = {}, dependencies = {}, obligations = {} },
+    }
+    local target = {
+        id = "target", gameName = "F_Target",
+        overview = { encounterPhases = { { slotKey = "Encounter", encounterKey = "TargetEncounter" } } },
+        transactionsByOwner = {}, timeline = { transactions = {}, dependencies = {}, obligations = {} },
+    }
+    local plan = { occurrencesById = { source = source, target = target } }
+    local state = {
+        state = "synchronized", plan = plan,
+        room = roomCoordinatorModule.new(plan, function() end, {}),
+    }
+    assert(roomCoordinatorModule.enter(state, source))
+    local priorGame = _G.game
+    _G.game = { EncounterData = {
+        SourceEncounter = { Name = "SourceEncounter" },
+        TargetEncounter = { Name = "TargetEncounter" },
+    } }
+    encounterHooks.attach(module, stub(), function() return state end, function() end,
+        roomCoordinatorModule)
+
+    local nativeRoom = { __runPlannerExecutionRoomId = "target" }
+    local result = callbacks.ChooseEncounter(nil, {}, function(run)
+        return { Name = run.ForceNextEncounterData.Name }
+    end, {}, nativeRoom, {})
+    _G.game = priorGame
+
+    lu.assertEquals(result.Name, "TargetEncounter")
+end
+
 function TestRoomEntryHooks.testRoomRewardForcingConsumesTheMatchingNativeBagEntry()
     local module, _, callbacks = capture()
     local occurrence = {
@@ -291,6 +458,38 @@ function TestRoomEntryHooks.testRoomRewardForcingConsumesTheMatchingNativeBagEnt
 
     lu.assertEquals(result, "WeaponUpgrade")
     lu.assertEquals(run.RewardStores.RunProgress, { { Name = "Boon" } })
+end
+
+function TestRoomEntryHooks.testStartingRoomRewardRemainsNativeUntilLoadoutIsSynchronized()
+    local module, _, callbacks = capture()
+    local occurrence = {
+        id = "opening", gameName = "F_Opening01",
+        overview = { incomingReward = { rewardType = "WeaponUpgrade" } },
+    }
+    local state = {
+        state = "starting",
+        plan = { occurrencesById = { opening = occurrence } },
+    }
+    local session = stub()
+    session.current = function() return nil end
+    attachRewardHooks(module, session, function() return state end, function() end)
+
+    local run = {
+        RewardPriorities = {},
+        RewardStores = {
+            RunProgress = { { Name = "Boon" }, { Name = "WeaponUpgrade" } },
+        },
+    }
+    local room = { __runPlannerExecutionRoomId = "opening" }
+    local result = callbacks.ChooseRoomReward(nil, {}, function(currentRun, nativeRoom, rewardStoreName)
+        local reward = table.remove(currentRun.RewardStores[rewardStoreName], 1)
+        nativeRoom.ChosenRewardType = reward.Name
+        return reward.Name
+    end, run, room, "RunProgress", {}, {})
+
+    lu.assertEquals(result, "Boon")
+    lu.assertEquals(room.ChosenRewardType, "Boon")
+    lu.assertEquals(run.RewardStores.RunProgress, { { Name = "WeaponUpgrade" } })
 end
 
 function TestRoomEntryHooks.testPublishedRewardStoreOverridesAStaleNativeStore()
@@ -398,6 +597,7 @@ function TestRoomEntryHooks.testRewardSourceUsesTheTargetOccurrenceNotTheCurrent
         overview = { incomingReward = { rewardType = "Boon", source = "ZeusUpgrade" } },
     }
     local state = {
+        state = "synchronized",
         plan = { occurrencesById = { current = current, target = target } },
     }
     local session = stub()

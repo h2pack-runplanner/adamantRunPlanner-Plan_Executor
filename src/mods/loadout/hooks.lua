@@ -1,11 +1,22 @@
 -- Run-start and keepsake native contacts.  Room hooks are deliberately absent.
 local hooks = {}
 
-function hooks.attach(module, data, getState, report, room)
+function hooks.attach(module, loadoutRuntime, getState, report, room, hexTree)
+    assert(type(loadoutRuntime) == "table" and loadoutRuntime.inbox and loadoutRuntime.session
+        and loadoutRuntime.loadout,
+        "loadout runtime dependencies are required")
+    assert(type(hexTree) == "table", "loadout Hex Tree instance is required")
     local nativeBindings = import("mods/native_bindings.lua")
-    local hexTree = import("mods/spells/hex_tree.lua")
     local roomCoordinator = room
     local startDepth, startingHexScope = 0, nil
+
+    local function synchronizeStartingRoom(runtime)
+        local state = getState(runtime)
+        if state == nil or state.state ~= "starting" then return false end
+        loadoutRuntime.loadout.verifyCompleted(state, loadoutRuntime.session.mismatch)
+        report(runtime)
+        return state.state == "synchronized"
+    end
 
     local equipResults = import("mods/keepsakes/equip_results.lua").attach(module, {
         contacts = nativeBindings.keepsakeEffects.equipContacts,
@@ -15,7 +26,7 @@ function hooks.attach(module, data, getState, report, room)
                 or (startDepth > 0 and state.state == "starting"))
         end,
         state = getState,
-        mismatch = data.session.mismatch,
+        mismatch = loadoutRuntime.session.mismatch,
     })
 
     local function expectedEquip(state, keepsakeKey, args)
@@ -43,21 +54,21 @@ function hooks.attach(module, data, getState, report, room)
         end
         if not ok then error(result, 0) end
         local state = getState(runtime)
-        if state ~= nil and state.state == "starting" then
-            data.loadout.verifyCompleted(state, data.session.mismatch)
-        end
+        if state ~= nil and state.state == "starting" then synchronizeStartingRoom(runtime) end
         report(runtime)
         return result
     end)
     module.hooks.wrap("CreateNewHero", "run-planner-session-start", function(_, runtime, base, previousRun, args)
         if startDepth <= 0 then return base(previousRun, args) end
         local state = getState(runtime)
-        if not state.initialized then data.session.start(state, data.inbox, "starting") end
+        if not state.initialized then
+            loadoutRuntime.session.start(state, loadoutRuntime.inbox, "starting")
+        end
         local expected = state.state == "starting" and state.plan and state.plan.startingLoadout
         local startingHex = expected and expected.startingHex or nil
         if startingHex ~= nil then
             startingHexScope = hexTree.prepare(startingHex, function(checkpoint, expectedValue, observed)
-                data.session.mismatch(state, checkpoint, expectedValue, observed)
+                loadoutRuntime.session.mismatch(state, checkpoint, expectedValue, observed)
             end)
         end
         local ok, result = pcall(base, previousRun, args)
@@ -70,7 +81,7 @@ function hooks.attach(module, data, getState, report, room)
         if state == nil then return base(hero, keepsakeKey, args) end
         local key = keepsakeKey or (_G.GameState and _G.GameState.LastAwardTrait)
         if startDepth > 0 then
-            local expectedStarting = data.loadout.beginKeepsake(state, key)
+            local expectedStarting = loadoutRuntime.loadout.beginKeepsake(state, key)
             if expectedStarting == nil then
                 local result = base(hero, keepsakeKey, args)
                 report(runtime)
@@ -89,16 +100,18 @@ function hooks.attach(module, data, getState, report, room)
         end, deferReplay, function(terminalRuntime)
             local terminalState = getState(terminalRuntime)
             if terminalState ~= nil and handle ~= nil and payload ~= nil then
-                data.session.complete(terminalState, handle)
+                loadoutRuntime.session.complete(terminalState, handle)
             end
             report(terminalRuntime)
         end)
         if not deferReplay and startDepth == 0 and handle ~= nil and payload ~= nil then
-            data.session.complete(state, handle)
+            loadoutRuntime.session.complete(state, handle)
         end
         if not deferReplay then report(runtime) end
         return result
     end)
+
+    return { synchronizeStartingRoom = synchronizeStartingRoom }
 end
 
 return hooks

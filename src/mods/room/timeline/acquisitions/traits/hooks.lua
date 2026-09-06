@@ -5,8 +5,6 @@ local ordinary = type(import) == "function" and import("mods/room/timeline/acqui
 local chaosOffer = type(import) == "function"
         and import("mods/room/timeline/acquisitions/traits/chaos_offer.lua")
     or require("mods.room.timeline.acquisitions.traits.chaos_offer")
-local seaStar = type(import) == "function" and import("mods/room/timeline/acquisitions/sea_star.lua")
-    or require("mods.room.timeline.acquisitions.sea_star")
 local concaveStoneModule = type(import) == "function" and import("mods/keepsakes/concave_stone.lua")
     or require("mods.keepsakes.concave_stone")
 
@@ -24,7 +22,8 @@ local function boundNormal(room, state, current, native)
     return handle, room.begin(state, handle)
 end
 
-function hooks.attach(module, session, getState, report, room)
+function hooks.attach(module, session, getState, report, room, seaStar)
+    assert(type(seaStar) == "table", "trait acquisition Sea Star instance is required")
     chaosOffer.attach(module, session, getState, report, room)
     local allTogetherPending = {}
     local activeAllTogether = nil

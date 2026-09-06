@@ -1,6 +1,7 @@
 -- luacheck: globals TestNpcAcquisitions
 local lu = require("luaunit")
 local npc = require("mods.room.timeline.acquisitions.npc.hooks")
+local traitSeaStar = require("mods.room.timeline.acquisitions.sea_star").create()
 local traits = require("mods.room.timeline.acquisitions.traits.hooks")
 local circe = require("mods.room.timeline.acquisitions.npc.circe")
 local icarus = require("mods.room.timeline.acquisitions.npc.icarus")
@@ -88,7 +89,8 @@ local function harness(giver, _, options)
     icarus.attach(module, session, function() end, npcScope)
     local traitScopes
     if options.realTraitScopes then
-        traitScopes = traits.attach(module, session, function() return state end, function() end, room)
+        traitScopes = traits.attach(module, session, function() return state end,
+            function() end, room, traitSeaStar)
     else
         traitScopes = {
             runExternalSelection = function(_, _, _, currentHandle, _, callback)

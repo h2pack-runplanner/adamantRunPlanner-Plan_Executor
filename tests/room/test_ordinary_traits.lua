@@ -2,6 +2,7 @@
 local lu = require("luaunit")
 local json = require("mods.protocol.json")
 local ordinary = require("mods.room.timeline.acquisitions.traits.ordinary")
+local seaStar = require("mods.room.timeline.acquisitions.sea_star").create()
 local hooks = require("mods.room.timeline.acquisitions.traits.hooks")
 local traitSupport = require("tests.room.ordinary_trait_support")
 
@@ -141,7 +142,7 @@ function TestOrdinaryTraits.testUnboundHammerCarriersUsePublishedReadyOrderWitho
             completions[#completions + 1] = { handle = handle }
         end,
     }
-    hooks.attach(module, session, function() return state end, function() end, room)
+    hooks.attach(module, session, function() return state end, function() end, room, seaStar)
 
     local priorRun = _G.CurrentRun
     _G.CurrentRun = { Hero = { Traits = { { Name = "ApolloAttack" } } } }
@@ -228,6 +229,32 @@ function TestOrdinaryTraits.testQuickBuckC1CompletesWithoutWaitingForItsDelayedN
     lu.assertNotNil(pendingDrop)
     lu.assertEquals(pendingDrop.LootOptions[1].Name, "RoomMoneyDrop")
     lu.assertTrue(pendingDrop.NotRequiredPickup)
+    lu.assertEquals(completed(), 1)
+    lu.assertEquals(mismatches(), {})
+end
+
+function TestOrdinaryTraits.testFreshImportedTraitCarrierUsesTheProvidedSeaStar()
+    local freshSeaStar = assert(loadfile("src/mods/room/timeline/acquisitions/sea_star.lua"))().create()
+    local freshTraits = assert(loadfile("src/mods/room/timeline/acquisitions/traits/hooks.lua"))()
+    local callbacks, _, completed, mismatches = attached({
+        kind = "traits", selected = "option1", options = { { key = "ApolloAttack" } },
+    }, nil, "ApolloUpgrade", {
+        traits = freshTraits, seaStar = freshSeaStar,
+        detail = { seaStarResult = { kind = "proc" } },
+    })
+    local loot = { GodLoot = true, Name = "ApolloUpgrade" }
+    callbacks.SpawnRoomReward(nil, {}, function()
+        return callbacks.CreateLoot(nil, {}, function() return loot end, {})
+    end, {}, {})
+    callbacks.HandleLootPickup(nil, {}, function() return true end, {}, loot, {})
+    local chance = {}
+    callbacks.HandleUpgradeChoiceSelection(nil, {}, function()
+        chance.value = callbacks.GetTotalHeroTraitValue(nil, {}, function() return 0 end,
+            "DoubleRewardChance", {})
+        chance.result = callbacks.RandomChance(nil, {}, function() return false end, 0.25, {})
+        return true
+    end, {}, { LootData = loot, Data = { Name = "ApolloAttack" } }, {})
+    lu.assertEquals(chance, { value = 1, result = true })
     lu.assertEquals(completed(), 1)
     lu.assertEquals(mismatches(), {})
 end

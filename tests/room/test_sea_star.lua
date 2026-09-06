@@ -1,13 +1,31 @@
 -- luacheck: globals TestSeaStar
 local lu = require("luaunit")
-local seaStar = require("mods.room.timeline.acquisitions.sea_star")
+local seaStar = require("mods.room.timeline.acquisitions.sea_star").create()
 
 TestSeaStar = {}
 
-local function installed()
+local function installed(instance)
     local callbacks, mismatches = {}, {}
-    seaStar.attach({ hooks = { wrap = function(name, _, callback) callbacks[name] = callback end } })
+    (instance or seaStar).attach({
+        hooks = { wrap = function(name, _, callback) callbacks[name] = callback end },
+    })
     return callbacks, mismatches
+end
+
+function TestSeaStar.testCreatedInstancesDoNotShareAnActiveChanceScope()
+    local definition = require("mods.room.timeline.acquisitions.sea_star")
+    local first, second = definition.create(), definition.create()
+    local firstCallbacks = installed(first)
+    local secondCallbacks = installed(second)
+    local scope = first.scope({}, { detail = { seaStarResult = { kind = "proc" } } })
+    local result = first.call(scope, function()
+        return secondCallbacks.GetTotalHeroTraitValue(nil, {}, function() return "native" end,
+            "DoubleRewardChance", {})
+    end, function() end)
+    lu.assertEquals(result, "native")
+    lu.assertFalse(scope.traitRead)
+    lu.assertEquals(firstCallbacks.GetTotalHeroTraitValue(nil, {}, function() return "native" end,
+        "DoubleRewardChance", {}), "native")
 end
 
 local function payload(kind)

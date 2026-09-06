@@ -1,7 +1,7 @@
 -- luacheck: globals TestKeepsakeReplay
 local lu = require("luaunit")
-local loadoutHooks = require("mods/loadout/hooks")
-local hexTree = require("mods.spells.hex_tree")
+local hexTree = require("mods.spells.hex_tree").create()
+local loadoutHooks = require("mods.loadout.hooks")
 local loadout = require("mods/loadout/session")
 
 TestKeepsakeReplay = {}
@@ -37,7 +37,7 @@ local function capture(result)
     local module = { hooks = { wrap = function(name, _, callback) callbacks[name] = callback end } }
     hexTree.attach(module)
     loadoutHooks.attach(module, { session = sessionAdapter, loadout = loadout, inbox = {} },
-        function() return state end, function() end, sessionAdapter)
+        function() return state end, function() end, sessionAdapter, hexTree)
     _G.import = priorImport
     return callbacks, state, function() return observed end, function() return completed end
 end

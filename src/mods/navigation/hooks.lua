@@ -58,6 +58,9 @@ function hooks.attach(module, session, getState, report, routeSession, room, tra
     module.hooks.wrap("SetupRoomReward", "run-planner-reward-source", function(_, runtime, base, currentRun,
         nativeRoom, prior, args)
         local state = getState(runtime)
+        if state == nil or state.state ~= "synchronized" then
+            return base(currentRun, nativeRoom, prior, args)
+        end
         local occurrence = occurrenceForRoom(state, nativeRoom)
         local reward = occurrence and occurrence.overview.incomingReward
         local result = base(currentRun, nativeRoom, prior, args)

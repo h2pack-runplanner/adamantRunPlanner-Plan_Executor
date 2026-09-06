@@ -3,6 +3,7 @@ local lu = require("luaunit")
 local roomCoordinatorModule = require("mods.room.coordinator")
 local encounterHooks = require("mods.room.timeline.encounters.hooks")
 local acquisitions = require("mods.room.timeline.acquisitions.hooks")
+local seaStar = require("mods.room.timeline.acquisitions.sea_star").create()
 local directPickups = require("mods.room.timeline.acquisitions.pickups.hooks")
 local chaosAcquisitions = require("mods.room.timeline.acquisitions.traits.chaos_offer")
 local traitAcquisitions = require("mods.room.timeline.acquisitions.traits.hooks")
@@ -143,7 +144,8 @@ function TestAcquisitionHookComposition.testMysteryBoonBindsItsUnwrappedSourceTr
         GiveLoot = callbacks.GiveLoot,
     }
     for name, callback in pairs(mysteryCallbacks) do callbacks[name] = callback end
-    traitAcquisitions.attach(module, session, function() return state end, function() end, roomCoordinatorModule)
+    traitAcquisitions.attach(module, session, function() return state end,
+        function() end, roomCoordinatorModule, seaStar)
 
     callbacks.UseConsumableItem(nil, {}, function(nativeItem)
         lu.assertTrue(callbacks.ConsumableUsedPresentation(nil, {}, function() return true end,
@@ -289,7 +291,7 @@ function TestAcquisitionHookComposition.testIncidentalConsumableDoesNotClaimTheI
     session.complete = function(_, row)
         completed[#completed + 1] = { row = row }
     end
-    directPickups.attach(module, session, function() return {} end, function() end, session)
+    directPickups.attach(module, session, function() return {} end, function() end, session, seaStar)
 
     local consolation = { Name = "RoomRewardConsolationPrize" }
     callbacks.UseConsumableItem(nil, {}, function() return true end, consolation, {}, {})
@@ -360,7 +362,8 @@ function TestAcquisitionHookComposition.testDirectConsumableLevelResolutionForce
     session.complete = function(_, completedRow)
         completions[#completions + 1] = { row = completedRow }
     end
-    acquisitions.attach(module, session, function() return {} end, function() end, session)
+    acquisitions.attach(module, session, function() return {} end,
+        function() end, session, require("mods.spells.hex_tree").create())
 
     local priorRun = _G.CurrentRun
     _G.CurrentRun = { Hero = { Traits = { target, other } } }

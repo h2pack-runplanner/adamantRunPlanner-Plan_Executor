@@ -1,10 +1,9 @@
--- The inner room envelope. Timeline ordering is delegated to the local
--- Timeline session; Overview and conformance remain coordinated by room/.
+-- The inner room envelope owns its Timeline session directly. Timeline
+-- ordering stays local; Overview and conformance remain coordinated by room/.
 local timeline = type(import) == "function" and import("mods/room/timeline/session.lua")
     or require("mods.room.timeline.session")
 
 local room = {}
-local inners = setmetatable({}, { __mode = "k" })
 
 local function equal(left, right)
     if type(left) ~= type(right) then return false end
@@ -21,19 +20,19 @@ local function mismatch(session, checkpoint, expected, observed)
     return nil, session.firstMismatch
 end
 
-function room.new(occurrence, bindings, retainedTimeline)
-    local inner = retainedTimeline or timeline.new(occurrence, bindings)
+function room.new(occurrence, bindings)
+    local inner = timeline.new(occurrence, bindings)
     local outer = {
         occurrence = occurrence,
+        _timeline = inner,
         proofs = {},
         firstMismatch = nil,
         closed = false,
     }
-    inners[outer] = inner
     return outer
 end
 
-local function innerFor(session) return inners[session] end
+local function innerFor(session) return session and session._timeline or nil end
 
 local function delegate(session, method, ...)
     if session.closed then return mismatch(session, "room-session", "open session", "closed") end
@@ -47,12 +46,64 @@ end
 
 function room.openWindow(session, window) return delegate(session, "open", window) end
 function room.startEncounter(session) return delegate(session, "startEncounter") end
+function room.resolve(session, resolver, contact, source)
+    if session.closed then return mismatch(session, "room-session", "open session", "closed") end
+    if session.firstMismatch ~= nil then return nil, session.firstMismatch end
+    local inner = innerFor(session)
+    if inner == nil then return mismatch(session, "room-session", "active timeline", "missing") end
+    local handle, errorValue = timeline.resolve(inner, resolver, contact, source)
+    if handle == nil and errorValue ~= nil then
+        return mismatch(session, errorValue.checkpoint, errorValue.expected, errorValue.observed)
+    end
+    return handle
+end
+function room.bind(session, handle, native)
+    if session.closed then return mismatch(session, "room-session", "open session", "closed") end
+    if session.firstMismatch ~= nil then return nil, session.firstMismatch end
+    local inner = innerFor(session)
+    if inner == nil then return mismatch(session, "room-session", "active timeline", "missing") end
+    local bound, errorValue = timeline.bind(inner, handle, native)
+    if bound == nil and errorValue ~= nil then
+        return mismatch(session, errorValue.checkpoint, errorValue.expected, errorValue.observed)
+    end
+    return bound
+end
+function room.bound(session, native)
+    local inner = innerFor(session)
+    return inner and timeline.bound(inner, native) or nil
+end
+function room.releaseCompletedBinding(session, handle, native)
+    if session.closed then return mismatch(session, "room-session", "open session", "closed") end
+    if session.firstMismatch ~= nil then return nil, session.firstMismatch end
+    local inner = innerFor(session)
+    if inner == nil then return mismatch(session, "room-session", "active timeline", "missing") end
+    local ok, errorValue = timeline.releaseCompletedBinding(inner, handle, native)
+    if ok == nil and errorValue ~= nil then
+        return mismatch(session, errorValue.checkpoint, errorValue.expected, errorValue.observed)
+    end
+    return ok
+end
+function room.sourceRole(session, handle, gameName)
+    local inner = innerFor(session)
+    return inner and timeline.sourceRole(inner, handle, gameName) or nil
+end
 function room.begin(session, handle)
     if session.closed then return mismatch(session, "room-session", "open session", "closed") end
     if session.firstMismatch ~= nil then return nil, session.firstMismatch end
     local payload, errorValue = timeline.begin(innerFor(session), handle)
     if errorValue == "completed" then return nil, "completed" end
     if payload == nil then return mismatch(session, errorValue.checkpoint, errorValue.expected, errorValue.observed) end
+    return payload
+end
+function room.peek(session, handle)
+    if session.closed then return mismatch(session, "room-session", "open session", "closed") end
+    if session.firstMismatch ~= nil then return nil, session.firstMismatch end
+    local inner = innerFor(session)
+    if inner == nil then return mismatch(session, "room-session", "active timeline", "missing") end
+    local payload, errorValue = timeline.peek(inner, handle)
+    if payload == nil and errorValue ~= nil then
+        return mismatch(session, errorValue.checkpoint, errorValue.expected, errorValue.observed)
+    end
     return payload
 end
 function room.claimReady(session, contact, native, compatible)
@@ -72,6 +123,12 @@ end
 function room.incidental(session) return delegate(session, "incidental") end
 function room.checkpoint(session, checkpoint) return delegate(session, "checkpoint", checkpoint) end
 function room.activePhase(session, kind) return timeline.activePhase(innerFor(session), kind) end
+
+function room.dispose(session)
+    if session == nil then return end
+    session._timeline = nil
+    session.closed = true
+end
 
 function room.prove(session, checkpoint, expected, observed)
     if session.closed then return mismatch(session, "room-session", "open session", "closed") end
@@ -96,7 +153,7 @@ function room.close(session, proveConformance)
     local closed, closeError = timeline.close(inner)
     if not closed then return mismatch(session, closeError.checkpoint, closeError.expected, closeError.observed) end
     session.closed = true
-    inners[session] = nil
+    session._timeline = nil
     return true
 end
 

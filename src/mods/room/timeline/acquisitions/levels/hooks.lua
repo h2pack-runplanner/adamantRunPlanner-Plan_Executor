@@ -2,17 +2,11 @@
 -- steers the native Pom menu and direct room-reward Nectar effect; it never
 -- mutates a trait itself.
 local levels = {}
-local seaStar = type(import) == "function" and import("mods/room/timeline/acquisitions/sea_star.lua")
-    or require("mods.room.timeline.acquisitions.sea_star")
-
-local visibleNames = {
-    StackUpgrade = true,
-    StackUpgradeBig = true,
-    StackUpgradeTriple = true,
-}
+local levelCarrier = type(import) == "function" and import("mods/room/timeline/acquisitions/levels/carrier.lua")
+    or require("mods.room.timeline.acquisitions.levels.carrier")
 
 function levels.isVisibleCarrier(value)
-    return type(value) == "table" and visibleNames[value.Name or value.ItemName or value.LootName] == true
+    return levelCarrier.isVisible(value)
 end
 
 function levels.isDirectCarrier(value)
@@ -114,7 +108,8 @@ function levels.visibleRole(transaction, contact)
     return nil
 end
 
-function levels.attach(module, session, getState, report, room)
+function levels.attach(module, session, getState, report, room, seaStar)
+    assert(type(seaStar) == "table", "level acquisition Sea Star instance is required")
     local roomCoordinator = room
     local suppressFatedPomBonus = 0
     local begunVisible = setmetatable({}, { __mode = "k" })
