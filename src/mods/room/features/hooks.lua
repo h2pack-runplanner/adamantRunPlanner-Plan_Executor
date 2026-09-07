@@ -3,9 +3,12 @@
 local resources = type(import) == "function"
     and import("mods/room/features/resources.lua")
     or require("mods.room.features.resources")
+local fields = type(import) == "function"
+    and import("mods/room/features/fields.lua")
+    or require("mods.room.features.fields")
 local hooks = {}
 
-function hooks.attach(module, _, getState, report, room)
+function hooks.attach(module, session, getState, report, room)
     local secretScope
     local pendingAdditional
 
@@ -59,6 +62,7 @@ function hooks.attach(module, _, getState, report, room)
     end)
 
     resources.attach(module, getState, report)
+    fields.attach(module, session, getState, report, room)
 
     return {
         currentAdditional = function() return pendingAdditional end,

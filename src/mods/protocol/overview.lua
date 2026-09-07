@@ -255,6 +255,79 @@ local function additional(value, label)
     return rows
 end
 
+local function fields(value, label)
+    local record, errorMessage = p.exact(
+        value,
+        { "entryPair", "cagePoints", "optionalRewards" },
+        { "nemesisPointId" },
+        label
+    )
+    if not record then return nil, errorMessage end
+    local entry, entryError = p.exact(
+        record.entryPair,
+        { "startPointId", "endPointId" },
+        {},
+        label .. ".entryPair"
+    )
+    if not entry then return nil, entryError end
+    if not p.int(entry.startPointId, label .. ".entryPair.startPointId", 1)
+        or not p.int(entry.endPointId, label .. ".entryPair.endPointId", 1) then
+        return p.fail(label .. " has invalid entry pair")
+    end
+    local cages, cagesError = p.arr(record.cagePoints, label .. ".cagePoints")
+    if not cages then return nil, cagesError end
+    if #cages < 2 or #cages > 3 then
+        return p.fail(label .. ".cagePoints must contain two or three active cages")
+    end
+    local seenCages = {}
+    local pointIds = {}
+    for index, valueRow in ipairs(cages) do
+        local row, rowError = p.exact(
+            valueRow,
+            { "slotKey", "pointId" },
+            {},
+            label .. ".cagePoints[" .. index .. "]"
+        )
+        if not row then return nil, rowError end
+        if not p.str(row.slotKey, label .. ".cagePoints[" .. index .. "].slotKey")
+            or seenCages[row.slotKey]
+            or not p.int(row.pointId, label .. ".cagePoints[" .. index .. "].pointId", 1)
+            or pointIds[row.pointId] then
+            return p.fail(label .. " has invalid cage point")
+        end
+        seenCages[row.slotKey] = true
+        pointIds[row.pointId] = true
+    end
+    local optionals, optionalsError = p.arr(record.optionalRewards, label .. ".optionalRewards")
+    if not optionals then return nil, optionalsError end
+    local seenOptionals = {}
+    for index, valueRow in ipairs(optionals) do
+        local row, rowError = p.exact(
+            valueRow,
+            { "slotKey", "pointId", "reward" },
+            {},
+            label .. ".optionalRewards[" .. index .. "]"
+        )
+        if not row then return nil, rowError end
+        if not p.str(row.slotKey, label .. ".optionalRewards[" .. index .. "].slotKey")
+            or seenOptionals[row.slotKey]
+            or not p.int(row.pointId, label .. ".optionalRewards[" .. index .. "].pointId", 1)
+            or pointIds[row.pointId] then
+            return p.fail(label .. " has invalid optional point")
+        end
+        local _, rewardError = rewards.reward(row.reward, label .. ".optionalRewards[" .. index .. "].reward")
+        if rewardError then return nil, rewardError end
+        seenOptionals[row.slotKey] = true
+        pointIds[row.pointId] = true
+    end
+    if record.nemesisPointId ~= nil
+        and (not p.int(record.nemesisPointId, label .. ".nemesisPointId", 1)
+            or pointIds[record.nemesisPointId]) then
+        return p.fail(label .. " has invalid Nemesis point")
+    end
+    return record
+end
+
 function overview.decode(value, label)
     local record, errorMessage = p.exact(
         value,
@@ -263,7 +336,7 @@ function overview.decode(value, label)
             "incomingReward", "effectNeutralRequiredReward", "unmodeledEncounterKeys",
             "shop", "hermesShrine", "stygianWell",
             "purgingPool", "keepsakeRack",
-            "fountain", "additional",
+            "fountain", "fields", "additional",
         },
         label
     )
@@ -352,6 +425,10 @@ function overview.decode(value, label)
     if record.additional ~= nil then
         local _, additionalError = additional(record.additional, label .. ".additional")
         if additionalError then return nil, additionalError end
+    end
+    if record.fields ~= nil then
+        local _, fieldsError = fields(record.fields, label .. ".fields")
+        if fieldsError then return nil, fieldsError end
     end
     return record
 end

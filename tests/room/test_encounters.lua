@@ -301,3 +301,54 @@ function TestEncounters.testAthenaUseBindsOnlyThePublishedExactPhaseInteraction(
     lu.assertNil(callbacks.HandleAthenaSpawn)
     lu.assertNil(callbacks.StartEncounterEffects)
 end
+
+function TestEncounters.testDirectEncounterChoicesAreBoundToOnePublishedSequence()
+    local module, callbacks = capture()
+    local phasesForRoom = require("mods.room.timeline.encounters.phases").create()
+    local occurrence = {
+        id = "fields",
+        overview = { encounterPhases = {
+            { slotKey = "Passive", encounterKey = "PassiveEncounter" },
+            { slotKey = "Cage01", encounterKey = "CageEncounter" },
+            { slotKey = "Cage02", encounterKey = "CageEncounter" },
+        } },
+    }
+    local state = { state = "synchronized" }
+    local nativeRoom = { __runPlannerExecutionRoomId = "fields" }
+    local bound = {}
+    local room = {
+        encounterAt = function(_, index)
+            return occurrence.overview.encounterPhases[index]
+        end,
+        bindEncounter = function(_, native, slotKey)
+            bound[#bound + 1] = { native = native, slotKey = slotKey }
+            return phasesForRoom.bind(occurrence, native, slotKey)
+        end,
+    }
+    encounterHooks.attach(module, {}, function() return state end, function() end, room)
+
+    local run = {}
+    local nativeEncounters = {}
+    local function choose()
+        local native = {}
+        nativeEncounters[#nativeEncounters + 1] = native
+        return callbacks.ChooseEncounter(nil, {}, function() return native end,
+            run, nativeRoom, {})
+    end
+
+    local first = choose()
+    local second = choose()
+    local third = choose()
+    local fourth = choose()
+    local fifth = choose()
+
+    lu.assertEquals(bound, {
+        { native = first, slotKey = "Passive" },
+        { native = second, slotKey = "Cage01" },
+        { native = third, slotKey = "Cage02" },
+    })
+    lu.assertEquals(fourth, nativeEncounters[4])
+    lu.assertEquals(fifth, nativeEncounters[5])
+    lu.assertNil(phasesForRoom.forNative(fourth))
+    lu.assertNil(phasesForRoom.forNative(fifth))
+end

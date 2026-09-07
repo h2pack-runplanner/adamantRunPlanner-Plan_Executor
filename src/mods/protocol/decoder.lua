@@ -13,7 +13,7 @@ local resources = type(import) == "function" and import("mods/protocol/resources
 
 local protocol = {
     FORMAT = "run-planner-execution",
-    VERSION = 28,
+    VERSION = 29,
     CATALOG_VERSION = "0.55.0-anvil-of-fates",
     MAX_ITEMS = p.MAX_ITEMS,
     MAX_STRING = p.MAX_STRING,
@@ -31,11 +31,12 @@ local function extent(value)
     local biomeKeys, biomeError = p.strings(
         record.biomeKeys,
         "execution plan.extent.biomeKeys",
-        2
+        3
     )
     if not biomeKeys then return nil, biomeError end
     local supported = (#biomeKeys == 1 and biomeKeys[1] == "F")
         or (#biomeKeys == 2 and biomeKeys[1] == "F" and biomeKeys[2] == "G")
+        or (#biomeKeys == 3 and biomeKeys[1] == "F" and biomeKeys[2] == "G" and biomeKeys[3] == "H")
     if record.kind ~= "configuredPrefix" or not supported
         or record.terminalBiomeKey ~= biomeKeys[#biomeKeys] then
         return p.fail("execution plan.extent is unsupported")

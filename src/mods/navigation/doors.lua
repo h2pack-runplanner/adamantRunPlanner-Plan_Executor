@@ -44,6 +44,29 @@ local function preservesNativeRequiredReward(target, occurrencesById)
         and targetOccurrence.overview.effectNeutralRequiredReward == true
 end
 
+local function proveCageRewards(target, nativeRoom, index)
+    local expected = target.cageRewards
+    if expected == nil then return true end
+    local actual = type(nativeRoom) == "table" and nativeRoom.CageRewards or nil
+    if type(actual) ~= "table" or #actual ~= #expected then
+        return nil, { kind = "cageRewards", index = index, expected = #expected,
+            observed = type(actual) == "table" and #actual or nil }
+    end
+    for cageIndex, reward in ipairs(expected) do
+        local native = actual[cageIndex]
+        local observed = native and rewardName(native.RewardType or native.Reward)
+        if observed ~= reward.rewardType then
+            return nil, { kind = "cageReward", index = index, cageIndex = cageIndex,
+                expected = reward.rewardType, observed = observed }
+        end
+        if reward.source ~= nil and type(native) == "table" and native.ForceLootName ~= reward.source then
+            return nil, { kind = "cageRewardSource", index = index, cageIndex = cageIndex,
+                expected = reward.source, observed = native.ForceLootName }
+        end
+    end
+    return true
+end
+
 function doors.prove(occurrence, nativeDoors, occurrencesById)
     local expected = occurrence.doors
     if expected.kind == "terminal" then
@@ -84,6 +107,8 @@ function doors.prove(occurrence, nativeDoors, occurrencesById)
             return nil, { kind = "rewardSource", index = index,
                 expected = target.reward.source, observed = room.ForceLootName }
         end
+        local cagesOk, cagesError = proveCageRewards(target, room, index)
+        if not cagesOk then return nil, cagesError end
     end
     return true, nativeDoors
 end
@@ -182,6 +207,15 @@ function doors.realize(occurrence, nativeDoors, game, occurrencesById)
             realized.Room.Encounter = realized.Room.Encounter or {}
             realized.Room.Encounter.LootAName = target.reward.source
             realized.Room.Encounter.LootBName = target.reward.spurnedSource
+        end
+        if target.cageRewards ~= nil then
+            realized.Room.CageRewards = {}
+            for cageIndex, cageReward in ipairs(target.cageRewards) do
+                realized.Room.CageRewards[cageIndex] = {
+                    RewardType = cageReward.rewardType,
+                    ForceLootName = cageReward.source,
+                }
+            end
         end
         realized.__runPlannerExecutionDoorTarget = target.room.id
         rows[index] = realized

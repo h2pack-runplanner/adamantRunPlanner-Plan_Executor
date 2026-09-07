@@ -168,7 +168,7 @@ local function minimalPlan(transactions)
     end
     local plan = tagged({
         format = "run-planner-execution",
-        protocolVersion = 28,
+        protocolVersion = 29,
         catalogVersion = "0.55.0-anvil-of-fates",
         projectId = "test-project",
         planFingerprint = "00000000",
@@ -574,6 +574,138 @@ function TestProtocol.testCurrentProtocolRequiresCompleteOrderedRouteResourcePol
     plan = decodeWithIndependentJsonModule("f-opening")
     plan.occurrences[1].diagnostics.roomEntered.replace.traits.elements.Unknown = 0
     lu.assertNil(protocol.decode(plan))
+end
+
+function TestProtocol.testFieldsFixturePublishesBoundedDistinctPlacementFacts()
+    local plan = decode("underworld-fgh")
+    local fieldsOccurrence
+    for _, occurrence in ipairs(plan.occurrences) do
+        if occurrence.overview.fields ~= nil then
+            fieldsOccurrence = occurrence
+            break
+        end
+    end
+    lu.assertNotNil(fieldsOccurrence)
+    lu.assertTrue(#fieldsOccurrence.overview.fields.cagePoints >= 2)
+    lu.assertTrue(#fieldsOccurrence.overview.fields.cagePoints <= 3)
+    lu.assertNotNil(protocol.decode(plan))
+
+    plan = decode("underworld-fgh")
+    for _, occurrence in ipairs(plan.occurrences) do
+        if occurrence.kind == "FieldsEncounter" then
+            occurrence.overview.fields = nil
+            break
+        end
+    end
+    refreshFingerprint(plan)
+    lu.assertNil(protocol.decode(plan))
+
+    plan = decode("underworld-fgh")
+    fieldsOccurrence = nil
+    for _, occurrence in ipairs(plan.occurrences) do
+        if occurrence.overview.fields ~= nil then
+            fieldsOccurrence = occurrence
+            break
+        end
+    end
+    table.remove(fieldsOccurrence.overview.fields.cagePoints)
+    refreshFingerprint(plan)
+    lu.assertNil(protocol.decode(plan))
+
+    plan = decode("underworld-fgh")
+    fieldsOccurrence = nil
+    for _, occurrence in ipairs(plan.occurrences) do
+        if occurrence.overview.fields ~= nil then
+            fieldsOccurrence = occurrence
+            break
+        end
+    end
+    fieldsOccurrence.overview.fields.optionalRewards[1].pointId =
+        fieldsOccurrence.overview.fields.cagePoints[1].pointId
+    refreshFingerprint(plan)
+    lu.assertNil(protocol.decode(plan))
+end
+
+function TestProtocol.testFieldsFixtureRequiresCanonicalOrderedCageSlots()
+    local plan = decode("underworld-fgh")
+    local fieldsOccurrence
+    for _, occurrence in ipairs(plan.occurrences) do
+        if occurrence.overview.fields ~= nil then
+            fieldsOccurrence = occurrence
+            break
+        end
+    end
+    lu.assertNotNil(fieldsOccurrence)
+    local fields = fieldsOccurrence.overview.fields
+    fields.cagePoints[1].slotKey, fields.cagePoints[2].slotKey =
+        fields.cagePoints[2].slotKey, fields.cagePoints[1].slotKey
+    refreshFingerprint(plan)
+    lu.assertNil(protocol.decode(plan))
+
+    plan = decode("underworld-fgh")
+    fieldsOccurrence = nil
+    for _, occurrence in ipairs(plan.occurrences) do
+        if occurrence.overview.fields ~= nil then
+            fieldsOccurrence = occurrence
+            break
+        end
+    end
+    lu.assertNotNil(fieldsOccurrence)
+    fieldsOccurrence.overview.fields.cagePoints[1].slotKey = "cage4"
+    refreshFingerprint(plan)
+    lu.assertNil(protocol.decode(plan))
+end
+
+function TestProtocol.testDoorCageRewardsMatchTheirReferencedFieldsTarget()
+    local function fieldsTarget(plan)
+        local fieldsOccurrence
+        for _, occurrence in ipairs(plan.occurrences) do
+            if occurrence.kind == "FieldsEncounter" then
+                fieldsOccurrence = occurrence
+                break
+            end
+        end
+        lu.assertNotNil(fieldsOccurrence)
+        for _, source in ipairs(plan.occurrences) do
+            if source.doors.kind == "batch" then
+                for _, target in ipairs(source.doors.targets) do
+                    if target.room.id == fieldsOccurrence.id then return target end
+                end
+            end
+        end
+        error("fixture lacks a door target for the Fields occurrence")
+    end
+
+    local missing = decode("underworld-fgh")
+    fieldsTarget(missing).cageRewards = nil
+    refreshFingerprint(missing)
+    lu.assertNil(protocol.decode(missing))
+
+    local short = decode("underworld-fgh")
+    local shortTarget = fieldsTarget(short)
+    table.remove(shortTarget.cageRewards)
+    refreshFingerprint(short)
+    lu.assertNil(protocol.decode(short))
+
+    local illegal = decode("underworld-fgh")
+    local occurrencesById = {}
+    for _, occurrence in ipairs(illegal.occurrences) do occurrencesById[occurrence.id] = occurrence end
+    local nonFieldsTarget
+    for _, source in ipairs(illegal.occurrences) do
+        if source.doors.kind == "batch" then
+            for _, target in ipairs(source.doors.targets) do
+                if occurrencesById[target.room.id].kind ~= "FieldsEncounter" then
+                    nonFieldsTarget = target
+                    break
+                end
+            end
+        end
+        if nonFieldsTarget ~= nil then break end
+    end
+    lu.assertNotNil(nonFieldsTarget)
+    nonFieldsTarget.cageRewards = {}
+    refreshFingerprint(illegal)
+    lu.assertNil(protocol.decode(illegal))
 end
 
 function TestProtocol.testOpaqueOwnerReferencesAreLocalAndLaterContactsAreRejected()

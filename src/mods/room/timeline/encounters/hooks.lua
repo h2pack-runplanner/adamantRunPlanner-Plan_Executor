@@ -29,6 +29,7 @@ end
 
 function hooks.attach(module, session, getState, report, room)
     local encounterIndex
+    local directEncounterSequences = setmetatable({}, { __mode = "k" })
 
     module.hooks.wrap("SetupRoomMultipleEncountersData", "run-planner-encounter-assembly", function(_, runtime,
         base, nativeRoom, args)
@@ -53,7 +54,22 @@ function hooks.attach(module, session, getState, report, room)
             phase = room.encounterAt(state, encounterIndex, nativeRoom)
         else
             local first = room.encounterAt(state, 1, nativeRoom)
-            phase = first and room.encounterAt(state, 2, nativeRoom) == nil and first or nil
+            local second = room.encounterAt(state, 2, nativeRoom)
+            if second == nil then
+                phase = first
+            elseif type(nativeRoom) == "table" then
+                local sequence = directEncounterSequences[nativeRoom]
+                local occurrenceId = nativeRoom.__runPlannerExecutionRoomId
+                if sequence == nil or sequence.occurrenceId ~= occurrenceId then
+                    sequence = { index = 1, occurrenceId = occurrenceId, done = false }
+                    directEncounterSequences[nativeRoom] = sequence
+                end
+                if not sequence.done then
+                    phase = room.encounterAt(state, sequence.index, nativeRoom)
+                    sequence.index = sequence.index + 1
+                    if phase == nil then sequence.done = true end
+                end
+            end
         end
         local declaration
         if phase ~= nil then

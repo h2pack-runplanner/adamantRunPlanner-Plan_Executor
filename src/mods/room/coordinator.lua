@@ -9,6 +9,8 @@ local overview = type(import) == "function" and import("mods/room/overview.lua")
     or require("mods.room.overview")
 local features = type(import) == "function" and import("mods/room/features/structure.lua")
     or require("mods.room.features.structure")
+local fieldFeatures = type(import) == "function" and import("mods/room/features/fields.lua")
+    or require("mods.room.features.fields")
 local conformance = type(import) == "function" and import("mods/room/conformance/proof.lua")
     or require("mods.room.conformance.proof")
 local encounterPhaseFactory = type(import) == "function"
@@ -81,7 +83,9 @@ function coordinator.realize(state, occurrence, game, nativeRoom)
 end
 
 function coordinator.realizeFeatures(state, occurrence, nativeRoom)
-    return features.realize(nativeRoom, resourcePolicy(state, occurrence))
+    local realized = features.realize(nativeRoom, resourcePolicy(state, occurrence))
+    fieldFeatures.realize(realized, occurrence.overview and occurrence.overview.fields or nil)
+    return realized
 end
 
 function coordinator.enter(state, occurrence, nativeRoom)

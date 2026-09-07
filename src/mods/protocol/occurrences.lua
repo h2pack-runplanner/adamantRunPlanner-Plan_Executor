@@ -13,6 +13,28 @@ local conformance = type(import) == "function" and import("mods/protocol/conform
 
 local occurrences = {}
 
+local function validateFieldsCageSlots(row, label)
+    local layout = row.overview.fields
+    if layout == nil then return true end
+    local activeCagePhases = {}
+    for _, phase in ipairs(row.overview.encounterPhases or {}) do
+        if string.match(phase.slotKey, "^Cage%d+$") then
+            activeCagePhases[#activeCagePhases + 1] = phase
+        end
+    end
+    if #activeCagePhases ~= #layout.cagePoints then
+        return p.fail(label .. ".cagePoints must match the active cage encounter phases")
+    end
+    for index, phase in ipairs(activeCagePhases) do
+        local expectedPhase = string.format("Cage%02d", index)
+        local expectedSlot = "cage" .. index
+        if phase.slotKey ~= expectedPhase or layout.cagePoints[index].slotKey ~= expectedSlot then
+            return p.fail(label .. ".cagePoints must use canonical ordered cage slots")
+        end
+    end
+    return true
+end
+
 local function anomaly(value, biomeKey, label)
     local record, errorMessage = p.exact(
         value,
@@ -65,7 +87,7 @@ local function doors(value, ids, label)
             local target, targetError = p.exact(
                 valueTarget,
                 { "exitKey", "index", "room" },
-                { "reward" },
+                { "reward", "cageRewards" },
                 label .. ".targets[" .. index .. "]"
             )
             if not target then return nil, targetError end
@@ -78,9 +100,31 @@ local function doors(value, ids, label)
             local reference, referenceError = assertRoomReference(target.room, ids, label .. ".room")
             if not reference then return nil, referenceError end
             continuations[reference.id] = true
+            local targetOccurrence = ids[reference.id]
+            local targetLabel = label .. ".targets[" .. index .. "]"
+            if targetOccurrence.kind == "FieldsEncounter" then
+                if target.cageRewards == nil then
+                    return p.fail(targetLabel .. ".cageRewards is required for FieldsEncounter target")
+                end
+                if #target.cageRewards ~= #targetOccurrence.overview.fields.cagePoints then
+                    return p.fail(targetLabel .. ".cageRewards must match Fields target cagePoints length")
+                end
+            elseif target.cageRewards ~= nil then
+                return p.fail(targetLabel .. ".cageRewards is only valid for FieldsEncounter target")
+            end
             if target.reward ~= nil then
                 local _, rewardError = rewards.reward(target.reward, label .. ".reward")
                 if rewardError then return nil, rewardError end
+            end
+            if target.cageRewards ~= nil then
+                local cageRewards, cageError = p.arr(target.cageRewards, label .. ".cageRewards")
+                if not cageRewards then return nil, cageError end
+                for cageIndex, cageReward in ipairs(cageRewards) do
+                    local _, cageRewardError = rewards.reward(
+                        cageReward, label .. ".cageRewards[" .. cageIndex .. "]"
+                    )
+                    if cageRewardError then return nil, cageRewardError end
+                end
             end
         end
         return batch, continuations
@@ -122,7 +166,7 @@ function occurrences.decode(value, selected, label)
         if not p.str(row.id, label .. ".id", 256)
             or ids[row.id]
             or not p.str(row.owner, label .. ".owner", p.MAX_OWNER_STRING)
-            or not p.one(row.biomeKey, { F = true, G = true }, label .. ".biomeKey")
+            or not p.one(row.biomeKey, { F = true, G = true, H = true }, label .. ".biomeKey")
             or not p.str(row.gameName, label .. ".gameName")
             or not p.str(row.kind, label .. ".kind") then
             return p.fail(label .. " has invalid occurrence identity")
@@ -130,6 +174,16 @@ function occurrences.decode(value, selected, label)
         ids[row.id] = row
         local _, overviewError = overview.decode(row.overview, label .. ".overview")
         if overviewError then return nil, overviewError end
+        if (row.kind == "FieldsEncounter") ~= (row.overview.fields ~= nil) then
+            return p.fail(label .. ".overview.fields is required for FieldsEncounter")
+        end
+        if row.overview.fields ~= nil and row.biomeKey ~= "H" then
+            return p.fail(label .. ".overview.fields is only valid for H FieldsEncounter")
+        end
+        local fieldsSlotsOk, fieldsSlotsError = validateFieldsCageSlots(
+            row, label .. ".overview.fields"
+        )
+        if not fieldsSlotsOk then return nil, fieldsSlotsError end
         if row.anomaly ~= nil then
             local _, anomalyError = anomaly(row.anomaly, row.biomeKey, label .. ".anomaly")
             if anomalyError then return nil, anomalyError end
