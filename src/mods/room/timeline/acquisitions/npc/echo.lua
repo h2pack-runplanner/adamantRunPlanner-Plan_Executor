@@ -28,6 +28,7 @@ local function executionOffer(offer)
             lootHistorySource = row.lootHistorySource,
             targetTraitKey = row.targetTraitKey,
             naturalSelectionTargets = row.naturalSelectionTargets,
+            allTogetherResult = row.allTogetherResult,
         }
     end
     local selected = nestedSelected(offer)

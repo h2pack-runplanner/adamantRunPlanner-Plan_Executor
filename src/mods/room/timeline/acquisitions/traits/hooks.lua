@@ -14,6 +14,14 @@ local function nativeName(value)
     return type(value) == "table" and (value.Name or value.ItemName or value.LootName) or nil
 end
 
+local function equippedTrait(key)
+    local hero = _G.CurrentRun and _G.CurrentRun.Hero
+    for _, trait in pairs(type(hero) == "table" and hero.Traits or {}) do
+        if type(trait) == "table" and (trait.Name == key or trait.TraitName == key) then return trait end
+    end
+    return nil
+end
+
 local function boundNormal(room, state, current, native)
     local handle = current and room.bound(state, current, native) or nil
     if handle == nil or type(room.peek) ~= "function" then return handle, nil end
@@ -30,8 +38,6 @@ function hooks.attach(module, session, getState, report, room, seaStar)
     local naturalSelectionPending = {}
     local activeNaturalDistribution = nil
     local targetedAcquisitionPending = {}
-    local activeTargetedAcquisition = nil
-    local activeTargetedRarity = nil
     local concaveStone = concaveStoneModule.create({
         module = module, session = session, getState = getState, room = room, ordinary = ordinary,
     })
@@ -88,8 +94,6 @@ function hooks.attach(module, session, getState, report, room, seaStar)
     local function discardTargetedAcquisition(pending)
         if pending == nil then return end
         targetedAcquisitionPending[pending.handle] = nil
-        if activeTargetedAcquisition == pending then activeTargetedAcquisition = nil end
-        if activeTargetedRarity == pending then activeTargetedRarity = nil end
     end
 
     local function completeTargetedAcquisition(state, pending)
@@ -358,25 +362,23 @@ function hooks.attach(module, session, getState, report, room, seaStar)
     end)
 
     -- Bridal Glow's acquire function runs on the native AddTraitToHero thread.
-    -- Keep the exact selected outer trait's scope pending until that terminal
-    -- function returns; only its AddRarityToTraits choice may consume the
-    -- published target.
+    -- Keep the selected outer trait pending until that terminal returns. Its
+    -- own AddRarityToTraits source binds the published target directly.
     module.hooks.wrap("HeraSuperchargeBoon", "run-planner-complete-targeted-acquisition", function(_, runtime,
         base, args, originalTraitData, contextArgs)
         local state = getState(runtime)
         local pending = pendingForNative(state, targetedAcquisitionPending, originalTraitData)
         if pending == nil then return base(args, originalTraitData, contextArgs) end
         pending.started = true
-        local prior = activeTargetedAcquisition
-        activeTargetedAcquisition = pending
         local ok, result = pcall(base, args, originalTraitData, contextArgs)
-        activeTargetedAcquisition = prior
         if not ok then
             discardTargetedAcquisition(pending)
             error(result, 0)
         end
         if not pending.contacted then
             session.mismatch(state, "targeted-acquisition-target", pending.target, "missing native selection")
+            discardTargetedAcquisition(pending)
+        elseif pending.failed then
             discardTargetedAcquisition(pending)
         else
             pending.settled = true
@@ -386,40 +388,28 @@ function hooks.attach(module, session, getState, report, room, seaStar)
         return result
     end)
 
-    module.hooks.wrap("AddRarityToTraits", "run-planner-scope-targeted-acquisition-rarity", function(_, runtime,
+    module.hooks.wrap("AddRarityToTraits", "run-planner-force-targeted-acquisition-rarity", function(_, runtime,
         base, source, args)
-        local pending = activeTargetedAcquisition
-        if pending == nil then return base(source, args) end
         local state = getState(runtime)
-        if not scopeIsCurrent(state, pending) then
-            discardTargetedAcquisition(pending)
+        local pending = pendingForNative(state, targetedAcquisitionPending, source)
+        if pending == nil then return base(source, args) end
+        local target = equippedTrait(pending.target)
+        if target == nil then
+            pending.failed = true
+            session.mismatch(state, "targeted-acquisition-target", pending.target, "missing trait")
             return base(source, args)
         end
-        local prior = activeTargetedRarity
-        activeTargetedRarity = pending
-        local ok, result = pcall(base, source, args)
-        activeTargetedRarity = prior
+        local forced = {}
+        for key, value in pairs(args or {}) do forced[key] = value end
+        forced.ForceUpgrade = { target }
+        pending.contacted = true
+        local ok, result = pcall(base, source, forced)
         if not ok then error(result, 0) end
+        if nativeName(result) ~= pending.target then
+            pending.failed = true
+            session.mismatch(state, "targeted-acquisition-target", pending.target, nativeName(result))
+        end
         return result
-    end)
-
-    module.hooks.wrap("RemoveRandomValue", "run-planner-steer-targeted-acquisition", function(_, runtime, base,
-        values, ...)
-        local pending = activeTargetedRarity
-        if pending == nil then return base(values, ...) end
-        local state = getState(runtime)
-        if not scopeIsCurrent(state, pending) then
-            discardTargetedAcquisition(pending)
-            return base(values, ...)
-        end
-        for index, value in ipairs(values or {}) do
-            if type(value) == "table" and value.Name == pending.target then
-                pending.contacted = true
-                table.remove(values, index)
-                return value
-            end
-        end
-        return base(values, ...)
     end)
 
     module.hooks.wrap("HandleLootPickup", "run-planner-begin-ordinary-loot", function(_, runtime, base,

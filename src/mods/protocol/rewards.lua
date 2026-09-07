@@ -158,7 +158,7 @@ local function echoLastRunBoon(value, label)
     for index, optionValue in ipairs(options) do
         local rowLabel = label .. ".options[" .. index .. "]"
         local row, rowError = p.exact(optionValue, { "giver", "key", "rarity" },
-            { "lootHistorySource", "targetTraitKey", "naturalSelectionTargets" }, rowLabel)
+            { "lootHistorySource", "targetTraitKey", "naturalSelectionTargets", "allTogetherResult" }, rowLabel)
         if not row then return nil, rowError end
         if not p.str(row.giver, rowLabel .. ".giver") or not p.str(row.key, rowLabel .. ".key")
             or not p.str(row.rarity, rowLabel .. ".rarity") then
@@ -177,6 +177,15 @@ local function echoLastRunBoon(value, label)
                 rowLabel .. ".naturalSelectionTargets", 8)
             if not targets then return nil, targetsError end
             if #targets == 0 then return p.fail(rowLabel .. ".naturalSelectionTargets must not be empty") end
+        end
+        if row.allTogetherResult ~= nil then
+            local _, resultError = allTogetherResult(row.allTogetherResult, rowLabel .. ".allTogetherResult")
+            if resultError ~= nil then return nil, resultError end
+        end
+        if index ~= selectedIndex[record.selected]
+            and (row.targetTraitKey ~= nil or row.naturalSelectionTargets ~= nil
+                or row.allTogetherResult ~= nil) then
+            return p.fail(rowLabel .. " carrier outcome must belong to the selected option")
         end
     end
     return record
@@ -262,13 +271,14 @@ function rewards.traitOffer(value, label)
         or (row.rejected ~= nil and optionIndex[row.rejected] > #options) then
         return p.fail(label .. " selects a missing option")
     end
+    local selectedConcave = options[optionIndex[row.selected]].concaveStoneResult
     for index, optionValue in ipairs(options) do
         local option, optionError = p.exact(
             optionValue,
             { "key" },
             {
                 "baseRarity", "rarity", "effectiveLevel", "allTogetherResult",
-                "naturalSelectionTargets", "concaveStoneResult", "circeResolution",
+                "naturalSelectionTargets", "targetTraitKey", "concaveStoneResult", "circeResolution",
                 "icarusHammerTarget", "echoPomTarget", "echoLastRunBoon", "replacement",
             },
             label .. ".options[" .. index .. "]"
@@ -296,6 +306,20 @@ function rewards.traitOffer(value, label)
             if not targets then return nil, targetsError end
             if #targets == 0 then
                 return p.fail(label .. ".options[" .. index .. "].naturalSelectionTargets must not be empty")
+            end
+        end
+        if option.targetTraitKey ~= nil then
+            if not p.str(option.targetTraitKey,
+                label .. ".options[" .. index .. "].targetTraitKey") then
+                return p.fail(label .. ".options[" .. index .. "].targetTraitKey is invalid")
+            end
+        end
+        if (option.targetTraitKey ~= nil or option.naturalSelectionTargets ~= nil
+            or option.allTogetherResult ~= nil) and index ~= optionIndex[row.selected] then
+            if selectedConcave == nil or selectedConcave.kind ~= "proc"
+                or selectedConcave.optionKey ~= ({ "option1", "option2", "option3" })[index] then
+                return p.fail(label .. ".options[" .. index
+                    .. "] carrier outcome must belong to selected or Concave Stone residual option")
             end
         end
         if option.concaveStoneResult ~= nil then

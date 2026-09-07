@@ -559,6 +559,56 @@ function TestNpcAcquisitions.testEchoBoonReplayKeepsNaturalSelectionScopedUntilI
     lu.assertEquals(#completions, 1)
 end
 
+function TestNpcAcquisitions.testEchoBoonReplayKeepsAllTogetherScopedUntilItsNativeGrantTerminal()
+    local selected = "EchoLastRunBoon"
+    local outer = offer("Echo", selected)
+    outer.options[2].echoLastRunBoon = {
+        options = {
+            { giver = "Hera", key = "AllElementalBoon", rarity = "Legendary",
+                allTogetherResult = {
+                    earth = "Earth", fire = "Fire", air = "Air", water = "Water",
+                },
+            },
+        },
+        selected = "option1",
+    }
+    local callbacks, source, _, _, _, _, _, _, mismatches, completions, finish = harness(
+        "Echo", selected, { offer = outer, realTraitScopes = true })
+    local args = { UpgradeOptions = {
+        { ItemName = "EchoOne" }, { ItemName = selected }, { ItemName = "EchoThree" },
+    } }
+    local queued, granted
+    runMenu(callbacks, "EchoChoice", source, args, selected, nil, function()
+        callbacks.EchoLastRunBoon(nil, {}, function()
+            local nestedSource = { UpgradeOptions = {} }
+            return callbacks.OpenUpgradeChoiceMenu(nil, {}, function(openSource)
+                return callbacks.SelectEchoBoon(nil, {}, function()
+                    queued = function()
+                        granted = {}
+                        callbacks.GrantBoons(nil, {}, function(grantArgs)
+                            for _, candidates in ipairs(grantArgs.BoonSets) do
+                                granted[#granted + 1] = callbacks.GetRandomValue(nil, {},
+                                    function(values) return values[1] end, candidates)
+                            end
+                        end, { BoonSets = {
+                            { "OtherEarth", "Earth" }, { "OtherFire", "Fire" },
+                            { "OtherAir", "Air" }, { "OtherWater", "Water" },
+                        } }, { Name = "AllElementalBoon" })
+                    end
+                    return true
+                end, { Source = openSource }, { Data = { Name = "AllElementalBoon" } }, {})
+            end, nestedSource, {})
+        end, {}, {})
+    end)
+    lu.assertNotNil(queued)
+    lu.assertEquals(#completions, 0)
+    queued()
+    finish()
+    lu.assertEquals(granted, { "Earth", "Fire", "Air", "Water" })
+    lu.assertEquals(#mismatches, 0)
+    lu.assertEquals(#completions, 1)
+end
+
 function TestNpcAcquisitions.testEchoBoonReplayKeepsBridalGlowTargetScopedUntilItsAsyncAcquireTerminal()
     local selected = "EchoLastRunBoon"
     local target = "ZeusWeaponBoon"
@@ -574,6 +624,7 @@ function TestNpcAcquisitions.testEchoBoonReplayKeepsBridalGlowTargetScopedUntilI
     local args = { UpgradeOptions = {
         { ItemName = "EchoOne" }, { ItemName = selected }, { ItemName = "EchoThree" },
     } }
+    local bridalGlow = { Name = "HeraSuperchargeBoon" }
     local queued, upgraded
     runMenu(callbacks, "EchoChoice", source, args, selected, nil, function()
         callbacks.EchoLastRunBoon(nil, {}, function()
@@ -582,12 +633,11 @@ function TestNpcAcquisitions.testEchoBoonReplayKeepsBridalGlowTargetScopedUntilI
                 return callbacks.SelectEchoBoon(nil, {}, function()
                     queued = function()
                         callbacks.HeraSuperchargeBoon(nil, {}, function()
-                            callbacks.AddRarityToTraits(nil, {}, function()
-                                upgraded = callbacks.RemoveRandomValue(nil, {}, function(values)
-                                    return table.remove(values, 1)
-                                end, { { Name = "ApolloWeaponBoon" }, { Name = target } }).Name
-                            end, {}, {})
-                        end, {}, { Name = "HeraSuperchargeBoon" }, {})
+                            callbacks.AddRarityToTraits(nil, {}, function(_, rarityArgs)
+                                upgraded = rarityArgs.ForceUpgrade[1].Name
+                                return rarityArgs.ForceUpgrade[1]
+                            end, bridalGlow, {})
+                        end, {}, bridalGlow, {})
                     end
                     return true
                 end, { Source = openSource }, { Data = { Name = "HeraSuperchargeBoon" } }, {})
@@ -596,6 +646,7 @@ function TestNpcAcquisitions.testEchoBoonReplayKeepsBridalGlowTargetScopedUntilI
     end)
     lu.assertNotNil(queued)
     lu.assertEquals(#completions, 0)
+    _G.CurrentRun.Hero.Traits = { { Name = target } }
     queued()
     finish()
     lu.assertEquals(upgraded, target)
@@ -618,18 +669,18 @@ function TestNpcAcquisitions.testBridalGlowTerminalWaitsForItsOuterSelectionToRe
     local args = { UpgradeOptions = {
         { ItemName = "EchoOne" }, { ItemName = selected }, { ItemName = "EchoThree" },
     } }
+    local bridalGlow = { Name = "HeraSuperchargeBoon" }
     runMenu(callbacks, "EchoChoice", source, args, selected, nil, function()
         callbacks.EchoLastRunBoon(nil, {}, function()
             local nestedSource = { UpgradeOptions = {} }
             return callbacks.OpenUpgradeChoiceMenu(nil, {}, function(openSource)
                 return callbacks.SelectEchoBoon(nil, {}, function()
+                    _G.CurrentRun.Hero.Traits = { { Name = target } }
                     callbacks.HeraSuperchargeBoon(nil, {}, function()
-                        callbacks.AddRarityToTraits(nil, {}, function()
-                            callbacks.RemoveRandomValue(nil, {}, function(values)
-                                return table.remove(values, 1)
-                            end, { { Name = target } })
-                        end, {}, {})
-                    end, {}, { Name = "HeraSuperchargeBoon" }, {})
+                        callbacks.AddRarityToTraits(nil, {}, function(_, rarityArgs)
+                            return rarityArgs.ForceUpgrade[1]
+                        end, bridalGlow, {})
+                    end, {}, bridalGlow, {})
                     -- A scheduler may run the acquire terminal before this
                     -- selected native callback returns.
                     lu.assertEquals(#completions, 0)

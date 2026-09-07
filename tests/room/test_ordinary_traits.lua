@@ -245,6 +245,41 @@ function TestOrdinaryTraits.testQuickBuckC1CompletesWithoutWaitingForItsDelayedN
     lu.assertEquals(mismatches(), {})
 end
 
+function TestOrdinaryTraits.testBridalGlowForcesThePublishedEquippedTargetAtTheNativeProvider()
+    local target = { Name = "ApolloSprintBoon", Rarity = "Epic" }
+    local callbacks, _, completed, mismatches = attached({
+        kind = "traits", selected = "option1", options = {
+            { key = "BoonDecayBoon", targetTraitKey = target.Name },
+        },
+    }, nil, "HeraUpgrade")
+    local loot = { GodLoot = true, Name = "HeraUpgrade" }
+    callbacks.SpawnRoomReward(nil, {}, function()
+        return callbacks.CreateLoot(nil, {}, function() return loot end, {})
+    end, {}, {})
+    callbacks.HandleLootPickup(nil, {}, function() return true end, {}, loot, {})
+
+    local priorRun = _G.CurrentRun
+    _G.CurrentRun = { Hero = { Traits = { { Name = "ZeusWeaponBoon" }, target } } }
+    local bridalGlow = { Name = "BoonDecayBoon" }
+    local nativeArgs = { NumTraits = 1, TargetRarity = 4, MaxRarity = 3, StackEligibleOnly = true }
+    local forcedTarget
+    callbacks.HandleUpgradeChoiceSelection(nil, {}, function()
+        callbacks.HeraSuperchargeBoon(nil, {}, function()
+            return callbacks.AddRarityToTraits(nil, {}, function(_, args)
+                forcedTarget = args.ForceUpgrade[1]
+                return forcedTarget
+            end, bridalGlow, nativeArgs)
+        end, {}, bridalGlow, {})
+        return true
+    end, {}, { LootData = loot, Data = { Name = "BoonDecayBoon" } }, {})
+    _G.CurrentRun = priorRun
+
+    lu.assertTrue(rawequal(forcedTarget, target))
+    lu.assertNil(nativeArgs.ForceUpgrade)
+    lu.assertEquals(completed(), 1)
+    lu.assertEquals(mismatches(), {})
+end
+
 function TestOrdinaryTraits.testFreshImportedTraitCarrierUsesTheProvidedSeaStar()
     local freshSeaStar = assert(loadfile("src/mods/room/timeline/acquisitions/sea_star.lua"))().create()
     local freshTraits = assert(loadfile("src/mods/room/timeline/acquisitions/traits/hooks.lua"))()

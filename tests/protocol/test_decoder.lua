@@ -168,7 +168,7 @@ local function minimalPlan(transactions)
     end
     local plan = tagged({
         format = "run-planner-execution",
-        protocolVersion = 27,
+        protocolVersion = 28,
         catalogVersion = "0.55.0-anvil-of-fates",
         projectId = "test-project",
         planFingerprint = "00000000",
@@ -337,9 +337,22 @@ function TestProtocol.testNaturalSelectionTargetsDecodeAsOneBoundedNestedResult(
     lu.assertNil(protocol.decode(value))
 end
 
+function TestProtocol.testTargetedAcquisitionTargetBelongsOnlyToItsSelectedOption()
+    local offer = traitOffer()
+    offer.options[1].targetTraitKey = "ApolloSprintBoon"
+    lu.assertNotNil(rewards.traitOffer(tagged(offer), "offer"))
+
+    offer.options[1].targetTraitKey = 3
+    lu.assertNil(rewards.traitOffer(tagged(offer), "offer"))
+    offer.options[1].targetTraitKey = nil
+    offer.options[2].targetTraitKey = "ApolloSprintBoon"
+    lu.assertNil(rewards.traitOffer(tagged(offer), "offer"))
+end
+
 function TestProtocol.testConcaveStoneDispositionDecodesOnlyOnItsSelectedSourceOption()
     local offer = traitOffer()
     offer.options[1].concaveStoneResult = { kind = "proc", optionKey = "option2" }
+    offer.options[2].targetTraitKey = "ApolloSprintBoon"
     local value = minimalPlan({ {
         kind = "acquisition",
         owner = "source",
@@ -356,12 +369,15 @@ function TestProtocol.testConcaveStoneDispositionDecodesOnlyOnItsSelectedSourceO
     lu.assertNotNil(plan, errorMessage)
     lu.assertEquals(plan.occurrences[1].timeline.transactions[1].roles[1].traitOffer.options[1]
         .concaveStoneResult.optionKey, "option2")
+    lu.assertEquals(plan.occurrences[1].timeline.transactions[1].roles[1].traitOffer.options[2]
+        .targetTraitKey, "ApolloSprintBoon")
 
     offer.options[1].concaveStoneResult.optionKey = "option1"
     refreshFingerprint(value)
     lu.assertNil(protocol.decode(value))
 
     offer.options[1].concaveStoneResult = nil
+    offer.options[2].targetTraitKey = nil
     offer.options[2].concaveStoneResult = { kind = "noProc" }
     refreshFingerprint(value)
     lu.assertNil(protocol.decode(value))
@@ -428,6 +444,16 @@ function TestProtocol.testEchoVolatileResultsBelongOnlyToTheirSelectedOuterRows(
         selected = "option2",
     }
     lu.assertNotNil(rewards.traitOffer(tagged(offer), "offer"))
+    offer.options[1].echoLastRunBoon.options[2].allTogetherResult = {
+        earth = "Earth", fire = "Fire", air = "Air", water = "Water",
+    }
+    lu.assertNotNil(rewards.traitOffer(tagged(offer), "offer"))
+    offer.options[1].echoLastRunBoon.options[2].allTogetherResult = nil
+    offer.options[1].echoLastRunBoon.options[1].allTogetherResult = {
+        earth = "Earth", fire = "Fire", air = "Air", water = "Water",
+    }
+    lu.assertNil(rewards.traitOffer(tagged(offer), "offer"))
+    offer.options[1].echoLastRunBoon.options[1].allTogetherResult = nil
     offer.options[1].echoLastRunBoon.options[1].lootHistorySource = 7
     lu.assertNil(rewards.traitOffer(tagged(offer), "offer"))
     offer.options[1].echoLastRunBoon.options[1].lootHistorySource = "HeraUpgrade"

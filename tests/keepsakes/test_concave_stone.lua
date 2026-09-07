@@ -95,6 +95,67 @@ function TestConcaveStone.testResidualAllTogetherStaysWithinTheOuterC1Scope()
     lu.assertEquals(mismatches(), {})
 end
 
+function TestConcaveStone.testResidualNaturalSelectionUsesItsOwnPublishedTargetOrder()
+    local callbacks, _, completed, mismatches = support.attached(concaveOffer(
+        { kind = "proc", optionKey = "option2" },
+        { key = "GoodStuffBoon", naturalSelectionTargets = { "Attack", "Special" } }
+    ))
+    local loot = { GodLoot = true, Name = "ApolloUpgrade" }
+    callbacks.SpawnRoomReward(nil, {}, function()
+        return callbacks.CreateLoot(nil, {}, function() return loot end, {})
+    end, {}, {})
+    callbacks.HandleLootPickup(nil, {}, function() return true end, {}, loot, {})
+    local residual = { LootData = loot, Data = { Name = "GoodStuffBoon" } }
+    local shuffled, applied
+    selectConcave(callbacks, loot, { residual }, function(_, nestedButton)
+        callbacks.DistributeLevels(nil, {}, function()
+            shuffled = callbacks.FYShuffle(nil, {}, function(values) return values end,
+                { "Special", "Attack", "Cast" })
+            applied = {}
+            for _, key in ipairs({ "Attack", "Special" }) do
+                callbacks.IncreaseTraitLevel(nil, {}, function(trait)
+                    applied[#applied + 1] = trait.Name
+                end, { Name = key })
+            end
+        end, { Slots = {} }, nestedButton.Data)
+        return true
+    end)
+    lu.assertEquals(shuffled, { "Attack", "Special", "Cast" })
+    lu.assertEquals(applied, { "Attack", "Special" })
+    lu.assertEquals(completed(), 1)
+    lu.assertEquals(mismatches(), {})
+end
+
+function TestConcaveStone.testResidualBridalGlowUsesItsOwnPublishedTarget()
+    local target = { Name = "ApolloSprintBoon", Rarity = "Epic" }
+    local callbacks, _, completed, mismatches = support.attached(concaveOffer(
+        { kind = "proc", optionKey = "option2" },
+        { key = "BoonDecayBoon", targetTraitKey = target.Name }
+    ), nil, "HeraUpgrade")
+    local loot = { GodLoot = true, Name = "HeraUpgrade" }
+    callbacks.SpawnRoomReward(nil, {}, function()
+        return callbacks.CreateLoot(nil, {}, function() return loot end, {})
+    end, {}, {})
+    callbacks.HandleLootPickup(nil, {}, function() return true end, {}, loot, {})
+    local priorRun = _G.CurrentRun
+    _G.CurrentRun = { Hero = { Traits = { { Name = "ZeusWeaponBoon" }, target } } }
+    local residual = { LootData = loot, Data = { Name = "BoonDecayBoon" } }
+    local upgraded
+    selectConcave(callbacks, loot, { residual }, function(_, nestedButton)
+        callbacks.HeraSuperchargeBoon(nil, {}, function()
+            callbacks.AddRarityToTraits(nil, {}, function(_, args)
+                upgraded = args.ForceUpgrade[1]
+                return upgraded
+            end, nestedButton.Data, {})
+        end, {}, nestedButton.Data, {})
+        return true
+    end)
+    _G.CurrentRun = priorRun
+    lu.assertTrue(rawequal(upgraded, target))
+    lu.assertEquals(completed(), 1)
+    lu.assertEquals(mismatches(), {})
+end
+
 function TestConcaveStone.testMissingOrUnavailableResidualLeavesOuterIncompleteAndCleansScope()
     local callbacks, _, completed, mismatches = support.attached(concaveOffer({ kind = "proc", optionKey = "option2" }))
     local loot = { GodLoot = true, Name = "ApolloUpgrade" }
