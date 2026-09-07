@@ -5,7 +5,7 @@ schemaVersion = "0.0.1"
 namespace = "adamantRunPlanner"
 name = "Plan_Executor"
 description = "Loads bounded resolved Run Planner execution plans from the module inbox."
-versionNumber = "0.0.1"
+versionNumber = "0.3.0"
 websiteUrl = "https://github.com/h2pack-runplanner/adamantRunPlanner-Plan_Executor"
 containsNsfwContent = false
 
