@@ -447,6 +447,134 @@ function TestRoomEntryHooks.testLeaveRoomDoesNotRetainDepartingCursorAfterNested
     lu.assertEquals(routeSessionModule.expected(cursor), second)
 end
 
+function TestRoomEntryHooks.testEphyraRestoresStayTransparentWhileFreshRoomsAdvanceOnce()
+    local module, _, callbacks = capture()
+    local opening = { id = "opening", gameName = "N_Opening01", overview = {} }
+    local chaos = {
+        id = "chaos", gameName = "Chaos_03", biomeKey = "N",
+        overview = { hub = {
+            room = { gameName = "N_Hub" },
+            slots = { {
+                slotKey = "main", physicalDoorId = 101,
+                room = { id = "main", biomeKey = "N", gameName = "N_Combat05" },
+                reward = { rewardType = "Boon" },
+            } },
+            finalHandoff = { id = "next", biomeKey = "N", gameName = "N_PreBoss01" },
+        } },
+    }
+    local side1 = { id = "side1", gameName = "N_Sub01", biomeKey = "N", overview = {} }
+    local side2 = { id = "side2", gameName = "N_Sub02", biomeKey = "N", overview = {} }
+    local main = {
+        id = "main", gameName = "N_Combat05", biomeKey = "N",
+        overview = { localSlots = {
+            { slotKey = "side1", physicalDoorId = 201, generation = "generated",
+                room = { id = "side1", biomeKey = "N", gameName = "N_Sub01" },
+                reward = { rewardType = "MaxHealthDropSmall" } },
+            { slotKey = "side2", physicalDoorId = 202, generation = "generated",
+                room = { id = "side2", biomeKey = "N", gameName = "N_Sub02" },
+                reward = { rewardType = "MaxManaDropSmall" } },
+        } },
+    }
+    local nextRoom = { id = "next", gameName = "N_PreBoss01", biomeKey = "N", overview = {} }
+    local plan = {
+        selectedOccurrenceIds = { "opening", "chaos", "main", "side1", "side2", "next" },
+        occurrencesById = {
+            opening = opening, chaos = chaos, main = main,
+            side1 = side1, side2 = side2, next = nextRoom,
+        },
+    }
+    local cursor = routeSessionModule.new(plan)
+    local state = { state = "synchronized", plan = plan, route = cursor }
+    local entered, closed = {}, {}
+    local roomSession = {
+        enter = function(_, occurrence) entered[#entered + 1] = occurrence.id; return true end,
+        proveEntry = function() return true end,
+        close = function()
+            local current = routeSessionModule.current(cursor)
+            closed[#closed + 1] = current and current.id
+            return true
+        end,
+    }
+    local navigationEntry = {
+        realizeIncomingReward = function(_, nativeRoom) return nativeRoom end,
+        proveIncomingReward = function() return true end,
+        proveOutgoingDoors = function() return true end,
+    }
+    roomHooks.attach(module, stub(), function() return state end, function() end,
+        routeSessionModule, roomSession, nil, navigationEntry, unusedLoadoutScope)
+
+    local function enterFresh(occurrence)
+        callbacks.StartRoom(nil, {}, function() return true end, {}, {
+            Name = occurrence.gameName, __runPlannerExecutionRoomId = occurrence.id,
+        })
+    end
+    local function leaveRoom()
+        callbacks.LeaveRoom(nil, {}, function() return true end, {}, {})
+    end
+    local function passTransparent(gameName)
+        callbacks.StartRoom(nil, {}, function() return true end, {}, { Name = gameName })
+        callbacks.LeaveRoom(nil, {}, function() return true end, {}, {})
+    end
+
+    enterFresh(opening); leaveRoom()
+    enterFresh(chaos); leaveRoom()
+    passTransparent("N_Hub")
+    enterFresh(main); leaveRoom()
+    enterFresh(side1); leaveRoom()
+    passTransparent("N_Combat05")
+    enterFresh(side2); leaveRoom()
+    passTransparent("N_Combat05")
+    passTransparent("N_Hub")
+    enterFresh(nextRoom)
+
+    lu.assertEquals(entered, { "opening", "chaos", "main", "side1", "side2", "next" })
+    lu.assertEquals(closed, { "opening", "chaos", "main", "side1", "side2" })
+    lu.assertEquals(routeSessionModule.current(cursor), nextRoom)
+    lu.assertEquals(cursor.index, 6)
+    lu.assertNil(cursor.firstMismatch)
+end
+
+function TestRoomEntryHooks.testEphyraFinalHandoffIsBoundBeforeNativeRoomCreation()
+    local module, _, callbacks = capture()
+    local preboss = { id = "preboss", gameName = "N_PreBoss01", biomeKey = "N", overview = {} }
+    local source = {
+        id = "source", gameName = "N_PreHub01", biomeKey = "N",
+        overview = { hub = {
+            room = { gameName = "N_Hub" }, slots = {},
+            finalHandoff = { id = "preboss", biomeKey = "N", gameName = "N_PreBoss01" },
+        } },
+    }
+    local plan = {
+        selectedOccurrenceIds = { "preboss" },
+        occurrencesById = { source = source, preboss = preboss },
+    }
+    local state = { state = "synchronized", plan = plan, route = routeSessionModule.new(plan) }
+    local roomSession = {
+        current = function() return nil end,
+        realize = function(_, occurrence)
+            lu.assertEquals(occurrence, preboss)
+            return { Name = occurrence.gameName, __runPlannerExecutionRoomId = occurrence.id }
+        end,
+        realizeFeatures = function(_, _, nativeRoom) return nativeRoom end,
+        checkpoint = function() return true end,
+        window = function() return true end,
+    }
+    local navigationEntry = navigation.attach(module, stub(), function() return state end,
+        function() end, routeSessionModule, roomSession)
+    roomHooks.attach(module, stub(), function() return state end, function() end,
+        routeSessionModule, roomSession, nil, navigationEntry, unusedLoadoutScope)
+    local priorRun = _G.CurrentRun
+    _G.CurrentRun = { CurrentRoom = { Name = "N_Hub" } }
+
+    local result = callbacks.CreateRoom(nil, {}, function(roomData)
+        lu.assertEquals(roomData.__runPlannerExecutionRoomId, "preboss")
+        return roomData
+    end, { Name = "N_PreBoss01" }, {})
+
+    lu.assertEquals(result.__runPlannerExecutionRoomId, "preboss")
+    _G.CurrentRun = priorRun
+end
+
 function TestRoomEntryHooks.testEncounterForcingKeepsNativeSetupAndGeneration()
     local module, _, callbacks = capture()
     local declaration = { Name = "OpeningGeneratedF", Generated = true }

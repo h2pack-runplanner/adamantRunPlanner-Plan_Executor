@@ -634,6 +634,40 @@ function TestProtocol.testFGHIFixtureCarriesClockworkGoalsThroughTheOrdinaryRewa
     lu.assertNotEquals(nonGoal.rewardType, "ClockworkGoal")
 end
 
+function TestProtocol.testSurfaceNFixtureClosesHubAndNativeRestoreReferences()
+    local plan = decode("surface-n")
+    local decoded, errorMessage = protocol.decode(plan)
+    lu.assertNotNil(decoded, errorMessage)
+    lu.assertEquals(decoded.extent.biomeKeys, { "N" })
+
+    local parentsBySide = {}
+    for _, occurrence in ipairs(plan.occurrences) do
+        for _, slot in ipairs(occurrence.overview.localSlots or {}) do
+            if slot.room ~= nil then
+                parentsBySide[slot.room.id] = occurrence.id
+            end
+        end
+    end
+    local mutated = false
+    for index = 1, #plan.selectedOccurrenceIds - 1 do
+        local priorId = plan.selectedOccurrenceIds[index]
+        local parentId = parentsBySide[priorId]
+        if parentId ~= nil then
+            for sideId, candidateParent in pairs(parentsBySide) do
+                if candidateParent ~= parentId then
+                    plan.selectedOccurrenceIds[index + 1] = sideId
+                    mutated = true
+                    break
+                end
+            end
+        end
+        if mutated then break end
+    end
+    lu.assertTrue(mutated)
+    refreshFingerprint(plan)
+    lu.assertNil(protocol.decode(plan))
+end
+
 function TestProtocol.testFieldsFixturePublishesBoundedDistinctPlacementFacts()
     local plan = decode("underworld-fgh")
     local fieldsOccurrence

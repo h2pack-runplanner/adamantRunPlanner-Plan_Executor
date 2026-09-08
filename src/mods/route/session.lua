@@ -50,8 +50,47 @@ function routeSession.exit(route)
         return nil, route.firstMismatch
     end
     route.index = route.index + 1
+    route.lastExitedOccurrence = route.currentOccurrence
     route.currentOccurrence = nil
     return true
+end
+
+-- N Hub and completed-parent reloads are native restoration transitions, not
+-- execution rooms. They must not consume the single fresh-occurrence cursor.
+function routeSession.transparent(route, gameName)
+    if route == nil or route.currentOccurrence ~= nil or route.lastExitedOccurrence == nil then return false end
+    if gameName == "N_Hub" then
+        for _, occurrence in pairs(route.plan.occurrencesById or {}) do
+            local hub = occurrence.overview and occurrence.overview.hub
+            if hub and hub.room and hub.room.gameName == gameName then return true end
+        end
+        return false
+    end
+    -- A generated side reloads its declared main parent. Derive that relation
+    -- from the published local slots instead of equating parent and side names.
+    for _, parent in pairs(route.plan.occurrencesById or {}) do
+        for _, slot in ipairs(parent.overview and parent.overview.localSlots or {}) do
+            if slot.room and slot.room.id == route.lastExitedOccurrence.id
+                and parent.gameName == gameName then return true end
+        end
+    end
+    return false
+end
+
+function routeSession.enterTransparent(route, gameName)
+    if routeSession.transparent(route, gameName) then
+        route.transparentNativeRoom = gameName
+        return true
+    end
+    return false
+end
+
+function routeSession.leaveTransparent(route)
+    if route and route.transparentNativeRoom ~= nil then
+        route.transparentNativeRoom = nil
+        return true
+    end
+    return false
 end
 
 return routeSession

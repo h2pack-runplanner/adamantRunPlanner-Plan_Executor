@@ -43,6 +43,7 @@ function hooks.attach(module, session, getState, report, route, room, featureSco
         local id = type(roomData) == "table" and roomData.__runPlannerExecutionRoomId or nil
         local occurrence = id and state.plan.occurrencesById[id]
             or additional and additional.occurrence
+            or navigation.resolveNativeRoom and navigation.resolveNativeRoom(state, roomData)
         if occurrence ~= nil then
             local realized = room.realize(state, occurrence, _G.game or game, roomData)
             if type(realized) == "table" then
@@ -75,6 +76,9 @@ function hooks.attach(module, session, getState, report, route, room, featureSco
         if state == nil or state.state ~= "synchronized" then return base(currentRun, nativeRoom) end
         local expected = route.expected(state.route)
         local id = type(nativeRoom) == "table" and nativeRoom.__runPlannerExecutionRoomId or nil
+        if route.enterTransparent and route.enterTransparent(state.route, roomName(nativeRoom)) then
+            return base(currentRun, nativeRoom)
+        end
         if id == nil and expected and roomName(nativeRoom) == expected.gameName then id = expected.id end
         local occurrence, errorValue = route.enter(state.route, id, roomName(nativeRoom))
         if occurrence == true then
@@ -106,6 +110,9 @@ function hooks.attach(module, session, getState, report, route, room, featureSco
     module.hooks.wrap("LeaveRoom", "run-planner-room-exit", function(_, runtime, base, currentRun, door)
         local state = getState(runtime)
         if state == nil or state.state ~= "synchronized" then return base(currentRun, door) end
+        if route.leaveTransparent and route.leaveTransparent(state.route) then
+            return base(currentRun, door)
+        end
         local proved, errorValue = navigation.proveOutgoingDoors(state, currentRun)
         if not proved then session.mismatch(state, errorValue) end
         if state.state == "synchronized" then room.close(state, currentRun, _G.GameState) end

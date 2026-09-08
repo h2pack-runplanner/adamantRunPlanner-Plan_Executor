@@ -337,6 +337,7 @@ function overview.decode(value, label)
             "shop", "hermesShrine", "stygianWell",
             "purgingPool", "keepsakeRack",
             "fountain", "fields", "additional",
+            "hub", "localSlots",
         },
         label
     )
@@ -429,6 +430,43 @@ function overview.decode(value, label)
     if record.fields ~= nil then
         local _, fieldsError = fields(record.fields, label .. ".fields")
         if fieldsError then return nil, fieldsError end
+    end
+    if record.hub ~= nil then
+        local hub, hubError = p.exact(record.hub, { "room", "slots", "finalHandoff" }, {}, label .. ".hub")
+        if not hub then return nil, hubError end
+        local room = p.exact(hub.room, { "gameName" }, {}, label .. ".hub.room")
+        if not room or not p.str(room.gameName, label .. ".hub.room.gameName") then
+            return p.fail(label .. ".hub has invalid room")
+        end
+        local slots, slotsError = p.arr(hub.slots, label .. ".hub.slots")
+        if not slots then return nil, slotsError end
+        for index, slotValue in ipairs(slots) do
+            local slot, slotError = p.exact(slotValue, { "slotKey", "physicalDoorId", "room", "reward" }, {}, label .. ".hub.slots[" .. index .. "]")
+            if not slot then return nil, slotError end
+            if not p.str(slot.slotKey, label .. ".hub.slotKey")
+                or not p.int(slot.physicalDoorId, label .. ".hub.physicalDoorId", 1)
+                or not p.roomRef(slot.room, label .. ".hub.room")
+                or not rewards.reward(slot.reward, label .. ".hub.reward") then
+                return p.fail(label .. ".hub has invalid slot")
+            end
+        end
+        if not p.roomRef(hub.finalHandoff, label .. ".hub.finalHandoff") then return p.fail(label .. ".hub has invalid final handoff") end
+    end
+    if record.localSlots ~= nil then
+        local slots, slotsError = p.arr(record.localSlots, label .. ".localSlots")
+        if not slots then return nil, slotsError end
+        for index, slotValue in ipairs(slots) do
+            local slot, slotError = p.exact(slotValue, { "slotKey", "physicalDoorId", "generation" }, { "room", "reward" }, label .. ".localSlots[" .. index .. "]")
+            if not slot then return nil, slotError end
+            local generated = slot.generation == "generated"
+            if not p.str(slot.slotKey, label .. ".localSlots.slotKey") or not p.int(slot.physicalDoorId, label .. ".localSlots.physicalDoorId", 1)
+                or (not generated and slot.generation ~= "notGenerated")
+                or (generated ~= (slot.room ~= nil)) or (generated ~= (slot.reward ~= nil))
+                or (generated and (not p.roomRef(slot.room, label .. ".localSlots.room")
+                    or not rewards.reward(slot.reward, label .. ".localSlots.reward"))) then
+                return p.fail(label .. ".localSlots has invalid slot")
+            end
+        end
     end
     return record
 end

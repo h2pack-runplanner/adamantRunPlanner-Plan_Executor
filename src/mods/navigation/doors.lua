@@ -27,14 +27,18 @@ end
 
 local function additionalOwner(door)
     local room = type(door) == "table" and (door.Room or door.RoomData) or nil
-    return type(door) == "table" and door.__runPlannerExecutionAdditionalOwner
-        or type(room) == "table" and room.__runPlannerExecutionAdditionalOwner
+    if type(door) == "table" and door.__runPlannerExecutionAdditionalOwner ~= nil then
+        return door.__runPlannerExecutionAdditionalOwner
+    end
+    return type(room) == "table" and room.__runPlannerExecutionAdditionalOwner or nil
 end
 
 local function additionalKind(door)
     local room = type(door) == "table" and (door.Room or door.RoomData) or nil
-    return type(door) == "table" and door.__runPlannerExecutionAdditionalKind
-        or type(room) == "table" and room.__runPlannerExecutionAdditionalKind
+    if type(door) == "table" and door.__runPlannerExecutionAdditionalKind ~= nil then
+        return door.__runPlannerExecutionAdditionalKind
+    end
+    return type(room) == "table" and room.__runPlannerExecutionAdditionalKind or nil
 end
 
 local function preservesNativeRequiredReward(target, occurrencesById)

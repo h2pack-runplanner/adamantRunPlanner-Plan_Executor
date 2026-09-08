@@ -244,9 +244,49 @@ function occurrences.decode(value, selected, label)
             if not reference then return nil, referenceError end
             continuations[row.id][reference.id] = true
         end
+        local hub = row.overview.hub
+        if hub ~= nil then
+            for _, slot in ipairs(hub.slots) do
+                local reference, referenceError = assertRoomReference(slot.room, ids, label .. ".hub.slot")
+                if not reference then return nil, referenceError end
+                continuations[row.id][reference.id] = true
+            end
+            local reference, referenceError = assertRoomReference(hub.finalHandoff, ids, label .. ".hub.finalHandoff")
+            if not reference then return nil, referenceError end
+            continuations[row.id][reference.id] = true
+        end
+        for _, slot in ipairs(row.overview.localSlots or {}) do
+            if slot.room ~= nil then
+                local reference, referenceError = assertRoomReference(slot.room, ids, label .. ".localSlots.room")
+                if not reference then return nil, referenceError end
+                continuations[row.id][reference.id] = true
+            end
+        end
+    end
+    local hubTargets, sideParents = {}, {}
+    for _, row in ipairs(result) do
+        if row.overview.hub ~= nil then
+            for _, slot in ipairs(row.overview.hub.slots) do hubTargets[slot.room.id] = true end
+            hubTargets[row.overview.hub.finalHandoff.id] = true
+        end
+        for _, slot in ipairs(row.overview.localSlots or {}) do
+            if slot.room ~= nil then sideParents[slot.room.id] = row end
+        end
     end
     for index = 1, #selected - 1 do
-        if not continuations[selected[index]][selected[index + 1]] then
+        local prior, nextId = ids[selected[index]], selected[index + 1]
+        local parent = prior and sideParents[prior.id] or nil
+        local siblingSide = false
+        if parent ~= nil then
+            for _, slot in ipairs(parent.overview.localSlots or {}) do
+                if slot.room ~= nil and slot.room.id == nextId then siblingSide = true end
+            end
+        end
+        local nativeRestore = prior and prior.biomeKey == "N" and (
+            (parent ~= nil and (siblingSide or hubTargets[nextId]))
+            or (prior.overview.localSlots ~= nil and hubTargets[nextId])
+        )
+        if not continuations[selected[index]][nextId] and not nativeRestore then
             return p.fail("selected route is disconnected")
         end
     end
