@@ -50,10 +50,10 @@ function runtime.mismatch(state, checkpoint, expected, observed)
     return fail(state, checkpoint, expected, observed)
 end
 
-function runtime.start(state, inbox, phase)
+function runtime.start(state, inbox, phase, activeSlot)
     if state.room ~= nil then room.dispose(state) end
     state.initialized = true
-    local loaded, plan = inbox.load()
+    local loaded, plan = inbox.load(activeSlot)
     if not loaded or type(plan) ~= "table" or plan.kind ~= "ready" then
         local inboxStatus = inbox.status and inbox.status() or nil
         local observed = inboxStatus and inboxStatus.error or plan

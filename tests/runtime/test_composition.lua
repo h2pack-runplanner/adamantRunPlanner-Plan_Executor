@@ -100,7 +100,12 @@ function TestRuntimeComposition.testRuntimeCompositionSharesOneHexTreeAcrossLoad
         end
         if path == "mods/host/inbox.lua" then
             return { create = function()
-                return { load = function() end, status = function() return {} end }
+                return {
+                    activeSlot = function() return 1 end,
+                    select = function() end,
+                    load = function() end,
+                    status = function() return {} end,
+                }
             end }
         end
         if path == "mods/route/session.lua" or path == "mods/room/coordinator.lua"
@@ -165,7 +170,12 @@ function TestRuntimeComposition.testCompositionPassesRouteAndRoomAuthoritiesToHo
         end
         if path == "mods/host/inbox.lua" then
             return { create = function()
-                return { load = function() end, status = function() return {} end }
+                return {
+                    activeSlot = function() return 1 end,
+                    select = function() end,
+                    load = function() end,
+                    status = function() return {} end,
+                }
             end }
         end
         if path == "mods/route/session.lua" then return route end
@@ -202,6 +212,8 @@ function TestRuntimeComposition.testCompositionPassesRouteAndRoomAuthoritiesToHo
     lu.assertEquals(type(runtime.attach), "function")
     lu.assertEquals(type(runtime.inboxInspection.load), "function")
     lu.assertEquals(type(runtime.inboxInspection.status), "function")
+    lu.assertEquals(type(runtime.inboxInspection.activeSlot), "function")
+    lu.assertEquals(type(runtime.inboxInspection.select), "function")
     runtime.attach({})
     lu.assertTrue(rawequal(attached.route, route))
     lu.assertTrue(rawequal(attached.room, room))
@@ -219,7 +231,7 @@ function TestRuntimeComposition.testRuntimeCompositionInstallsSupportedHookGroup
     _G.import = function(path)
         return require((path:gsub("%.lua$", ""):gsub("/", ".")))
     end
-    loadoutHooks.attach(module, { inbox = {}, session = session, loadout = {} },
+    loadoutHooks.attach(module, { inbox = {}, session = session, loadout = {}, activePlanSlot = function() return 1 end },
         getState, report, session, hexTree)
     _G.import = priorImport
     acquisitions.attach(module, session, getState, report, session, hexTree)
@@ -260,7 +272,7 @@ function TestRuntimeComposition.testKeepsakeAdaptersAreInstalledOnceAtTheirCarri
     _G.import = function(path)
         return require((path:gsub("%.lua$", ""):gsub("/", ".")))
     end
-    loadoutHooks.attach(module, { inbox = {}, session = session, loadout = {} },
+    loadoutHooks.attach(module, { inbox = {}, session = session, loadout = {}, activePlanSlot = function() return 1 end },
         function() end, function() end, session, hexTree)
     _G.import = priorImport
     encounterHooks.attach(module, session, function() end, function() end, session)

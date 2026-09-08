@@ -387,7 +387,7 @@ function TestFeatureInteractionHooks.testSuccessfulNativeKeepsakeEquipCompletesT
     _G.import = function(path)
         return assert(loadfile("src/" .. path))()
     end
-    loadoutHooks.attach(module, { inbox = {}, session = session, loadout = {} },
+    loadoutHooks.attach(module, { inbox = {}, session = session, loadout = {}, activePlanSlot = function() return 1 end },
         session.get, function() end, roomCoordinatorModule, loadoutHexTree)
     callbacks.EquipKeepsake(nil, {}, function() return true end, {}, "GoldifyKeepsake", {})
     _G.import = priorImport

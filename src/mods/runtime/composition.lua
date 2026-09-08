@@ -22,10 +22,22 @@ function composition.bind(root)
     local shipCombat = import("mods/room/timeline/encounters/thessaly.lua").create()
     local loadoutHooks = import("mods/loadout/hooks.lua")
     local acquisitionHooks = import("mods/room/timeline/acquisitions/hooks.lua")
-    local loadoutRuntime = { inbox = inbox, session = session, loadout = loadout }
+    local loadoutRuntime = {
+        inbox = inbox,
+        session = session,
+        loadout = loadout,
+        activePlanSlot = function(runtime)
+            return runtime.data.read("ActivePlanSlot")
+        end,
+    }
 
     local bound = {
-        inboxInspection = { load = inbox.load, status = inbox.status },
+        inboxInspection = {
+            activeSlot = inbox.activeSlot,
+            select = inbox.select,
+            load = inbox.load,
+            status = inbox.status,
+        },
     }
 
     function bound.attach(module)

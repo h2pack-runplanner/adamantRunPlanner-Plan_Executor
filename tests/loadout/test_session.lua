@@ -44,7 +44,7 @@ local function captureLoadoutHooks(state, treeAdapter, loadoutAdapter)
     loadoutAdapter = loadoutAdapter or loadoutHooks
     treeAdapter.attach(module)
     local scope = loadoutAdapter.attach(module,
-        { session = sessionAdapter, loadout = session, inbox = {} }, getState,
+        { session = sessionAdapter, loadout = session, inbox = {}, activePlanSlot = function() return 1 end }, getState,
         function() end, sessionAdapter, treeAdapter)
     _G.import = priorImport
     return callbacks, scope

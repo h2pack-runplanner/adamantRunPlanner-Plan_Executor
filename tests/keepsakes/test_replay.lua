@@ -36,7 +36,7 @@ local function capture(result)
     }
     local module = { hooks = { wrap = function(name, _, callback) callbacks[name] = callback end } }
     hexTree.attach(module)
-    loadoutHooks.attach(module, { session = sessionAdapter, loadout = loadout, inbox = {} },
+    loadoutHooks.attach(module, { session = sessionAdapter, loadout = loadout, inbox = {}, activePlanSlot = function() return 1 end },
         function() return state end, function() end, sessionAdapter, hexTree)
     _G.import = priorImport
     return callbacks, state, function() return observed end, function() return completed end

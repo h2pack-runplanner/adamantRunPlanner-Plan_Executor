@@ -3,7 +3,7 @@ local hooks = {}
 
 function hooks.attach(module, loadoutRuntime, getState, report, room, hexTree)
     assert(type(loadoutRuntime) == "table" and loadoutRuntime.inbox and loadoutRuntime.session
-        and loadoutRuntime.loadout,
+        and loadoutRuntime.loadout and type(loadoutRuntime.activePlanSlot) == "function",
         "loadout runtime dependencies are required")
     assert(type(hexTree) == "table", "loadout Hex Tree instance is required")
     local nativeBindings = import("mods/native_bindings.lua")
@@ -62,7 +62,8 @@ function hooks.attach(module, loadoutRuntime, getState, report, room, hexTree)
         if startDepth <= 0 then return base(previousRun, args) end
         local state = getState(runtime)
         if not state.initialized then
-            loadoutRuntime.session.start(state, loadoutRuntime.inbox, "starting")
+            local activeSlot = loadoutRuntime.activePlanSlot(runtime)
+            loadoutRuntime.session.start(state, loadoutRuntime.inbox, "starting", activeSlot)
         end
         local expected = state.state == "starting" and state.plan and state.plan.startingLoadout
         local startingHex = expected and expected.startingHex or nil

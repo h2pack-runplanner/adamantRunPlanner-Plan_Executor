@@ -81,6 +81,45 @@ function TestRuntimeSession.testRunStartMismatchPreservesTheInboxDecoderReason()
     })
 end
 
+function TestRuntimeSession.testAdmissionLoadsTheSelectedSlotAndFreezesItsPlan()
+    local first = occurrence()
+    first.gameName = "F_First"
+    local second = occurrence()
+    second.id, second.gameName = "two", "F_Second"
+    local selected, plans = nil, { [3] = {
+        kind = "ready", occurrences = { first }, occurrencesById = { one = first },
+        selectedOccurrenceIds = { "one" },
+    }, [4] = {
+        kind = "ready", occurrences = { second }, occurrencesById = { two = second },
+        selectedOccurrenceIds = { "two" },
+    } }
+    local inbox = {
+        load = function(slot) selected = slot; return true, plans[slot] end,
+        status = function() return {} end,
+    }
+    local value = {}
+    lu.assertTrue(runtime.start(value, inbox, nil, 3))
+    lu.assertEquals(selected, 3)
+    lu.assertTrue(rawequal(value.plan, plans[3]))
+end
+
+function TestRuntimeSession.testInboxSlotSelectionCannotMutateAnAdmittedPlan()
+    local row = occurrence()
+    local plan = { kind = "ready", occurrences = { row }, occurrencesById = { one = row }, selectedOccurrenceIds = { "one" } }
+    local selected = 1
+    local inbox = {
+        load = function(slot) selected = slot; return true, plan end,
+        select = function(slot) selected = slot end,
+        status = function() return {} end,
+    }
+    local value = {}
+    lu.assertTrue(runtime.start(value, inbox, nil, 1))
+    inbox.select(6)
+    lu.assertEquals(selected, 6)
+    lu.assertTrue(rawequal(value.plan, plan))
+    lu.assertEquals(value.plan.occurrences[1].id, "one")
+end
+
 function TestRuntimeSession.testStartingPhaseExposesOnlyTheBoundedStartingOccurrence()
     local row = occurrence()
     local plan = {
