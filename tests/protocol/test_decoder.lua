@@ -773,6 +773,53 @@ function TestProtocol.testSurfaceNOFixtureCarriesCompleteShipWheelProducts()
     lu.assertEquals(choiceCount, wheelCount)
 end
 
+function TestProtocol.testSurfaceNOPQFixturesCarryOnlyTheirPublishedPAndQNavigationFacts()
+    local pPlan = decode("surface-nop")
+    local pDecoded, pError = protocol.decode(pPlan)
+    lu.assertNotNil(pDecoded, pError)
+    lu.assertEquals(pDecoded.extent.biomeKeys, { "N", "O", "P" })
+
+    local pEncounter, pBoss
+    for _, occurrence in ipairs(pDecoded.occurrences) do
+        if occurrence.biomeKey == "P" and occurrence.kind == "PEncounter" then
+            pEncounter = occurrence
+        elseif occurrence.gameName == "P_PreBoss01" and occurrence.doors.kind == "fixed" then
+            pBoss = occurrence
+        end
+    end
+    lu.assertNotNil(pEncounter)
+    lu.assertEquals(pEncounter.overview.encounterPhases, {
+        { slotKey = "Intro", encounterKey = "GeneratedP_PreCombat", kind = "combat" },
+        { slotKey = "Combat", encounterKey = "GeneratedP", kind = "combat" },
+    })
+    lu.assertEquals(pBoss.doors.target.gameName, "P_Boss01")
+
+    local qPlan = decode("surface-nopq")
+    local qDecoded, qError = protocol.decode(qPlan)
+    lu.assertNotNil(qDecoded, qError)
+    lu.assertEquals(qDecoded.extent.biomeKeys, { "N", "O", "P", "Q" })
+    local widths = {}
+    local qShop, qBoss
+    for _, occurrence in ipairs(qDecoded.occurrences) do
+        if occurrence.biomeKey == "Q" and occurrence.doors.kind == "batch" then
+            widths[#widths + 1] = #occurrence.doors.targets
+        elseif occurrence.gameName == "Q_PreBoss01" then
+            qShop = occurrence
+        elseif occurrence.gameName == "Q_Boss01" then
+            qBoss = occurrence
+        end
+    end
+    lu.assertTrue(#widths > 0)
+    lu.assertTrue(table.concat(widths, ","):match("1") ~= nil)
+    lu.assertTrue(table.concat(widths, ","):match("2") ~= nil)
+    lu.assertEquals(qShop.overview.shop.profileKey, "Q_WorldShop")
+    lu.assertEquals(qShop.doors.target.gameName, "Q_Boss01")
+    lu.assertEquals(qBoss.doors.kind, "terminal")
+    for _, occurrence in ipairs(qDecoded.occurrences) do
+        lu.assertNotEquals(occurrence.gameName, "Q_PostBoss01")
+    end
+end
+
 function TestProtocol.testFieldsFixturePublishesBoundedDistinctPlacementFacts()
     local plan = decode("underworld-fgh")
     local fieldsOccurrence

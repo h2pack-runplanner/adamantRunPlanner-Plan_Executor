@@ -352,3 +352,84 @@ function TestEncounters.testDirectEncounterChoicesAreBoundToOnePublishedSequence
     lu.assertNil(phasesForRoom.forNative(fourth))
     lu.assertNil(phasesForRoom.forNative(fifth))
 end
+
+function TestEncounters.testPEncounterSequenceLeavesHeraclesNativeSuffixTerminationIntact()
+    local module, callbacks = capture()
+    local occurrence = {
+        id = "p-combat",
+        overview = { encounterPhases = {
+            { slotKey = "Intro", encounterKey = "GeneratedP_PreCombat" },
+            { slotKey = "Combat", encounterKey = "GeneratedP" },
+        } },
+    }
+    local state = { state = "synchronized" }
+    local nativeRoom = {
+        __runPlannerExecutionRoomId = occurrence.id,
+        MultipleEncountersData = { {}, {} },
+    }
+    local selected = {}
+    local bound = {}
+    local room = {
+        encounterAt = function(_, index, destination)
+            lu.assertEquals(destination, nativeRoom)
+            return occurrence.overview.encounterPhases[index]
+        end,
+        bindEncounter = function(_, native, slotKey)
+            bound[#bound + 1] = { native = native, slotKey = slotKey }
+            return phases.bind(occurrence, native, slotKey)
+        end,
+    }
+    encounterHooks.attach(module, {}, function() return state end, function() end, room)
+
+    local priorGame = _G.game
+    _G.game = {
+        EncounterData = {
+            GeneratedP_PreCombat = { Name = "GeneratedP_PreCombat" },
+            GeneratedP = { Name = "GeneratedP" },
+            HeraclesCombatP = { Name = "HeraclesCombatP", BlockMultipleEncounters = true },
+        },
+    }
+    local run = {}
+    local function choose(base)
+        local encounter = callbacks.ChooseEncounter(nil, {}, base, run, nativeRoom, {})
+        selected[#selected + 1] = encounter
+        return encounter
+    end
+
+    callbacks.SetupRoomMultipleEncountersData(nil, {}, function()
+        local preCombat = choose(function(currentRun)
+            return currentRun.ForceNextEncounterData
+        end)
+        if not preCombat.BlockMultipleEncounters then
+            choose(function(currentRun)
+                return currentRun.ForceNextEncounterData
+            end)
+        end
+        return true
+    end, nativeRoom, {})
+    lu.assertEquals(#selected, 2)
+    lu.assertEquals(selected[1].Name, "GeneratedP_PreCombat")
+    lu.assertEquals(selected[2].Name, "GeneratedP")
+    lu.assertEquals(bound[1].slotKey, "Intro")
+    lu.assertEquals(bound[2].slotKey, "Combat")
+
+    selected = {}
+    bound = {}
+    occurrence.overview.encounterPhases[1].encounterKey = "HeraclesCombatP"
+    callbacks.SetupRoomMultipleEncountersData(nil, {}, function()
+        local heracles = choose(function(currentRun)
+            return currentRun.ForceNextEncounterData
+        end)
+        if not heracles.BlockMultipleEncounters then
+            choose(function(currentRun)
+                return currentRun.ForceNextEncounterData
+            end)
+        end
+        return true
+    end, nativeRoom, {})
+    _G.game = priorGame
+
+    lu.assertEquals(#selected, 1)
+    lu.assertEquals(bound[1].slotKey, "Intro")
+    lu.assertEquals(selected[1].BlockMultipleEncounters, true)
+end
