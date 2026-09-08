@@ -1,4 +1,4 @@
--- Source-backed F/G room-exit readers. These functions project native run
+-- Source-backed room-exit readers. These functions project native run
 -- ownership into the already-decoded expected shape; they do not reconstruct
 -- planner chronology or action provenance.
 local chaos = type(import) == "function" and import("mods/traits/chaos.lua") or require("mods.traits.chaos")

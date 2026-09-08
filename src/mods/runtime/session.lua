@@ -62,7 +62,7 @@ function runtime.start(state, inbox, phase)
     for _, occurrence in ipairs(plan.occurrences) do
         for _, fact in ipairs((occurrence.roomExitConformance or {}).facts or {}) do
             if not conformance.supports(fact.kind) then
-                return fail(state, "room-exit-conformance", "reachable F/G reader", fact.kind)
+                return fail(state, "room-exit-conformance", "reachable conformance reader", fact.kind)
             end
         end
     end
