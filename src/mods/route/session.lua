@@ -9,6 +9,25 @@ function routeSession.new(plan)
     }
 end
 
+-- Recovery starts at one exact selected occurrence.  The cursor remains
+-- otherwise identical to an ordinary new-run cursor: only exit advances it,
+-- and entry still proves the occurrence identity at that index.
+function routeSession.newAt(plan, index)
+    local selected = plan and plan.selectedOccurrenceIds
+    if type(selected) ~= "table"
+        or type(index) ~= "number" or index ~= math.floor(index)
+        or index < 1 or index > #selected then
+        return nil, {
+            checkpoint = "route-index",
+            expected = "valid selected occurrence index",
+            observed = index,
+        }
+    end
+    local route = routeSession.new(plan)
+    route.index = index
+    return route
+end
+
 function routeSession.expected(route)
     local id = route and route.plan.selectedOccurrenceIds[route.index]
     return id and route.plan.occurrencesById[id] or nil

@@ -4,6 +4,8 @@ local navigation = require("mods.navigation.hooks")
 local roomHooks = require("mods.room.hooks")
 local roomCoordinatorModule = require("mods.room.coordinator")
 local routeSessionModule = require("mods.route.session")
+local runtimeSessionModule = require("mods.runtime.session")
+local admissionProjection = require("mods.room.conformance.admission")
 local encounterHooks = require("mods.room.timeline.encounters.hooks")
 local roomFeatureHooks = require("mods.room.features.hooks")
 local support = require("tests.harness.hook_composition")
@@ -17,6 +19,82 @@ local unusedLoadoutScope = {
 }
 
 TestRoomEntryHooks = {}
+
+function TestRoomEntryHooks.testFreshPostbossStartRoomAdmissionUsesOrdinaryRoomProducts()
+    local priorVerify, priorGame, priorCurrentRun = admissionProjection.verify, _G.game, _G.CurrentRun
+    admissionProjection.verify = function() return true end
+
+    local opening = {
+        id = "opening", gameName = "F_Opening01",
+        overview = { encounterPhases = {}, requiredObjects = {}, additional = {} },
+        transactionsByOwner = {}, timeline = { transactions = {}, dependencies = {}, obligations = {} },
+        doors = { kind = "terminal" }, roomExitConformance = { facts = {} },
+    }
+    local postboss = {
+        id = "postboss", gameName = "F_PostBoss01", resumeBoundary = "postbossEntry",
+        overview = {
+            encounterPhases = {}, requiredObjects = {}, additional = {},
+            incomingReward = { rewardType = "Boon", source = "ApolloUpgrade" },
+        },
+        transactionsByOwner = {}, timeline = { transactions = {}, dependencies = {}, obligations = {} },
+        doors = { kind = "terminal" }, roomExitConformance = { facts = {} },
+    }
+    local plan = {
+        kind = "ready",
+        startingLoadout = { weaponKey = "WeaponStaffSwing", aspectKey = "BaseStaffAspect" },
+        occurrences = { opening, postboss }, occurrencesById = { opening = opening, postboss = postboss },
+        selectedOccurrenceIds = { "opening", "postboss" },
+    }
+    -- The cache is a CurrentRun-owned serialized value.  A fresh process must
+    -- still attempt recovery when that value carries a stale live session.
+    local state = {
+        initialized = true, state = "synchronized", plan = { stale = true },
+        route = { stale = true }, room = {}, diagnostics = { stale = true },
+    }
+    local currentRun = { CurrentRoom = { Name = "F_PostBoss01" } }
+    _G.CurrentRun = currentRun
+    _G.game = { RoomData = { F_PostBoss01 = { Name = "F_PostBoss01" } } }
+    local module, _, callbacks = capture()
+    local session = runtimeSessionModule
+    local navigationEntry = {
+        realizeIncomingReward = function(_, nativeRoom)
+            nativeRoom.rewardRealized = true
+            return require("mods.navigation.rewards").realize(postboss, nativeRoom)
+        end,
+        proveIncomingReward = function() return true end,
+        proveOutgoingDoors = function() return true end,
+    }
+    local synchronizedRoom, startingSyncCalled = false, false
+    roomHooks.attach(module, session, function() return state end, function() end,
+        routeSessionModule, roomCoordinatorModule, nil, navigationEntry,
+        { synchronizeStartingRoom = function()
+            startingSyncCalled = true
+            return false
+        end }, {
+            inbox = { load = function(slot)
+                lu.assertEquals(slot, 5)
+                return true, plan
+            end },
+            activePlanSlot = function() return 5 end,
+        })
+
+    local result = callbacks.StartRoom(nil, {}, function(run, nativeRoom)
+        synchronizedRoom = nativeRoom
+        lu.assertEquals(run.CurrentRoom, nativeRoom)
+        return "native-started"
+    end, currentRun, nil)
+
+    admissionProjection.verify, _G.game, _G.CurrentRun = priorVerify, priorGame, priorCurrentRun
+    lu.assertEquals(result, "native-started")
+    lu.assertFalse(startingSyncCalled)
+    lu.assertNotNil(synchronizedRoom)
+    lu.assertTrue(synchronizedRoom.rewardRealized)
+    lu.assertEquals(synchronizedRoom.RewardType, "Boon")
+    lu.assertEquals(state.state, "synchronized")
+    lu.assertEquals(routeSessionModule.current(state.route).id, "postboss")
+    lu.assertEquals(state.route.index, 2)
+    lu.assertNotNil(roomCoordinatorModule.current(state))
+end
 
 function TestRoomEntryHooks.testOpeningFinalizesLoadoutBeforeForcingNativeCreationFacts()
     local module, _, callbacks = capture()

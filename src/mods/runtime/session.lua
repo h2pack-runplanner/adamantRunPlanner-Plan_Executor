@@ -7,8 +7,14 @@ local room = type(import) == "function" and import("mods/room/coordinator.lua")
     or require("mods.room.coordinator")
 local conformance = type(import) == "function" and import("mods/room/conformance/readers.lua")
     or require("mods.room.conformance.readers")
+local admission = type(import) == "function" and import("mods/room/conformance/admission.lua")
+    or require("mods.room.conformance.admission")
 
 local runtime = { CACHE_NAME = "ExecutionRoomSession" }
+-- Cache values live on CurrentRun and can be restored from a save.  This
+-- process-local identity set is therefore the admission guard; it is never
+-- serialized with the execution session.
+local processAdmissions = setmetatable({}, { __mode = "k" })
 
 local function fail(state, errorValue, expected, observed)
     if state.firstMismatch == nil then
@@ -50,7 +56,107 @@ function runtime.mismatch(state, checkpoint, expected, observed)
     return fail(state, checkpoint, expected, observed)
 end
 
+function runtime.canAttemptPostbossAdmission(state)
+    return type(state) == "table" and processAdmissions[state] ~= true
+end
+
+local function discardTransient(state)
+    if state.room ~= nil then room.dispose(state) end
+    state.plan = nil
+    state.route = nil
+    state.room = nil
+    state.firstMismatch = nil
+    state.loggedMismatch = nil
+    state.diagnostics = {}
+    state.reason = "not-started"
+end
+
+local function roomName(value)
+    return type(value) == "table" and (value.GenusName or value.Name) or nil
+end
+
+local function selectedPostboss(plan, gameName)
+    local selected = plan and plan.selectedOccurrenceIds or {}
+    local matches, matchIndex
+    for index, id in ipairs(selected) do
+        local occurrence = plan.occurrencesById and plan.occurrencesById[id]
+        if occurrence and occurrence.resumeBoundary == "postbossEntry"
+            and occurrence.gameName == gameName then
+            matches = (matches or 0) + 1
+            matchIndex = index
+        end
+    end
+    if matches == 1 then
+        return plan.occurrencesById[selected[matchIndex]], matchIndex
+    end
+    return nil, matches or 0
+end
+
+-- One fresh-process admission.  The caller supplies the native-room
+-- realization bridge so incoming reward realization remains navigation-owned.
+-- A state is marked initialized before any read so every result, including a
+-- rejected plan or room, is final for this loaded process.
+function runtime.attemptPostbossAdmission(state, inbox, activeSlot, nativeRoom, realizeRoom)
+    if not runtime.canAttemptPostbossAdmission(state) then return nil end
+    processAdmissions[state] = true
+    discardTransient(state)
+    state.initialized = true
+
+    local loaded, plan = inbox.load(activeSlot)
+    if not loaded or type(plan) ~= "table" or plan.kind ~= "ready" then
+        local inboxStatus = inbox.status and inbox.status() or nil
+        local observed = inboxStatus and inboxStatus.error or plan
+        return runtime.mismatch(state, "postboss-admission:active-plan",
+            "ready execution plan", observed)
+    end
+
+    local current = nativeRoom or (_G.CurrentRun and _G.CurrentRun.CurrentRoom)
+    local gameName = roomName(current)
+    local occurrence, indexOrCount = selectedPostboss(plan, gameName)
+    if occurrence == nil then
+        return runtime.mismatch(state, "postboss-admission:room",
+            "exactly one selected Postboss entry", {
+                gameName = gameName, matches = indexOrCount,
+            })
+    end
+
+    local verified, mismatch = admission.verify(occurrence, plan.startingLoadout)
+    if not verified then
+        return runtime.mismatch(state, type(mismatch) == "table" and mismatch
+            or "postboss-admission:state", "matching Postboss entry state", mismatch)
+    end
+
+    local routeState, routeError = route.newAt(plan, indexOrCount)
+    if routeState == nil then
+        return runtime.mismatch(state, routeError)
+    end
+    state.plan = plan
+    state.route = routeState
+    state.room = room.new(plan, function(errorValue, expected, observed)
+        return runtime.mismatch(state, errorValue, expected, observed)
+    end, {
+        readConformance = function(kind, currentRun, gameState, expected)
+            return conformance.read(kind, currentRun, gameState, expected)
+        end,
+    })
+    state.state, state.reason = "synchronized", "ready"
+
+    if room.prepare(state, occurrence) == nil then return nil end
+    local realized = type(realizeRoom) == "function"
+        and realizeRoom(occurrence, current)
+        or room.realize(state, occurrence, _G.game or game, current)
+    if realized == nil then
+        if state.state == "synchronized" then
+            return runtime.mismatch(state, "postboss-admission:room-realization",
+                "realized Postboss room", nil)
+        end
+        return nil
+    end
+    return { occurrence = occurrence, index = indexOrCount, nativeRoom = realized }
+end
+
 function runtime.start(state, inbox, phase, activeSlot)
+    processAdmissions[state] = true
     if state.room ~= nil then room.dispose(state) end
     state.initialized = true
     local loaded, plan = inbox.load(activeSlot)

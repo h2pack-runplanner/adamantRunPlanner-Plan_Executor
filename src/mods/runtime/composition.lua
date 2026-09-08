@@ -93,7 +93,10 @@ function composition.bind(root)
         local navigation = navigationHooks.attach(module, session, getState, report, route, room,
             transformationScope, shipCombat.rewardContext)
         roomHooks.attach(module, session, getState, report, route, room, featureScope, navigation,
-            loadoutScope)
+            loadoutScope, {
+                inbox = inbox,
+                activePlanSlot = loadoutRuntime.activePlanSlot,
+            })
         encounterHooks.attach(module, session, getState, report, room, shipCombat)
         local inventoryBindings = featureInventory.attach(module, session, getState, report, room, route)
         commerceHooks.attach(module, session, getState, report, room, inventoryBindings)
