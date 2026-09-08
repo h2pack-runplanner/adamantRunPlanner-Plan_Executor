@@ -276,7 +276,7 @@ function occurrences.decode(value, selected, label)
         local row, rowError = p.exact(
             valueRow,
             { "id", "owner", "biomeKey", "gameName", "kind", "overview", "timeline", "doors" },
-            { "anomaly", "roomExitConformance", "diagnostics" },
+            { "anomaly", "resumeBoundary", "roomExitConformance", "diagnostics" },
             label .. "[" .. index .. "]"
         )
         if not row then return nil, rowError end
@@ -287,6 +287,9 @@ function occurrences.decode(value, selected, label)
             or not p.str(row.gameName, label .. ".gameName")
             or not p.str(row.kind, label .. ".kind") then
             return p.fail(label .. " has invalid occurrence identity")
+        end
+        if row.resumeBoundary ~= nil and row.resumeBoundary ~= "postbossEntry" then
+            return p.fail(label .. ".resumeBoundary is unsupported")
         end
         ids[row.id] = row
         local _, overviewError = overview.decode(row.overview, label .. ".overview")
@@ -348,6 +351,16 @@ function occurrences.decode(value, selected, label)
     for _, id in ipairs(selected) do
         if ids[id] == nil or selectedSeen[id] then return p.fail("invalid selected occurrence") end
         selectedSeen[id] = true
+    end
+    for _, row in ipairs(result) do
+        if row.resumeBoundary ~= nil then
+            if not selectedSeen[row.id] then
+                return p.fail(label .. "[" .. row.id .. "] resume boundary must be selected")
+            end
+            if row.diagnostics == nil or row.diagnostics.roomEntered == nil then
+                return p.fail(label .. "[" .. row.id .. "] resume boundary requires roomEntered diagnostics")
+            end
+        end
     end
     local continuations = {}
     for _, row in ipairs(result) do

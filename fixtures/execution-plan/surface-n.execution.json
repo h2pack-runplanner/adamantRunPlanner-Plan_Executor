@@ -1,6 +1,6 @@
 {
   "format": "run-planner-execution",
-  "protocolVersion": 33,
+  "protocolVersion": 34,
   "catalogVersion": "0.55.0-anvil-of-fates",
   "projectId": "surface-2",
   "routeKey": "Surface",
@@ -2053,6 +2053,7 @@
       "biomeKey": "N",
       "gameName": "N_PostBoss01",
       "kind": "SingleEncounter",
+      "resumeBoundary": "postbossEntry",
       "overview": {
         "encounterPhases": [
           { "slotKey": "Encounter", "encounterKey": "Empty", "kind": "nonCombat" }
@@ -2244,5 +2245,5 @@
       }
     }
   ],
-  "planFingerprint": "91f800d6"
+  "planFingerprint": "794ad941"
 }

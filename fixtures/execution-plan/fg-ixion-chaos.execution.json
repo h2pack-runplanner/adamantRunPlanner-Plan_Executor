@@ -1,6 +1,6 @@
 {
   "format": "run-planner-execution",
-  "protocolVersion": 33,
+  "protocolVersion": 34,
   "catalogVersion": "0.55.0-anvil-of-fates",
   "projectId": "golden-fg",
   "routeKey": "Underworld",
@@ -2210,6 +2210,7 @@
       "biomeKey": "F",
       "gameName": "F_PostBoss01",
       "kind": "SingleEncounter",
+      "resumeBoundary": "postbossEntry",
       "overview": {
         "encounterPhases": [
           { "slotKey": "Encounter", "encounterKey": "Empty", "kind": "nonCombat" }
@@ -3733,6 +3734,7 @@
       "biomeKey": "G",
       "gameName": "G_PostBoss01",
       "kind": "SingleEncounter",
+      "resumeBoundary": "postbossEntry",
       "overview": {
         "encounterPhases": [
           { "slotKey": "Encounter", "encounterKey": "Empty", "kind": "nonCombat" }
@@ -3788,5 +3790,5 @@
       }
     }
   ],
-  "planFingerprint": "07e03398"
+  "planFingerprint": "b2ca6c33"
 }

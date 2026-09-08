@@ -168,7 +168,7 @@ local function minimalPlan(transactions)
     end
     local plan = tagged({
         format = "run-planner-execution",
-        protocolVersion = 33,
+        protocolVersion = 34,
         catalogVersion = "0.55.0-anvil-of-fates",
         projectId = "test-project",
         planFingerprint = "00000000",
@@ -719,6 +719,57 @@ function TestProtocol.testFGHIFixtureCarriesClockworkGoalsThroughTheOrdinaryRewa
     lu.assertEquals(goal, { rewardType = "ClockworkGoal", producerLifecycleKey = "ClockworkGoalRoom" })
     lu.assertNotNil(nonGoal)
     lu.assertNotEquals(nonGoal.rewardType, "ClockworkGoal")
+end
+
+function TestProtocol.testPostbossBoundariesExposeExpandedRoomEntryDiagnostics()
+    local plan = decode("underworld-fghi")
+    local decoded, errorMessage = protocol.decode(plan)
+    lu.assertNotNil(decoded, errorMessage)
+    local selected = {}
+    for _, occurrenceId in ipairs(decoded.selectedOccurrenceIds) do
+        selected[occurrenceId] = true
+    end
+    local marked = 0
+    for _, occurrence in ipairs(decoded.occurrences) do
+        if occurrence.resumeBoundary ~= nil then
+            marked = marked + 1
+            lu.assertEquals(occurrence.resumeBoundary, "postbossEntry")
+            lu.assertTrue(selected[occurrence.id])
+            lu.assertNotNil(occurrence.diagnostics)
+            lu.assertNotNil(occurrence.diagnostics.roomEntered)
+            lu.assertNotNil(occurrence.diagnostics.roomEntered.traits)
+        end
+        if occurrence.biomeKey == "I" then
+            lu.assertNil(occurrence.resumeBoundary)
+        end
+    end
+    lu.assertEquals(marked, 3)
+end
+
+function TestProtocol.testPostbossBoundaryRejectsUnsupportedValue()
+    local plan = decode("fg")
+    local boundary
+    for _, occurrence in ipairs(plan.occurrences) do
+        if occurrence.resumeBoundary ~= nil then
+            boundary = occurrence
+        end
+    end
+    lu.assertNotNil(boundary)
+    boundary.resumeBoundary = "postbossExit"
+    lu.assertNil(protocol.decode(plan))
+end
+
+function TestProtocol.testPostbossBoundaryRequiresEntryDiagnostics()
+    local plan = decode("fg")
+    local boundary
+    for _, occurrence in ipairs(plan.occurrences) do
+        if occurrence.resumeBoundary ~= nil then
+            boundary = occurrence
+        end
+    end
+    lu.assertNotNil(boundary)
+    boundary.diagnostics = tagged({}, "diagnostics", false)
+    lu.assertNil(protocol.decode(plan))
 end
 
 function TestProtocol.testSurfaceNFixtureClosesHubAndNativeRestoreReferences()
