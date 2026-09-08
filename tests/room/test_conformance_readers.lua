@@ -2,6 +2,9 @@
 local lu = require("luaunit")
 local readers = require("mods.room.conformance.readers")
 local proof = require("mods.room.conformance.proof")
+local admission = require("mods.room.conformance.admission")
+local protocolConformance = require("mods.protocol.conformance")
+local json = require("mods.protocol.json")
 local nativeGame = require("tests.harness.native_game")
 
 TestConformanceReaders = {}
@@ -14,6 +17,60 @@ end
 
 function TestConformanceReaders:tearDown()
     self.restoreNative()
+end
+
+local function admissionFixture()
+    local priorGame, priorRun, priorWeapon, priorTraitCount =
+        _G.GameState, _G.CurrentRun, _G.GetEquippedWeapon, _G.GetTraitCount
+    local entry = {
+        traits = {
+            equipped = {
+                { traitKey = "HammerTrait", rarity = "Legendary", level = 2, hammerRank = "RankII" },
+            },
+            elements = { Aether = 0, Earth = 2, Air = 0, Fire = 0, Water = 0 },
+        },
+        chaos = { active = {}, matured = {} },
+        retainedEffects = {
+            steadyGrowth = {},
+            keepsakes = {
+                olympianSources = {}, jeweledPom = json.null, experimentalHammers = {},
+                callingCard = json.null, timePiece = json.null, figLeaf = json.null,
+                gorgon = json.null, phial = json.null, figurine = json.null,
+                stone = json.null, transcendentEmbryo = json.null,
+            },
+            stygianWell = {
+                sparkUses = 0, yarnUses = 0, hymnUses = 0,
+                discountUses = {}, emptySlotUses = {}, extendedUses = 0,
+            },
+        },
+        rewardPriorities = {},
+        hexProgress = {
+            talentKeys = {}, closed = false, bankedPathPoints = 0, investedPathPoints = 0,
+        },
+        forfeit = "inactive",
+    }
+    local occurrence = {
+        resumeBoundary = "postbossEntry",
+        diagnostics = { roomEntered = entry },
+    }
+    local startingLoadout = { weaponKey = "WeaponStaffSwing", aspectKey = "BaseStaffAspect" }
+    _G.GameState = {
+        LastWeaponUpgradeName = { WeaponStaffSwing = "BaseStaffAspect" },
+    }
+    _G.GetEquippedWeapon = function() return "WeaponStaffSwing" end
+    _G.CurrentRun = {
+        Hero = {
+            TraitDictionary = { BaseStaffAspect = true },
+            Traits = { { Name = "HammerTrait", Rarity = "Legendary" } },
+            Elements = { Earth = 2 },
+        },
+        RewardPriorities = {},
+    }
+    _G.GetTraitCount = function() return 2 end
+    return occurrence, startingLoadout, function()
+        _G.GameState, _G.CurrentRun, _G.GetEquippedWeapon, _G.GetTraitCount =
+            priorGame, priorRun, priorWeapon, priorTraitCount
+    end
 end
 
 function TestConformanceReaders.testSupportBoundaryIsExactlyTheReachedFGFactSet()
@@ -32,6 +89,77 @@ function TestConformanceReaders.testSupportBoundaryIsExactlyTheReachedFGFactSet(
     for _, kind in ipairs({ "echoShopDuplicate", "hermesShrineDeliveries" }) do
         lu.assertFalse(readers.supports(kind), kind)
     end
+end
+
+function TestConformanceReaders.testPostbossAdmissionAcceptsACompleteEntryMatch()
+    local occurrence, startingLoadout, restore = admissionFixture()
+    local ok, errorValue = admission.verify(occurrence, startingLoadout)
+    restore()
+    lu.assertTrue(ok, errorValue)
+end
+
+function TestConformanceReaders.testPostbossAdmissionRejectsWeaponAndAspectIdentityMismatch()
+    local occurrence, startingLoadout, restore = admissionFixture()
+    _G.GetEquippedWeapon = function() return "WeaponSword" end
+    local ok, mismatch = admission.verify(occurrence, startingLoadout)
+    lu.assertNil(ok)
+    lu.assertEquals(mismatch.checkpoint, "postboss-admission:weapon")
+    restore()
+
+    occurrence, startingLoadout, restore = admissionFixture()
+    _G.GameState.LastWeaponUpgradeName.WeaponStaffSwing = "WrongAspect"
+    ok, mismatch = admission.verify(occurrence, startingLoadout)
+    lu.assertNil(ok)
+    lu.assertEquals(mismatch.checkpoint, "postboss-admission:aspect")
+    restore()
+
+    occurrence, startingLoadout, restore = admissionFixture()
+    _G.CurrentRun.Hero.TraitDictionary.BaseStaffAspect = nil
+    ok, mismatch = admission.verify(occurrence, startingLoadout)
+    lu.assertNil(ok)
+    lu.assertEquals(mismatch.checkpoint, "postboss-admission:aspect")
+    restore()
+end
+
+function TestConformanceReaders.testPostbossAdmissionDispatchesEveryNamedFamilyToTheOrdinaryReader()
+    local occurrence, startingLoadout, restore = admissionFixture()
+    local expected = assert(protocolConformance.admissionExpected(occurrence.diagnostics))
+    local priorRead, calls = readers.read, {}
+    readers.read = function(kind)
+        calls[kind] = (calls[kind] or 0) + 1
+        return expected[kind]
+    end
+    local ok, errorValue = admission.verify(occurrence, startingLoadout)
+    readers.read = priorRead
+    restore()
+    lu.assertTrue(ok, errorValue)
+    for _, kind in ipairs({
+        "traitInventory", "elementCounts", "steadyGrowth", "chaos", "keepsakeEffects",
+        "rewardPriorities", "pathOfStars", "forfeit", "stygianWell",
+    }) do
+        lu.assertEquals(calls[kind], 1, kind)
+    end
+end
+
+function TestConformanceReaders.testPostbossAdmissionRejectsModeledTraitDifference()
+    local occurrence, startingLoadout, restore = admissionFixture()
+    _G.CurrentRun.Hero.Traits[1].Rarity = "Rare"
+    local ok, mismatch = admission.verify(occurrence, startingLoadout)
+    lu.assertNil(ok)
+    lu.assertEquals(mismatch.checkpoint, "postboss-admission:traitInventory")
+    restore()
+end
+
+function TestConformanceReaders.testPostbossAdmissionIgnoresExtraTraitsAndDiagnosticOnlyState()
+    local occurrence, startingLoadout, restore = admissionFixture()
+    _G.CurrentRun.Hero.Traits[#_G.CurrentRun.Hero.Traits + 1] = {
+        Name = "UnmodeledNativeTrait", Rarity = "Common",
+    }
+    occurrence.diagnostics.roomEntered.counters = { routeEncounterDepth = 999 }
+    occurrence.diagnostics.roomEntered.bags = { { storeKey = "unrelated", remaining = { kind = "exact", count = 99 } } }
+    local ok, errorValue = admission.verify(occurrence, startingLoadout)
+    restore()
+    lu.assertTrue(ok, errorValue)
 end
 
 function TestConformanceReaders.testTraitInventoryChecksOneAndThreeRemovalsButIgnoresUnmodeledTraits()

@@ -54,6 +54,62 @@ local readers = {
     traitInventory = traitInventoryExpected,
 }
 
+local admissionKinds = {
+    "traitInventory", "elementCounts", "steadyGrowth", "chaos", "keepsakeEffects",
+    "rewardPriorities", "pathOfStars", "forfeit", "stygianWell",
+}
+
+local function traitInventoryEntryExpected(entry)
+    local traits = entry and entry.traits
+    if type(traits) ~= "table" or type(traits.equipped) ~= "table" then return nil end
+    local present = {}
+    for _, row in ipairs(traits.equipped) do
+        if type(row) ~= "table" or type(row.traitKey) ~= "string" then return nil end
+        local projected = { traitKey = row.traitKey }
+        if row.rarity ~= nil then projected.rarity = row.rarity end
+        if row.level ~= nil then projected.level = row.level end
+        if row.hammerRank ~= nil then projected.hammerRank = row.hammerRank end
+        present[#present + 1] = projected
+    end
+    table.sort(present, function(left, right) return left.traitKey < right.traitKey end)
+    return { present = present, absent = {} }
+end
+
+local function admissionStateValue(entry, kind)
+    if kind == "traitInventory" then return traitInventoryEntryExpected(entry) end
+    if kind == "elementCounts" then
+        return entry and entry.traits and entry.traits.elements
+    end
+    if kind == "steadyGrowth" then
+        return entry and entry.retainedEffects and entry.retainedEffects.steadyGrowth
+    end
+    if kind == "chaos" then return entry and entry.chaos end
+    if kind == "keepsakeEffects" then
+        return entry and entry.retainedEffects and entry.retainedEffects.keepsakes
+    end
+    if kind == "rewardPriorities" then return entry and entry.rewardPriorities end
+    if kind == "pathOfStars" then return entry and entry.hexProgress end
+    if kind == "forfeit" then return entry and entry.forfeit end
+    if kind == "stygianWell" then
+        return entry and entry.retainedEffects and entry.retainedEffects.stygianWell
+    end
+    return nil
+end
+
+function conformance.admissionExpected(value)
+    local entry = value and value.roomEntered or value
+    if type(entry) ~= "table" then return nil, "postboss admission requires roomEntered diagnostics" end
+    local expected = {}
+    for _, kind in ipairs(admissionKinds) do
+        local projected = admissionStateValue(entry, kind)
+        if projected == nil then
+            return nil, "postboss admission requires roomEntered " .. kind
+        end
+        expected[kind] = projected
+    end
+    return expected
+end
+
 function conformance.resolve(value, state, label)
     local record, errorMessage = p.exact(value, { "facts" }, {}, label)
     if not record then return nil, errorMessage end

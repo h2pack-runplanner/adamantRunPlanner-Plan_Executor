@@ -10,17 +10,27 @@ local function equal(left, right)
     return true
 end
 
+function proof.compare(checkpoint, expected, observed)
+    if expected == nil or observed == nil or not equal(expected, observed) then
+        return nil, {
+            checkpoint = checkpoint,
+            expected = expected,
+            observed = observed,
+        }
+    end
+    return true
+end
+
 function proof.prove(occurrence, read)
     for _, fact in ipairs((occurrence.roomExitConformance or {}).facts or {}) do
         local expected = occurrence.conformanceExpected and occurrence.conformanceExpected[fact.kind]
         local observed = type(read) == "function" and read(fact.kind, expected) or nil
-        if expected == nil or observed == nil or not equal(expected, observed) then
-            return nil, {
-                checkpoint = "room-exit-conformance:" .. fact.kind,
-                expected = expected,
-                observed = observed,
-            }
-        end
+        local ok, mismatch = proof.compare(
+            "room-exit-conformance:" .. fact.kind,
+            expected,
+            observed
+        )
+        if not ok then return nil, mismatch end
     end
     return true
 end
