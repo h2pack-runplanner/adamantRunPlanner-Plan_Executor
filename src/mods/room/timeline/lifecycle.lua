@@ -15,6 +15,10 @@ local function capabilityFor(window)
         return window.phase == "beforeCombat" and "roomEntered" or "afterCombat"
     end
     if window.kind == "postOutgoing" then return "postOutgoing" end
+    if (window.kind == "shipPreCombat" or window.kind == "shipPostCombat")
+        and type(window.wheelKey) == "string" then
+        return window.kind .. ":" .. window.wheelKey
+    end
     if (window.kind == "encounterEnd" or window.kind == "bossDefeated") and type(window.phaseKey) == "string" then
         return window.kind .. ":" .. window.phaseKey
     end
@@ -35,6 +39,13 @@ function lifecycle.open(capabilities, window)
             for key in pairs(capabilities) do
                 if key:match("^encounterEnd:") or key:match("^bossDefeated:") then capabilities[key] = nil end
             end
+        end
+        capabilities[window] = true
+        return true
+    end
+    if window:match("^shipPreCombat:.+") or window:match("^shipPostCombat:.+") then
+        for key in pairs(capabilities) do
+            if key:match("^shipPreCombat:") or key:match("^shipPostCombat:") then capabilities[key] = nil end
         end
         capabilities[window] = true
         return true

@@ -32,13 +32,27 @@ local function withForcedAnomaly(base, currentRun, args, otherDoors, anomaly)
     return result, true
 end
 
-function hooks.attach(module, session, getState, report, routeSession, room, transformationScope)
+function hooks.attach(module, session, getState, report, routeSession, room, transformationScope,
+    nestedRewardContext)
     local doorScope
     local rewardChoiceScope
     local ephyraDoorScope
 
     module.hooks.wrap("SetupRoomReward", "run-planner-reward-source", function(_, runtime, base, currentRun,
         nativeRoom, prior, args)
+        local nested = nestedRewardContext and nestedRewardContext() or nil
+        if nested ~= nil and type(args) == "table" and args.AlwaysSetupForceLootName == true then
+            local result = base(currentRun, nativeRoom, prior, args)
+            local reward = nested.currentOffer and nested.currentOffer.reward
+            if reward ~= nil and type(nativeRoom) == "table" then
+                nativeRoom.ForceLootName = reward.source
+                if reward.spurnedSource ~= nil and type(nativeRoom.Encounter) == "table" then
+                    nativeRoom.Encounter.LootAName = reward.source
+                    nativeRoom.Encounter.LootBName = reward.spurnedSource
+                end
+            end
+            return result
+        end
         local state = getState(runtime)
         if state == nil or state.state ~= "synchronized" then
             return base(currentRun, nativeRoom, prior, args)
@@ -70,6 +84,15 @@ function hooks.attach(module, session, getState, report, routeSession, room, tra
 
     module.hooks.wrap("ChooseRoomReward", "run-planner-room-reward", function(_, runtime, base, run, nativeRoom,
         rewardStore, chosen, args)
+        local nested = nestedRewardContext and nestedRewardContext() or nil
+        if nested ~= nil and type(args) == "table" and args.IgnoreForcedReward == true then
+            nested.offerIndex = nested.offerIndex + 1
+            local offer = nested.wheel.offers[nested.offerIndex]
+            if offer == nil then return base(run, nativeRoom, rewardStore, chosen, args) end
+            nested.currentOffer = offer
+            if type(nativeRoom) == "table" then nativeRoom.ForceLootName = offer.reward.source end
+            return offer.reward.rewardType
+        end
         if rewardChoiceScope ~= nil then return base(run, nativeRoom, rewardStore, chosen, args) end
         local state = getState(runtime)
         if state == nil or state.state ~= "synchronized" then

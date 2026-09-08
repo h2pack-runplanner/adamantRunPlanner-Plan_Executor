@@ -9,8 +9,14 @@ local chaos = type(import) == "function" and import("mods/traits/chaos.lua") or 
 
 local binding = {}
 
-local function producerFor(state, room)
+local function producerFor(state, room, rewardWheelProducer)
     local current = room.current(state)
+    local wheel = current and rewardWheelProducer and rewardWheelProducer(state, current) or nil
+    if wheel ~= nil then
+        return room.resolve(state, current, {
+            kind = "rewardWheelAcquisition", wheelKey = wheel.wheelKey,
+        }), current
+    end
     local reward = current and current.occurrence.overview.incomingReward
     if current == nil or reward == nil or reward.producerLifecycleKey == nil or reward.rewardType == nil then
         return nil, current
@@ -21,7 +27,7 @@ local function producerFor(state, room)
     }), current
 end
 
-function binding.attach(module, _session, getState, _report, room)
+function binding.attach(module, _session, getState, _report, room, rewardWheelProducer)
     local producerScope
 
     module.hooks.wrap("SpawnRoomReward", "run-planner-scope-acquisition-producer", function(_, runtime, base,
@@ -34,7 +40,7 @@ function binding.attach(module, _session, getState, _report, room)
         -- room-reward producer scope.
         producerScope = nil
         if not (type(args) == "table" and args.IgnoreRoomSpawnOnLootPoint == true) then
-            local handle, current = producerFor(state, room)
+            local handle, current = producerFor(state, room, rewardWheelProducer)
             if handle ~= nil then producerScope = { state = state, current = current, handle = handle } end
         end
         local ok, result = pcall(base, source, args)

@@ -192,6 +192,50 @@ local function hermesShrine(value, label)
     return record
 end
 
+local function rewardWheels(value, label)
+    local rows, rowsError = p.arr(value, label)
+    if not rows then return nil, rowsError end
+    local seenWheels, seenPhases = {}, {}
+    for index, valueRow in ipairs(rows) do
+        local rowLabel = label .. "[" .. index .. "]"
+        local row, rowError = p.exact(
+            valueRow,
+            { "wheelKey", "phaseKey", "phaseOwner", "offerCount", "storeKey", "offers", "pickedOfferKey" },
+            {},
+            rowLabel
+        )
+        if not row then return nil, rowError end
+        if not p.str(row.wheelKey, rowLabel .. ".wheelKey") or seenWheels[row.wheelKey]
+            or not p.str(row.phaseKey, rowLabel .. ".phaseKey") or seenPhases[row.phaseKey]
+            or not p.str(row.phaseOwner, rowLabel .. ".phaseOwner", p.MAX_OWNER_STRING)
+            or not p.int(row.offerCount, rowLabel .. ".offerCount", 1)
+            or row.offerCount > 2
+            or not p.one(row.storeKey, { RunProgress = true, MetaProgress = true }, rowLabel .. ".storeKey")
+            or not p.str(row.pickedOfferKey, rowLabel .. ".pickedOfferKey") then
+            return p.fail(rowLabel .. " has invalid wheel identity")
+        end
+        seenWheels[row.wheelKey], seenPhases[row.phaseKey] = true, true
+        local offers, offersError = p.arr(row.offers, rowLabel .. ".offers", 2)
+        if not offers then return nil, offersError end
+        if #offers ~= row.offerCount then return p.fail(rowLabel .. ".offerCount must match its offers") end
+        local seenOffers, pickedCount = {}, 0
+        for offerIndex, offerValue in ipairs(offers) do
+            local offerLabel = rowLabel .. ".offers[" .. offerIndex .. "]"
+            local offer, offerError = p.exact(offerValue, { "offerKey", "reward" }, {}, offerLabel)
+            if not offer then return nil, offerError end
+            if not p.str(offer.offerKey, offerLabel .. ".offerKey") or seenOffers[offer.offerKey] then
+                return p.fail(offerLabel .. " has invalid offer identity")
+            end
+            seenOffers[offer.offerKey] = true
+            if offer.offerKey == row.pickedOfferKey then pickedCount = pickedCount + 1 end
+            local _, rewardError = rewards.reward(offer.reward, offerLabel .. ".reward")
+            if rewardError then return nil, rewardError end
+        end
+        if pickedCount ~= 1 then return p.fail(rowLabel .. ".pickedOfferKey must identify one offer") end
+    end
+    return rows
+end
+
 local function purgingPool(value, label)
     local record, errorMessage = p.exact(value, { "interacted" }, { "traits" }, label)
     if not record then return nil, errorMessage end
@@ -334,6 +378,7 @@ function overview.decode(value, label)
         { "encounterPhases", "requiredObjects" },
         {
             "incomingReward", "effectNeutralRequiredReward", "unmodeledEncounterKeys",
+            "rewardWheels",
             "shop", "hermesShrine", "stygianWell",
             "purgingPool", "keepsakeRack",
             "fountain", "fields", "additional",
@@ -381,6 +426,10 @@ function overview.decode(value, label)
         and (not p.bool(record.effectNeutralRequiredReward, label .. ".effectNeutralRequiredReward")
             or record.effectNeutralRequiredReward ~= true) then
         return p.fail(label .. ".effectNeutralRequiredReward must be true when present")
+    end
+    if record.rewardWheels ~= nil then
+        local _, wheelsError = rewardWheels(record.rewardWheels, label .. ".rewardWheels")
+        if wheelsError then return nil, wheelsError end
     end
     if record.shop ~= nil then
         local _, shopError = shop(record.shop, label .. ".shop")

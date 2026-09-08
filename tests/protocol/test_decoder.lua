@@ -576,6 +576,93 @@ function TestProtocol.testCurrentProtocolRequiresCompleteOrderedRouteResourcePol
     lu.assertNil(protocol.decode(plan))
 end
 
+function TestProtocol.testShipWheelRequiresOneCompletePickedCohortAndMatchingLifecycle()
+    local function shipPlan()
+        local wheelOwner = '["rewardWheel","Underworld","F","opening","wheel1"]'
+        local offerOwner = '["rewardWheelOffer","Underworld","F","opening","wheel1","offer2"]'
+        local choice = {
+            kind = "chooseRewardWheel", owner = wheelOwner,
+            window = { kind = "shipPreCombat", wheelKey = "wheel1" },
+            wheelKey = "wheel1", pickedOfferKey = "offer2",
+        }
+        local acquisition = {
+            kind = "acquisition", owner = offerOwner, sourceOwner = offerOwner,
+            reward = reward(), producerLifecycleKey = "pickup", roles = { role() },
+            window = { kind = "shipPostCombat", wheelKey = "wheel1" },
+        }
+        local plan = minimalPlan({ choice, acquisition })
+        plan.occurrences[1].kind = "ShipEncounter"
+        plan.occurrences[1].owner = '["occurrence","Underworld","F","opening"]'
+        plan.occurrences[1].overview.encounterPhases = tagged({
+            { slotKey = "Intro", encounterKey = "Intro", kind = "combat" },
+            { slotKey = "Combat1", encounterKey = "Combat", kind = "combat" },
+        }, "encounterPhases", true)
+        plan.occurrences[1].overview.rewardWheels = tagged({ {
+            wheelKey = "wheel1", phaseKey = "Combat1",
+            phaseOwner = '["encounterPhase","Underworld","F",{"kind":"occurrence","occurrenceId":"opening"},"Combat1"]',
+            offerCount = 2, storeKey = "RunProgress", pickedOfferKey = "offer2",
+            offers = {
+                { offerKey = "offer1", reward = reward() },
+                { offerKey = "offer2", reward = reward() },
+            },
+        } }, "rewardWheels", true)
+        plan.occurrences[1].timeline.dependencies = tagged({ {
+            owner = offerOwner, afterOwner = wheelOwner,
+        } }, "dependencies", true)
+        return plan
+    end
+
+    local plan = shipPlan()
+    refreshFingerprint(plan)
+    lu.assertNotNil(protocol.decode(plan))
+
+    plan = shipPlan()
+    plan.occurrences[1].overview.rewardWheels[1].offerCount = 1
+    refreshFingerprint(plan)
+    lu.assertNil(protocol.decode(plan))
+
+    plan = shipPlan()
+    plan.occurrences[1].overview.rewardWheels[1].offerCount = 3
+    plan.occurrences[1].overview.rewardWheels[1].offers[3] = tagged({
+        offerKey = "offer3", reward = reward(),
+    }, "offer", false)
+    refreshFingerprint(plan)
+    lu.assertNil(protocol.decode(plan))
+
+    plan = shipPlan()
+    plan.occurrences[1].overview.rewardWheels[1].storeKey = "HubRewards"
+    refreshFingerprint(plan)
+    lu.assertNil(protocol.decode(plan))
+
+    plan = shipPlan()
+    plan.occurrences[1].timeline.transactions[1].window.wheelKey = "wheel2"
+    refreshFingerprint(plan)
+    lu.assertNil(protocol.decode(plan))
+
+    plan = shipPlan()
+    plan.occurrences[1].overview.rewardWheels[1].phaseOwner = "wrong-phase"
+    refreshFingerprint(plan)
+    lu.assertNil(protocol.decode(plan))
+
+    plan = shipPlan()
+    plan.occurrences[1].timeline.transactions[2].sourceOwner = "wrong-source"
+    refreshFingerprint(plan)
+    lu.assertNil(protocol.decode(plan))
+
+    plan = shipPlan()
+    plan.occurrences[1].timeline.dependencies = tagged({}, "dependencies", true)
+    refreshFingerprint(plan)
+    lu.assertNil(protocol.decode(plan))
+
+    plan = shipPlan()
+    plan.occurrences[1].overview.rewardWheels = tagged({}, "rewardWheels", true)
+    plan.occurrences[1].timeline.transactions = tagged({}, "transactions", true)
+    plan.occurrences[1].timeline.dependencies = tagged({}, "dependencies", true)
+    plan.occurrences[1].timeline.obligations = tagged({}, "obligations", true)
+    refreshFingerprint(plan)
+    lu.assertNil(protocol.decode(plan))
+end
+
 function TestProtocol.testProtocolAcceptsOnlyTheExactUnderworldAndSurfacePrefixes()
     local plan = minimalPlan({})
     plan.extent = tagged({ kind = "configuredPrefix", biomeKeys = { "F", "G", "H", "I" }, terminalBiomeKey = "I" }, "extent", false)
@@ -666,6 +753,24 @@ function TestProtocol.testSurfaceNFixtureClosesHubAndNativeRestoreReferences()
     lu.assertTrue(mutated)
     refreshFingerprint(plan)
     lu.assertNil(protocol.decode(plan))
+end
+
+function TestProtocol.testSurfaceNOFixtureCarriesCompleteShipWheelProducts()
+    local decoded, errorMessage = protocol.decode(decode("surface-no"))
+    lu.assertNotNil(decoded, errorMessage)
+    lu.assertEquals(decoded.extent.biomeKeys, { "N", "O" })
+    local wheelCount, choiceCount = 0, 0
+    for _, occurrence in ipairs(decoded.occurrences) do
+        for _, wheel in ipairs(occurrence.overview.rewardWheels or {}) do
+            wheelCount = wheelCount + 1
+            lu.assertEquals(wheel.offerCount, #wheel.offers)
+        end
+        for _, transaction in ipairs(occurrence.timeline.transactions) do
+            if transaction.kind == "chooseRewardWheel" then choiceCount = choiceCount + 1 end
+        end
+    end
+    lu.assertTrue(wheelCount > 0)
+    lu.assertEquals(choiceCount, wheelCount)
 end
 
 function TestProtocol.testFieldsFixturePublishesBoundedDistinctPlacementFacts()

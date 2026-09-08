@@ -41,6 +41,14 @@ function timeline.lifecycle(value, label)
         end
         return row
     end
+    if record.kind == "shipPreCombat" or record.kind == "shipPostCombat" then
+        local row, rowError = p.exact(record, { "kind", "wheelKey" }, {}, label)
+        if not row then return nil, rowError end
+        if not p.str(row.wheelKey, label .. ".wheelKey") then
+            return p.fail(label .. " has invalid wheelKey")
+        end
+        return row
+    end
     if record.kind == "postOutgoing" then return p.exact(record, { "kind" }, {}, label) end
     return p.fail(label .. ".kind is unsupported")
 end
@@ -149,6 +157,24 @@ local function encounterInteraction(value, label)
         if outcomeError then return nil, outcomeError end
     else
         return p.fail(label .. " has unsupported encounter resolution")
+    end
+    return record
+end
+
+local function chooseRewardWheel(value, label)
+    local record, errorMessage = p.exact(
+        value,
+        { "kind", "owner", "window", "wheelKey", "pickedOfferKey" },
+        {},
+        label
+    )
+    if not record then return nil, errorMessage end
+    local window, baseError = validateBase(record, label)
+    if baseError then return nil, baseError end
+    if window.kind ~= "shipPreCombat" or window.wheelKey ~= record.wheelKey
+        or not p.str(record.wheelKey, label .. ".wheelKey")
+        or not p.str(record.pickedOfferKey, label .. ".pickedOfferKey") then
+        return p.fail(label .. " has invalid wheel choice")
     end
     return record
 end
@@ -369,6 +395,7 @@ local function fountainUse(value, label)
 end
 
 local decoders = {
+    chooseRewardWheel = chooseRewardWheel,
     acquisition = acquisition,
     encounterInteraction = encounterInteraction,
     automatic = automatic,

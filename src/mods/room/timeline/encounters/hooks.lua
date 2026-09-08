@@ -11,6 +11,8 @@ local figLeaf = type(import) == "function" and import("mods/keepsakes/fig_leaf.l
     or require("mods.keepsakes.fig_leaf")
 local gorgon = type(import) == "function" and import("mods/keepsakes/gorgon.lua")
     or require("mods.keepsakes.gorgon")
+local thessaly = type(import) == "function" and import("mods/room/timeline/encounters/thessaly.lua")
+    or require("mods.room.timeline.encounters.thessaly")
 
 local hooks = {}
 
@@ -27,7 +29,8 @@ local function chooseForcedEncounter(base, currentRun, nativeRoom, args, declara
     return result
 end
 
-function hooks.attach(module, session, getState, report, room)
+function hooks.attach(module, session, getState, report, room, shipCombat)
+    shipCombat = shipCombat or thessaly.create()
     local encounterIndex
     local directEncounterSequences = setmetatable({}, { __mode = "k" })
 
@@ -35,9 +38,11 @@ function hooks.attach(module, session, getState, report, room)
         base, nativeRoom, args)
         local state = getState(runtime)
         if state == nil or state.state ~= "synchronized" then return base(nativeRoom, args) end
+        local restoreShipPhases = shipCombat.preparePhases(state, room, nativeRoom)
         encounterIndex = 0
         local ok, result = pcall(base, nativeRoom, args)
         encounterIndex = nil
+        restoreShipPhases()
         if not ok then error(result, 0) end
         report(runtime)
         return result
@@ -111,6 +116,7 @@ function hooks.attach(module, session, getState, report, room)
         return result
     end)
 
+    shipCombat.attach(module, session, getState, report, room)
     automatic.attach(module, session, getState, report, room)
     boss.attach(module, session, getState, report, room)
     nemesis.attach(module, session, getState, report, room)

@@ -17,7 +17,7 @@ function bindings.index(occurrence)
         owner = {}, producer = {}, offer = {}, generation = {}, hermesShrineSource = {},
         wellPurchase = {}, wellRefill = {}, source = {},
         slot = {}, keepsake = {}, automatic = {}, encounterInteraction = {}, interaction = {}, produced = {},
-        materialized = {}, keepsakeReplay = {},
+        materialized = {}, keepsakeReplay = {}, rewardWheel = {}, rewardWheelAcquisition = {},
     }
     for owner, transaction in pairs(occurrence.transactionsByOwner or {}) do
         index.owner[owner] = { transaction = transaction }
@@ -45,6 +45,12 @@ function bindings.index(occurrence)
         end
         if transaction.kind == "encounterInteraction" then
             ok, errorValue = add(index, "encounterInteraction", transaction.phaseKey, transaction)
+            if not ok then return nil, errorValue end
+        elseif transaction.kind == "chooseRewardWheel" then
+            ok, errorValue = add(index, "rewardWheel", transaction.wheelKey, transaction)
+            if not ok then return nil, errorValue end
+        elseif transaction.kind == "acquisition" and transaction.window.kind == "shipPostCombat" then
+            ok, errorValue = add(index, "rewardWheelAcquisition", transaction.window.wheelKey, transaction)
             if not ok then return nil, errorValue end
         end
         ok, errorValue = add(index, "source", transaction.sourceOwner, transaction)
@@ -98,6 +104,10 @@ function bindings.resolve(index, contact, source)
     elseif contact.kind == "source" then return indexed(index, "source", contact.sourceOwner)
     elseif contact.kind == "encounterInteraction" then
         return indexed(index, "encounterInteraction", contact.phaseKey)
+    elseif contact.kind == "rewardWheel" then
+        return indexed(index, "rewardWheel", contact.wheelKey)
+    elseif contact.kind == "rewardWheelAcquisition" then
+        return indexed(index, "rewardWheelAcquisition", contact.wheelKey)
     elseif contact.kind == "slot" then return indexed(index, "slot", contact.slotKey)
     elseif contact.kind == "keepsake" then return indexed(index, "keepsake", contact.keepsakeKey)
     elseif contact.kind == "keepsakeReplay" then

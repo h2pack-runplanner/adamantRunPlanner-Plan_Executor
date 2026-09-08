@@ -19,6 +19,7 @@ function composition.bind(root)
     -- Imported chunks are stateless definitions. This explicit instance spans
     -- both owners that participate in Hex-tree realization.
     local hexTree = import("mods/spells/hex_tree.lua").create()
+    local shipCombat = import("mods/room/timeline/encounters/thessaly.lua").create()
     local loadoutHooks = import("mods/loadout/hooks.lua")
     local acquisitionHooks = import("mods/room/timeline/acquisitions/hooks.lua")
     local loadoutRuntime = { inbox = inbox, session = session, loadout = loadout }
@@ -73,14 +74,15 @@ function composition.bind(root)
         hexTree.attach(module)
         local loadoutScope = loadoutHooks.attach(module, loadoutRuntime, getState, report, room, hexTree)
 
-        acquisitionHooks.attach(module, session, getState, report, room, hexTree)
+        acquisitionHooks.attach(module, session, getState, report, room, hexTree,
+            shipCombat.takeRewardProducer)
         local transformationScope = transformationHooks.attach(module, session, getState, report, room)
         local featureScope = roomFeatureHooks.attach(module, session, getState, report, room)
         local navigation = navigationHooks.attach(module, session, getState, report, route, room,
-            transformationScope)
+            transformationScope, shipCombat.rewardContext)
         roomHooks.attach(module, session, getState, report, route, room, featureScope, navigation,
             loadoutScope)
-        encounterHooks.attach(module, session, getState, report, room)
+        encounterHooks.attach(module, session, getState, report, room, shipCombat)
         local inventoryBindings = featureInventory.attach(module, session, getState, report, room, route)
         commerceHooks.attach(module, session, getState, report, room, inventoryBindings)
         interactionHooks.attach(module, session, getState, report, room)

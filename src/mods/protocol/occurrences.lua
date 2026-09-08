@@ -13,6 +13,123 @@ local conformance = type(import) == "function" and import("mods/protocol/conform
 
 local occurrences = {}
 
+local function validateRewardWheelProduct(row, label)
+    local wheels = row.overview.rewardWheels or {}
+    local combatPhaseCount = 0
+    for _, phase in ipairs(row.overview.encounterPhases) do
+        if phase.slotKey ~= "Intro" and phase.kind == "combat" then
+            combatPhaseCount = combatPhaseCount + 1
+        end
+    end
+    if (row.kind == "ShipEncounter" and #wheels ~= combatPhaseCount)
+        or (row.kind ~= "ShipEncounter" and #wheels > 0) then
+        return p.fail(label .. ".overview.rewardWheels must match the Ship encounter phases")
+    end
+    local owner, ownerError = p.json.decode(row.owner)
+    local routeKey = owner and owner[1] == "occurrence" and owner[2] or nil
+    if #wheels > 0 and (ownerError ~= nil or not p.json.isArray(owner) or #owner ~= 4
+        or not p.str(routeKey, label .. ".owner.routeKey")
+        or owner[3] ~= row.biomeKey or owner[4] ~= row.id) then
+        return p.fail(label .. ".owner cannot identify its reward-wheel phases")
+    end
+
+    local choiceCount, acquisitionCount = 0, 0
+    for _, transaction in ipairs(row.timeline.transactions) do
+        if transaction.kind == "chooseRewardWheel" then choiceCount = choiceCount + 1 end
+        if transaction.kind == "acquisition" and transaction.window.kind == "shipPostCombat" then
+            local source = p.json.decode(transaction.sourceOwner)
+            if source ~= nil and p.json.isArray(source) and source[1] == "rewardWheelOffer" then
+                acquisitionCount = acquisitionCount + 1
+            end
+        end
+    end
+    if choiceCount ~= #wheels or acquisitionCount ~= #wheels then
+        return p.fail(label .. ".overview.rewardWheels is disconnected from its timeline product")
+    end
+
+    for _, wheel in ipairs(wheels) do
+        local phaseCount = 0
+        for _, phase in ipairs(row.overview.encounterPhases) do
+            if phase.slotKey == wheel.phaseKey and phase.slotKey ~= "Intro" and phase.kind == "combat" then
+                phaseCount = phaseCount + 1
+            end
+        end
+        if phaseCount ~= 1 then
+            return p.fail(label .. ".overview.rewardWheels." .. wheel.wheelKey
+                .. " must name one active combat phase")
+        end
+        local expectedPhaseOwner = string.format(
+            '["encounterPhase",%q,%q,{"kind":"occurrence","occurrenceId":%q},%q]',
+            routeKey, row.biomeKey, row.id, wheel.phaseKey
+        )
+        if wheel.phaseOwner ~= expectedPhaseOwner then
+            return p.fail(label .. ".overview.rewardWheels." .. wheel.wheelKey
+                .. " has a mismatched phase owner")
+        end
+
+        local expectedChoiceOwner = string.format(
+            '["rewardWheel",%q,%q,%q,%q]', routeKey, row.biomeKey, row.id, wheel.wheelKey
+        )
+        local choice
+        for _, transaction in ipairs(row.timeline.transactions) do
+            if transaction.kind == "chooseRewardWheel" and transaction.owner == expectedChoiceOwner
+                and transaction.wheelKey == wheel.wheelKey
+                and transaction.pickedOfferKey == wheel.pickedOfferKey
+                and transaction.window.kind == "shipPreCombat"
+                and transaction.window.wheelKey == wheel.wheelKey then
+                if choice ~= nil then
+                    return p.fail(label .. ".overview.rewardWheels." .. wheel.wheelKey
+                        .. " must match one wheel choice")
+                end
+                choice = transaction
+            end
+        end
+        if choice == nil then
+            return p.fail(label .. ".overview.rewardWheels." .. wheel.wheelKey
+                .. " must match one wheel choice")
+        end
+
+        local picked
+        for _, offer in ipairs(wheel.offers) do
+            if offer.offerKey == wheel.pickedOfferKey then picked = offer end
+        end
+        local expectedAcquisitionOwner = string.format(
+            '["rewardWheelOffer",%q,%q,%q,%q,%q]',
+            routeKey, row.biomeKey, row.id, wheel.wheelKey, wheel.pickedOfferKey
+        )
+        local acquisition
+        for _, transaction in ipairs(row.timeline.transactions) do
+            if transaction.kind == "acquisition" and transaction.owner == expectedAcquisitionOwner
+                and transaction.sourceOwner == expectedAcquisitionOwner
+                and transaction.producerLifecycleKey == picked.reward.producerLifecycleKey
+                and p.fingerprint(transaction.reward) == p.fingerprint(picked.reward)
+                and transaction.window.kind == "shipPostCombat"
+                and transaction.window.wheelKey == wheel.wheelKey then
+                if acquisition ~= nil then
+                    return p.fail(label .. ".overview.rewardWheels." .. wheel.wheelKey
+                        .. " must match one picked acquisition")
+                end
+                acquisition = transaction
+            end
+        end
+        if acquisition == nil then
+            return p.fail(label .. ".overview.rewardWheels." .. wheel.wheelKey
+                .. " must match one picked acquisition")
+        end
+        local hasDependency = false
+        for _, dependency in ipairs(row.timeline.dependencies) do
+            if dependency.owner == acquisition.owner and dependency.afterOwner == choice.owner then
+                hasDependency = true
+            end
+        end
+        if not hasDependency then
+            return p.fail(label .. ".overview.rewardWheels." .. wheel.wheelKey
+                .. " is missing its choice dependency")
+        end
+    end
+    return true
+end
+
 local function validateFieldsCageSlots(row, label)
     local layout = row.overview.fields
     if layout == nil then return true end
@@ -195,6 +312,8 @@ function occurrences.decode(value, selected, label)
         )
         if type(byOwnerOrError) == "string" then return nil, byOwnerOrError end
         row.transactionsByOwner = byOwnerOrError
+        local wheelsOk, wheelsError = validateRewardWheelProduct(row, label .. "[" .. index .. "]")
+        if not wheelsOk then return nil, wheelsError end
         local hadDiagnostics = row.diagnostics ~= nil
         local expanded, diagnosticError = diagnostics.expand(
             row.diagnostics,

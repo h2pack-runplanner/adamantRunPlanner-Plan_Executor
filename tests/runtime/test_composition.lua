@@ -19,6 +19,13 @@ local unusedLoadoutScope = {
         error("starting-room loadout synchronization is outside this test")
     end,
 }
+local function shipCombatStub()
+    return {
+        rewardContext = function() end,
+        preparePhases = function() return function() end end,
+        attach = function() end,
+    }
+end
 
 TestRuntimeComposition = {}
 
@@ -108,6 +115,9 @@ function TestRuntimeComposition.testRuntimeCompositionSharesOneHexTreeAcrossLoad
             }
         end
         if path == "mods/spells/hex_tree.lua" then return assert(loadfile("src/" .. path))() end
+        if path == "mods/room/timeline/encounters/thessaly.lua" then
+            return { create = shipCombatStub }
+        end
         if path == "mods/loadout/hooks.lua" then
             return { attach = function(_, _, _, _, _, sharedTree)
                 loadoutTree = sharedTree
@@ -172,6 +182,9 @@ function TestRuntimeComposition.testCompositionPassesRouteAndRoomAuthoritiesToHo
         if path == "mods/spells/hex_tree.lua" then
             return { create = function() return { attach = function() end } end }
         end
+        if path == "mods/room/timeline/encounters/thessaly.lua" then
+            return { create = shipCombatStub }
+        end
         if path == "mods/loadout/hooks.lua" or path == "mods/room/timeline/acquisitions/hooks.lua" then
             return { attach = function() return {} end }
         end
@@ -219,7 +232,8 @@ function TestRuntimeComposition.testRuntimeCompositionInstallsSupportedHookGroup
     attachFeatureHooks(module, session, getState, report, session, route)
     for _, name in ipairs({
         "ChooseStartingRoom", "StartRoom", "DoUnlockRoomExits", "LeaveRoom",
-        "StartEncounter", "EndEncounterEffects",
+        "StartEncounter", "EndEncounterEffects", "SetupRoomMultipleEncountersData",
+        "ShipsEncounterSetup", "ChooseNextRewardStore", "CreateDoorRewardPreview", "UseShipWheel",
         "UseLoot", "UseConsumableItem", "AddStackToTraits", "HandleLootPickup",
         "ConvertMetaRewardPresentation", "CreateLoot", "UnwrapRandomLoot",
         "ArachneCostumeChoice", "NarcissusBenefitChoice", "MedeaCurseChoice", "CirceBlessingChoice",

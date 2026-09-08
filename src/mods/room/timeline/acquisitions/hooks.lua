@@ -29,13 +29,13 @@ local path = type(import) == "function" and import("mods/room/timeline/acquisiti
 
 local acquisitions = {}
 
-function acquisitions.attach(module, session, getState, report, room, hexTree)
+function acquisitions.attach(module, session, getState, report, room, hexTree, rewardWheelProducer)
     assert(type(hexTree) == "table", "acquisition Hex Tree instance is required")
     -- This acquisition-owned instance carries one active chance scope across
     -- every concrete pickup adapter.
     local seaStar = seaStarDefinition.create()
     seaStar.attach(module)
-    binding.attach(module, session, getState, report, room)
+    binding.attach(module, session, getState, report, room, rewardWheelProducer)
     local traitScopes = traits.attach(module, session, getState, report, room, seaStar)
     local npcScope = npc.attach(module, session, getState, report, room)
     circe.attach(module, session, report, npcScope)
