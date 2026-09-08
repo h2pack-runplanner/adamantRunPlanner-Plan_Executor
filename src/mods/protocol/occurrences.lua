@@ -166,7 +166,7 @@ function occurrences.decode(value, selected, label)
         if not p.str(row.id, label .. ".id", 256)
             or ids[row.id]
             or not p.str(row.owner, label .. ".owner", p.MAX_OWNER_STRING)
-            or not p.one(row.biomeKey, { F = true, G = true, H = true }, label .. ".biomeKey")
+            or not p.one(row.biomeKey, { F = true, G = true, H = true, I = true, N = true, O = true, P = true, Q = true }, label .. ".biomeKey")
             or not p.str(row.gameName, label .. ".gameName")
             or not p.str(row.kind, label .. ".kind") then
             return p.fail(label .. " has invalid occurrence identity")

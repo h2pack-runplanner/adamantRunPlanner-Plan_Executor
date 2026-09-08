@@ -13,7 +13,7 @@ local resources = type(import) == "function" and import("mods/protocol/resources
 
 local protocol = {
     FORMAT = "run-planner-execution",
-    VERSION = 29,
+    VERSION = 33,
     CATALOG_VERSION = "0.55.0-anvil-of-fates",
     MAX_ITEMS = p.MAX_ITEMS,
     MAX_STRING = p.MAX_STRING,
@@ -31,12 +31,19 @@ local function extent(value)
     local biomeKeys, biomeError = p.strings(
         record.biomeKeys,
         "execution plan.extent.biomeKeys",
-        3
+        4
     )
     if not biomeKeys then return nil, biomeError end
     local supported = (#biomeKeys == 1 and biomeKeys[1] == "F")
         or (#biomeKeys == 2 and biomeKeys[1] == "F" and biomeKeys[2] == "G")
         or (#biomeKeys == 3 and biomeKeys[1] == "F" and biomeKeys[2] == "G" and biomeKeys[3] == "H")
+        or (#biomeKeys == 4 and biomeKeys[1] == "F" and biomeKeys[2] == "G" and biomeKeys[3] == "H"
+            and biomeKeys[4] == "I")
+        or (#biomeKeys == 1 and biomeKeys[1] == "N")
+        or (#biomeKeys == 2 and biomeKeys[1] == "N" and biomeKeys[2] == "O")
+        or (#biomeKeys == 3 and biomeKeys[1] == "N" and biomeKeys[2] == "O" and biomeKeys[3] == "P")
+        or (#biomeKeys == 4 and biomeKeys[1] == "N" and biomeKeys[2] == "O" and biomeKeys[3] == "P"
+            and biomeKeys[4] == "Q")
     if record.kind ~= "configuredPrefix" or not supported
         or record.terminalBiomeKey ~= biomeKeys[#biomeKeys] then
         return p.fail("execution plan.extent is unsupported")
@@ -129,7 +136,7 @@ function protocol.decode(value)
     if plan.format ~= protocol.FORMAT
         or plan.protocolVersion ~= protocol.VERSION
         or plan.catalogVersion ~= protocol.CATALOG_VERSION
-        or plan.routeKey ~= "Underworld"
+        or (plan.routeKey ~= "Underworld" and plan.routeKey ~= "Surface")
         or not p.str(plan.projectId, "execution plan.projectId")
         or type(plan.planFingerprint) ~= "string"
         or not plan.planFingerprint:match("^[0-9a-f]+$")
@@ -138,6 +145,10 @@ function protocol.decode(value)
     end
     local _, extentError = extent(plan.extent)
     if extentError then return nil, extentError end
+    if (plan.routeKey == "Underworld" and plan.extent.biomeKeys[1] ~= "F")
+        or (plan.routeKey == "Surface" and plan.extent.biomeKeys[1] ~= "N") then
+        return p.fail("execution plan.routeKey disagrees with extent")
+    end
     local _, loadoutError = loadout.decode(plan.startingLoadout)
     if loadoutError then return nil, loadoutError end
     local _, keepsakeError = startingKeepsake(plan.startingKeepsake)
@@ -153,6 +164,13 @@ function protocol.decode(value)
         "execution plan.occurrences"
     )
     if not decoded then return nil, idsOrError end
+    for _, occurrence in ipairs(decoded) do
+        local included = false
+        for _, biomeKey in ipairs(plan.extent.biomeKeys) do
+            if occurrence.biomeKey == biomeKey then included = true break end
+        end
+        if not included then return p.fail("execution plan.occurrences contains a biome outside extent") end
+    end
     local resourcePolicy, resourceError = resources.decode(plan.resources, "execution plan.resources")
     if not resourcePolicy then return nil, resourceError end
     local resourcesValid, resourcesValidationError = validateResources(

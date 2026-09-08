@@ -7,6 +7,41 @@ local capture, stub = support.capture, support.stub
 
 TestNavigationHooks = {}
 
+function TestNavigationHooks.testClockworkGoalUsesTheOrdinaryRewardSelectionWithoutHookingItsNativeLifecycle()
+    local module, _, callbacks = capture()
+    local occurrence = {
+        id = "clockwork-goal",
+        overview = { incomingReward = { rewardType = "ClockworkGoal", producerLifecycleKey = "ClockworkGoalRoom" } },
+    }
+    local state = { state = "synchronized", plan = { occurrencesById = { [occurrence.id] = occurrence } } }
+    local active = { occurrence = occurrence }
+    local room = {
+        current = function() return active end,
+        checkpoint = function() return true end,
+        window = function() return true end,
+    }
+    navigation.attach(module, stub(), function() return state end, function() end,
+        { current = function() return occurrence end }, room)
+
+    local run = { RewardStores = { TartarusRewards = {
+        { Name = "RoomMoneyTripleDrop" }, { Name = "ClockworkGoal" },
+    } } }
+    local nativeRoom = { __runPlannerExecutionRoomId = occurrence.id }
+    local chosen = callbacks.ChooseRoomReward(nil, {}, function(currentRun, roomValue, store)
+        for index, reward in ipairs(currentRun.RewardStores[store]) do
+            if callbacks.IsRoomRewardEligible(nil, {}, function() return false end,
+                currentRun, roomValue, reward, {}, {}) then
+                table.remove(currentRun.RewardStores[store], index)
+                return reward.Name
+            end
+        end
+    end, run, nativeRoom, "TartarusRewards", {}, {})
+
+    lu.assertEquals(chosen, "ClockworkGoal")
+    lu.assertEquals(run.RewardStores.TartarusRewards, { { Name = "RoomMoneyTripleDrop" } })
+    lu.assertNil(callbacks.SpawnClockworkGoalReward)
+end
+
 function TestNavigationHooks.testDoorChoiceIsForcedDuringNativeGeneration()
     local module, _, callbacks = capture()
     local selected, mismatch

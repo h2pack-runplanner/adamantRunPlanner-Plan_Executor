@@ -57,9 +57,10 @@
     "biomeKeys": [
       "F",
       "G",
-      "H"
+      "H",
+      "I"
     ],
-    "terminalBiomeKey": "H"
+    "terminalBiomeKey": "I"
   },
   "selectedOccurrenceIds": [
     "golden-f-start",
@@ -94,7 +95,15 @@
     "golden-h-combat05",
     "golden-h-preboss-shop",
     "golden-h-preboss-shop:boss",
-    "golden-h-preboss-shop:postboss"
+    "golden-h-preboss-shop:postboss",
+    "golden-i-intro",
+    "golden-i-combat01",
+    "golden-i-combat03",
+    "golden-i-combat05",
+    "golden-i-combat06",
+    "golden-i-combat09",
+    "golden-i-preboss",
+    "golden-i-preboss:boss"
   ],
   "resources": {
     "occurrences": [
@@ -388,6 +397,78 @@
       },
       {
         "occurrenceId": "golden-h-preboss-shop:postboss",
+        "pointDispositions": {
+          "Pickaxe": "native",
+          "Exorcism": "native",
+          "Shovel": "native",
+          "Fishing": "native"
+        }
+      },
+      {
+        "occurrenceId": "golden-i-intro",
+        "pointDispositions": {
+          "Pickaxe": "native",
+          "Exorcism": "native",
+          "Shovel": "native",
+          "Fishing": "native"
+        }
+      },
+      {
+        "occurrenceId": "golden-i-combat01",
+        "pointDispositions": {
+          "Pickaxe": "native",
+          "Exorcism": "native",
+          "Shovel": "native",
+          "Fishing": "native"
+        }
+      },
+      {
+        "occurrenceId": "golden-i-combat03",
+        "pointDispositions": {
+          "Pickaxe": "native",
+          "Exorcism": "native",
+          "Shovel": "native",
+          "Fishing": "native"
+        }
+      },
+      {
+        "occurrenceId": "golden-i-combat05",
+        "pointDispositions": {
+          "Pickaxe": "native",
+          "Exorcism": "native",
+          "Shovel": "native",
+          "Fishing": "native"
+        }
+      },
+      {
+        "occurrenceId": "golden-i-combat06",
+        "pointDispositions": {
+          "Pickaxe": "native",
+          "Exorcism": "native",
+          "Shovel": "native",
+          "Fishing": "native"
+        }
+      },
+      {
+        "occurrenceId": "golden-i-combat09",
+        "pointDispositions": {
+          "Pickaxe": "native",
+          "Exorcism": "native",
+          "Shovel": "native",
+          "Fishing": "native"
+        }
+      },
+      {
+        "occurrenceId": "golden-i-preboss",
+        "pointDispositions": {
+          "Pickaxe": "native",
+          "Exorcism": "native",
+          "Shovel": "native",
+          "Fishing": "native"
+        }
+      },
+      {
+        "occurrenceId": "golden-i-preboss:boss",
         "pointDispositions": {
           "Pickaxe": "native",
           "Exorcism": "native",
@@ -7669,7 +7750,12 @@
       },
       "doors": {
         "owner": "[\"occurrence\",\"Underworld\",\"H\",\"golden-h-preboss-shop:postboss\"]",
-        "kind": "terminal"
+        "kind": "fixed",
+        "target": {
+          "id": "golden-i-intro",
+          "biomeKey": "I",
+          "gameName": "I_Intro"
+        }
       },
       "roomExitConformance": {
         "facts": [
@@ -7699,7 +7785,852 @@
           }
         }
       }
+    },
+    {
+      "id": "golden-i-intro",
+      "owner": "[\"occurrence\",\"Underworld\",\"I\",\"golden-i-intro\"]",
+      "biomeKey": "I",
+      "gameName": "I_Intro",
+      "kind": "EmptyEncounter",
+      "overview": {
+        "unmodeledEncounterKeys": [
+          "Empty"
+        ],
+        "encounterPhases": [],
+        "requiredObjects": []
+      },
+      "timeline": {
+        "transactions": [],
+        "dependencies": [],
+        "obligations": []
+      },
+      "doors": {
+        "owner": "[\"exitDecision\",\"Underworld\",\"I\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-i-intro\"}]",
+        "kind": "batch",
+        "targets": [
+          {
+            "exitKey": "exit1",
+            "index": 1,
+            "room": {
+              "id": "golden-i-combat01",
+              "biomeKey": "I",
+              "gameName": "I_Combat01"
+            },
+            "reward": {
+              "rewardType": "ClockworkGoal",
+              "producerLifecycleKey": "ClockworkGoalRoom"
+            }
+          }
+        ],
+        "resolvedSharedRewardStoreKey": "TartarusRewards"
+      },
+      "roomExitConformance": {
+        "facts": [
+          {
+            "kind": "elementCounts"
+          }
+        ]
+      },
+      "diagnostics": {
+        "roomEntered": {
+          "frame": 66,
+          "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"I\",\"golden-i-intro\",\"roomEntered\"]",
+          "checkpoint": "roomEntered",
+          "replace": {
+            "counters": {
+              "biomeDepthCache": 1,
+              "biomeEncounterDepth": 1,
+              "routeEncounterDepth": 25,
+              "roomHistoryOrdinal": 33
+            }
+          }
+        },
+        "beforeRoomExit": {
+          "frame": 67,
+          "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"I\",\"golden-i-intro\",\"beforeRoomExit\"]",
+          "checkpoint": "beforeRoomExit",
+          "replace": {
+            "counters": {
+              "biomeDepthCache": 2,
+              "biomeEncounterDepth": 1,
+              "routeEncounterDepth": 25,
+              "roomHistoryOrdinal": 34
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "golden-i-combat01",
+      "owner": "[\"occurrence\",\"Underworld\",\"I\",\"golden-i-combat01\"]",
+      "biomeKey": "I",
+      "gameName": "I_Combat01",
+      "kind": "SingleEncounter",
+      "overview": {
+        "incomingReward": {
+          "rewardType": "ClockworkGoal",
+          "producerLifecycleKey": "ClockworkGoalRoom"
+        },
+        "encounterPhases": [
+          {
+            "slotKey": "Encounter",
+            "encounterKey": "GeneratedI",
+            "kind": "combat"
+          }
+        ],
+        "requiredObjects": []
+      },
+      "timeline": {
+        "transactions": [],
+        "dependencies": [],
+        "obligations": []
+      },
+      "doors": {
+        "owner": "[\"exitDecision\",\"Underworld\",\"I\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-i-combat01\"}]",
+        "kind": "batch",
+        "targets": [
+          {
+            "exitKey": "exit1",
+            "index": 1,
+            "room": {
+              "id": "golden-i-combat03",
+              "biomeKey": "I",
+              "gameName": "I_Combat03"
+            },
+            "reward": {
+              "rewardType": "ClockworkGoal",
+              "producerLifecycleKey": "ClockworkGoalRoom"
+            }
+          },
+          {
+            "exitKey": "exit2",
+            "index": 2,
+            "room": {
+              "id": "golden-i-story01",
+              "biomeKey": "I",
+              "gameName": "I_Story01"
+            },
+            "reward": {
+              "rewardType": "Story",
+              "producerLifecycleKey": "RoomReward",
+              "resolvedStoreKey": "TartarusRewards"
+            }
+          }
+        ],
+        "resolvedSharedRewardStoreKey": "TartarusRewards"
+      },
+      "roomExitConformance": {
+        "facts": [
+          {
+            "kind": "elementCounts"
+          }
+        ]
+      },
+      "diagnostics": {
+        "roomEntered": {
+          "frame": 68,
+          "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"I\",\"golden-i-combat01\",\"roomEntered\"]",
+          "checkpoint": "roomEntered",
+          "replace": {}
+        },
+        "beforeRoomExit": {
+          "frame": 69,
+          "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"I\",\"golden-i-combat01\",\"beforeRoomExit\"]",
+          "checkpoint": "beforeRoomExit",
+          "replace": {
+            "counters": {
+              "biomeDepthCache": 3,
+              "biomeEncounterDepth": 2,
+              "routeEncounterDepth": 26,
+              "roomHistoryOrdinal": 35
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "golden-i-combat03",
+      "owner": "[\"occurrence\",\"Underworld\",\"I\",\"golden-i-combat03\"]",
+      "biomeKey": "I",
+      "gameName": "I_Combat03",
+      "kind": "SingleEncounter",
+      "overview": {
+        "incomingReward": {
+          "rewardType": "ClockworkGoal",
+          "producerLifecycleKey": "ClockworkGoalRoom"
+        },
+        "encounterPhases": [
+          {
+            "slotKey": "Encounter",
+            "encounterKey": "GeneratedI_Small",
+            "kind": "combat"
+          }
+        ],
+        "requiredObjects": []
+      },
+      "timeline": {
+        "transactions": [],
+        "dependencies": [],
+        "obligations": []
+      },
+      "doors": {
+        "owner": "[\"exitDecision\",\"Underworld\",\"I\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-i-combat03\"}]",
+        "kind": "batch",
+        "targets": [
+          {
+            "exitKey": "exit1",
+            "index": 1,
+            "room": {
+              "id": "golden-i-combat05",
+              "biomeKey": "I",
+              "gameName": "I_Combat05"
+            },
+            "reward": {
+              "rewardType": "ClockworkGoal",
+              "producerLifecycleKey": "ClockworkGoalRoom"
+            }
+          },
+          {
+            "exitKey": "exit2",
+            "index": 2,
+            "room": {
+              "id": "golden-i-combat02",
+              "biomeKey": "I",
+              "gameName": "I_Combat02"
+            },
+            "reward": {
+              "rewardType": "RoomMoneyTripleDrop",
+              "producerLifecycleKey": "RoomReward",
+              "resolvedStoreKey": "TartarusRewards"
+            }
+          }
+        ],
+        "resolvedSharedRewardStoreKey": "TartarusRewards"
+      },
+      "roomExitConformance": {
+        "facts": [
+          {
+            "kind": "elementCounts"
+          }
+        ]
+      },
+      "diagnostics": {
+        "roomEntered": {
+          "frame": 70,
+          "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"I\",\"golden-i-combat03\",\"roomEntered\"]",
+          "checkpoint": "roomEntered",
+          "replace": {}
+        },
+        "beforeRoomExit": {
+          "frame": 71,
+          "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"I\",\"golden-i-combat03\",\"beforeRoomExit\"]",
+          "checkpoint": "beforeRoomExit",
+          "replace": {
+            "counters": {
+              "biomeDepthCache": 4,
+              "biomeEncounterDepth": 3,
+              "routeEncounterDepth": 27,
+              "roomHistoryOrdinal": 36
+            },
+            "bags": [
+              {
+                "storeKey": "RunProgress",
+                "remaining": {
+                  "kind": "exact",
+                  "count": 16
+                }
+              },
+              {
+                "storeKey": "MetaProgress",
+                "remaining": {
+                  "kind": "exact",
+                  "count": 5
+                }
+              },
+              {
+                "storeKey": "HubRewards",
+                "remaining": {
+                  "kind": "exact",
+                  "count": 10
+                }
+              },
+              {
+                "storeKey": "SubRoomRewards",
+                "remaining": {
+                  "kind": "exact",
+                  "count": 23
+                }
+              },
+              {
+                "storeKey": "SubRoomRewardsHard",
+                "remaining": {
+                  "kind": "exact",
+                  "count": 8
+                }
+              },
+              {
+                "storeKey": "FieldsOptionalRewards",
+                "remaining": {
+                  "kind": "exact",
+                  "count": 13
+                }
+              },
+              {
+                "storeKey": "TartarusRewards",
+                "remaining": {
+                  "kind": "exact",
+                  "count": 8
+                }
+              },
+              {
+                "storeKey": "TyphonBossRewards",
+                "remaining": {
+                  "kind": "exact",
+                  "count": 6
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "golden-i-story01",
+      "owner": "[\"occurrence\",\"Underworld\",\"I\",\"golden-i-story01\"]",
+      "biomeKey": "I",
+      "gameName": "I_Story01",
+      "kind": "SingleEncounter",
+      "overview": {
+        "incomingReward": {
+          "rewardType": "Story",
+          "producerLifecycleKey": "RoomReward",
+          "resolvedStoreKey": "TartarusRewards"
+        },
+        "encounterPhases": [
+          {
+            "slotKey": "Encounter",
+            "encounterKey": "Story_Hades_01",
+            "kind": "story"
+          }
+        ],
+        "requiredObjects": []
+      },
+      "timeline": {
+        "transactions": [],
+        "dependencies": [],
+        "obligations": []
+      },
+      "doors": {
+        "owner": "[\"occurrence\",\"Underworld\",\"I\",\"golden-i-story01\"]",
+        "kind": "terminal"
+      }
+    },
+    {
+      "id": "golden-i-combat05",
+      "owner": "[\"occurrence\",\"Underworld\",\"I\",\"golden-i-combat05\"]",
+      "biomeKey": "I",
+      "gameName": "I_Combat05",
+      "kind": "SingleEncounter",
+      "overview": {
+        "incomingReward": {
+          "rewardType": "ClockworkGoal",
+          "producerLifecycleKey": "ClockworkGoalRoom"
+        },
+        "encounterPhases": [
+          {
+            "slotKey": "Encounter",
+            "encounterKey": "GeneratedI_Small",
+            "kind": "combat"
+          }
+        ],
+        "requiredObjects": []
+      },
+      "timeline": {
+        "transactions": [],
+        "dependencies": [],
+        "obligations": []
+      },
+      "doors": {
+        "owner": "[\"exitDecision\",\"Underworld\",\"I\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-i-combat05\"}]",
+        "kind": "batch",
+        "targets": [
+          {
+            "exitKey": "exit1",
+            "index": 1,
+            "room": {
+              "id": "golden-i-combat06",
+              "biomeKey": "I",
+              "gameName": "I_Combat06"
+            },
+            "reward": {
+              "rewardType": "ClockworkGoal",
+              "producerLifecycleKey": "ClockworkGoalRoom"
+            }
+          }
+        ],
+        "resolvedSharedRewardStoreKey": "TartarusRewards"
+      },
+      "roomExitConformance": {
+        "facts": [
+          {
+            "kind": "elementCounts"
+          }
+        ]
+      },
+      "diagnostics": {
+        "roomEntered": {
+          "frame": 72,
+          "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"I\",\"golden-i-combat05\",\"roomEntered\"]",
+          "checkpoint": "roomEntered",
+          "replace": {}
+        },
+        "beforeRoomExit": {
+          "frame": 73,
+          "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"I\",\"golden-i-combat05\",\"beforeRoomExit\"]",
+          "checkpoint": "beforeRoomExit",
+          "replace": {
+            "counters": {
+              "biomeDepthCache": 5,
+              "biomeEncounterDepth": 4,
+              "routeEncounterDepth": 28,
+              "roomHistoryOrdinal": 37
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "golden-i-combat02",
+      "owner": "[\"occurrence\",\"Underworld\",\"I\",\"golden-i-combat02\"]",
+      "biomeKey": "I",
+      "gameName": "I_Combat02",
+      "kind": "SingleEncounter",
+      "overview": {
+        "incomingReward": {
+          "rewardType": "RoomMoneyTripleDrop",
+          "producerLifecycleKey": "RoomReward",
+          "resolvedStoreKey": "TartarusRewards"
+        },
+        "encounterPhases": [
+          {
+            "slotKey": "Encounter",
+            "encounterKey": "GeneratedI_Small",
+            "kind": "combat"
+          }
+        ],
+        "requiredObjects": []
+      },
+      "timeline": {
+        "transactions": [],
+        "dependencies": [],
+        "obligations": []
+      },
+      "doors": {
+        "owner": "[\"occurrence\",\"Underworld\",\"I\",\"golden-i-combat02\"]",
+        "kind": "terminal"
+      }
+    },
+    {
+      "id": "golden-i-combat06",
+      "owner": "[\"occurrence\",\"Underworld\",\"I\",\"golden-i-combat06\"]",
+      "biomeKey": "I",
+      "gameName": "I_Combat06",
+      "kind": "SingleEncounter",
+      "overview": {
+        "incomingReward": {
+          "rewardType": "ClockworkGoal",
+          "producerLifecycleKey": "ClockworkGoalRoom"
+        },
+        "encounterPhases": [
+          {
+            "slotKey": "Encounter",
+            "encounterKey": "GeneratedI",
+            "kind": "combat"
+          }
+        ],
+        "requiredObjects": []
+      },
+      "timeline": {
+        "transactions": [],
+        "dependencies": [],
+        "obligations": []
+      },
+      "doors": {
+        "owner": "[\"exitDecision\",\"Underworld\",\"I\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-i-combat06\"}]",
+        "kind": "batch",
+        "targets": [
+          {
+            "exitKey": "exit1",
+            "index": 1,
+            "room": {
+              "id": "golden-i-combat09",
+              "biomeKey": "I",
+              "gameName": "I_Combat09"
+            },
+            "reward": {
+              "rewardType": "ClockworkGoal",
+              "producerLifecycleKey": "ClockworkGoalRoom"
+            }
+          }
+        ],
+        "resolvedSharedRewardStoreKey": "TartarusRewards"
+      },
+      "roomExitConformance": {
+        "facts": [
+          {
+            "kind": "elementCounts"
+          }
+        ]
+      },
+      "diagnostics": {
+        "roomEntered": {
+          "frame": 74,
+          "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"I\",\"golden-i-combat06\",\"roomEntered\"]",
+          "checkpoint": "roomEntered",
+          "replace": {}
+        },
+        "beforeRoomExit": {
+          "frame": 75,
+          "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"I\",\"golden-i-combat06\",\"beforeRoomExit\"]",
+          "checkpoint": "beforeRoomExit",
+          "replace": {
+            "counters": {
+              "biomeDepthCache": 6,
+              "biomeEncounterDepth": 5,
+              "routeEncounterDepth": 29,
+              "roomHistoryOrdinal": 38
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "golden-i-combat09",
+      "owner": "[\"occurrence\",\"Underworld\",\"I\",\"golden-i-combat09\"]",
+      "biomeKey": "I",
+      "gameName": "I_Combat09",
+      "kind": "SingleEncounter",
+      "overview": {
+        "incomingReward": {
+          "rewardType": "ClockworkGoal",
+          "producerLifecycleKey": "ClockworkGoalRoom"
+        },
+        "encounterPhases": [
+          {
+            "slotKey": "Encounter",
+            "encounterKey": "GeneratedI",
+            "kind": "combat"
+          }
+        ],
+        "requiredObjects": []
+      },
+      "timeline": {
+        "transactions": [],
+        "dependencies": [],
+        "obligations": []
+      },
+      "doors": {
+        "owner": "[\"exitDecision\",\"Underworld\",\"I\",{\"kind\":\"occurrence\",\"occurrenceId\":\"golden-i-combat09\"}]",
+        "kind": "batch",
+        "targets": [
+          {
+            "exitKey": "exit1",
+            "index": 1,
+            "room": {
+              "id": "golden-i-preboss",
+              "biomeKey": "I",
+              "gameName": "I_PreBoss02"
+            },
+            "reward": {
+              "rewardType": "ClockworkGoal",
+              "producerLifecycleKey": "ClockworkGoalRoom"
+            }
+          },
+          {
+            "exitKey": "exit2",
+            "index": 2,
+            "room": {
+              "id": "golden-i-miniboss01",
+              "biomeKey": "I",
+              "gameName": "I_MiniBoss01"
+            },
+            "reward": {
+              "rewardType": "Boon",
+              "producerLifecycleKey": "RoomReward",
+              "resolvedStoreKey": "TartarusRewards",
+              "source": "ApolloUpgrade"
+            }
+          }
+        ],
+        "resolvedSharedRewardStoreKey": "TartarusRewards"
+      },
+      "roomExitConformance": {
+        "facts": [
+          {
+            "kind": "elementCounts"
+          }
+        ]
+      },
+      "diagnostics": {
+        "roomEntered": {
+          "frame": 76,
+          "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"I\",\"golden-i-combat09\",\"roomEntered\"]",
+          "checkpoint": "roomEntered",
+          "replace": {}
+        },
+        "beforeRoomExit": {
+          "frame": 77,
+          "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"I\",\"golden-i-combat09\",\"beforeRoomExit\"]",
+          "checkpoint": "beforeRoomExit",
+          "replace": {
+            "counters": {
+              "biomeDepthCache": 7,
+              "biomeEncounterDepth": 6,
+              "routeEncounterDepth": 30,
+              "roomHistoryOrdinal": 39
+            },
+            "bags": [
+              {
+                "storeKey": "RunProgress",
+                "remaining": {
+                  "kind": "exact",
+                  "count": 16
+                }
+              },
+              {
+                "storeKey": "MetaProgress",
+                "remaining": {
+                  "kind": "exact",
+                  "count": 5
+                }
+              },
+              {
+                "storeKey": "HubRewards",
+                "remaining": {
+                  "kind": "exact",
+                  "count": 10
+                }
+              },
+              {
+                "storeKey": "SubRoomRewards",
+                "remaining": {
+                  "kind": "exact",
+                  "count": 23
+                }
+              },
+              {
+                "storeKey": "SubRoomRewardsHard",
+                "remaining": {
+                  "kind": "exact",
+                  "count": 8
+                }
+              },
+              {
+                "storeKey": "FieldsOptionalRewards",
+                "remaining": {
+                  "kind": "exact",
+                  "count": 13
+                }
+              },
+              {
+                "storeKey": "TartarusRewards",
+                "remaining": {
+                  "kind": "exact",
+                  "count": 7
+                }
+              },
+              {
+                "storeKey": "TyphonBossRewards",
+                "remaining": {
+                  "kind": "exact",
+                  "count": 6
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "golden-i-preboss",
+      "owner": "[\"occurrence\",\"Underworld\",\"I\",\"golden-i-preboss\"]",
+      "biomeKey": "I",
+      "gameName": "I_PreBoss02",
+      "kind": "SingleEncounter",
+      "overview": {
+        "incomingReward": {
+          "rewardType": "ClockworkGoal",
+          "producerLifecycleKey": "ClockworkGoalRoom"
+        },
+        "encounterPhases": [
+          {
+            "slotKey": "Encounter",
+            "encounterKey": "Empty",
+            "kind": "nonCombat"
+          }
+        ],
+        "requiredObjects": [],
+        "shop": {
+          "profileKey": "I_WorldShop",
+          "offers": [
+            {
+              "offerKey": "BoostedBoon",
+              "optionKey": "StackUpgradeBig",
+              "rewardType": "StackUpgradeBig"
+            },
+            {
+              "offerKey": "MixedProgress",
+              "optionKey": "MaxHealthDrop",
+              "rewardType": "MaxHealthDrop"
+            },
+            {
+              "offerKey": "Survival",
+              "optionKey": "HealBigDrop",
+              "rewardType": "HealBigDrop"
+            },
+            {
+              "offerKey": "PremiumProgress",
+              "optionKey": "MaxHealthDropBig",
+              "rewardType": "MaxHealthDropBig"
+            },
+            {
+              "offerKey": "MetaProgress",
+              "optionKey": "CardUpgradePointsDrop",
+              "rewardType": "CardUpgradePointsDrop"
+            }
+          ]
+        }
+      },
+      "timeline": {
+        "transactions": [],
+        "dependencies": [],
+        "obligations": []
+      },
+      "doors": {
+        "owner": "[\"occurrence\",\"Underworld\",\"I\",\"golden-i-preboss\"]",
+        "kind": "fixed",
+        "target": {
+          "id": "golden-i-preboss:boss",
+          "biomeKey": "I",
+          "gameName": "I_Boss01"
+        }
+      },
+      "roomExitConformance": {
+        "facts": [
+          {
+            "kind": "elementCounts"
+          }
+        ]
+      },
+      "diagnostics": {
+        "roomEntered": {
+          "frame": 78,
+          "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"I\",\"golden-i-preboss\",\"roomEntered\"]",
+          "checkpoint": "roomEntered",
+          "replace": {}
+        },
+        "beforeRoomExit": {
+          "frame": 79,
+          "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"I\",\"golden-i-preboss\",\"beforeRoomExit\"]",
+          "checkpoint": "beforeRoomExit",
+          "replace": {
+            "counters": {
+              "biomeDepthCache": 7,
+              "biomeEncounterDepth": 6,
+              "routeEncounterDepth": 30,
+              "roomHistoryOrdinal": 40
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "golden-i-miniboss01",
+      "owner": "[\"occurrence\",\"Underworld\",\"I\",\"golden-i-miniboss01\"]",
+      "biomeKey": "I",
+      "gameName": "I_MiniBoss01",
+      "kind": "SingleEncounter",
+      "overview": {
+        "incomingReward": {
+          "rewardType": "Boon",
+          "producerLifecycleKey": "RoomReward",
+          "resolvedStoreKey": "TartarusRewards",
+          "source": "ApolloUpgrade"
+        },
+        "encounterPhases": [
+          {
+            "slotKey": "Encounter",
+            "encounterKey": "MiniBossRatCatcher",
+            "kind": "miniboss"
+          }
+        ],
+        "requiredObjects": []
+      },
+      "timeline": {
+        "transactions": [],
+        "dependencies": [],
+        "obligations": []
+      },
+      "doors": {
+        "owner": "[\"occurrence\",\"Underworld\",\"I\",\"golden-i-miniboss01\"]",
+        "kind": "terminal"
+      }
+    },
+    {
+      "id": "golden-i-preboss:boss",
+      "owner": "[\"occurrence\",\"Underworld\",\"I\",\"golden-i-preboss:boss\"]",
+      "biomeKey": "I",
+      "gameName": "I_Boss01",
+      "kind": "SingleEncounter",
+      "overview": {
+        "effectNeutralRequiredReward": true,
+        "encounterPhases": [
+          {
+            "slotKey": "Encounter",
+            "encounterKey": "BossChronos01",
+            "kind": "boss"
+          }
+        ],
+        "requiredObjects": []
+      },
+      "timeline": {
+        "transactions": [],
+        "dependencies": [],
+        "obligations": []
+      },
+      "doors": {
+        "owner": "[\"occurrence\",\"Underworld\",\"I\",\"golden-i-preboss:boss\"]",
+        "kind": "terminal"
+      },
+      "roomExitConformance": {
+        "facts": [
+          {
+            "kind": "elementCounts"
+          }
+        ]
+      },
+      "diagnostics": {
+        "roomEntered": {
+          "frame": 80,
+          "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"I\",\"golden-i-preboss:boss\",\"roomEntered\"]",
+          "checkpoint": "roomEntered",
+          "replace": {}
+        },
+        "beforeRoomExit": {
+          "frame": 81,
+          "owner": "[\"roomRunStateCheckpoint\",\"Underworld\",\"I\",\"golden-i-preboss:boss\",\"beforeRoomExit\"]",
+          "checkpoint": "beforeRoomExit",
+          "replace": {
+            "counters": {
+              "biomeDepthCache": 8,
+              "biomeEncounterDepth": 6,
+              "routeEncounterDepth": 30,
+              "roomHistoryOrdinal": 41
+            }
+          }
+        }
+      }
     }
   ],
-  "planFingerprint": "c96c78b6"
+  "planFingerprint": "917fcb1b"
 }

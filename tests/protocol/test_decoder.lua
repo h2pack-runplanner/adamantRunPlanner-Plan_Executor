@@ -168,7 +168,7 @@ local function minimalPlan(transactions)
     end
     local plan = tagged({
         format = "run-planner-execution",
-        protocolVersion = 29,
+        protocolVersion = 33,
         catalogVersion = "0.55.0-anvil-of-fates",
         projectId = "test-project",
         planFingerprint = "00000000",
@@ -574,6 +574,64 @@ function TestProtocol.testCurrentProtocolRequiresCompleteOrderedRouteResourcePol
     plan = decodeWithIndependentJsonModule("f-opening")
     plan.occurrences[1].diagnostics.roomEntered.replace.traits.elements.Unknown = 0
     lu.assertNil(protocol.decode(plan))
+end
+
+function TestProtocol.testProtocolAcceptsOnlyTheExactUnderworldAndSurfacePrefixes()
+    local plan = minimalPlan({})
+    plan.extent = tagged({ kind = "configuredPrefix", biomeKeys = { "F", "G", "H", "I" }, terminalBiomeKey = "I" }, "extent", false)
+    refreshFingerprint(plan)
+    lu.assertNotNil(protocol.decode(plan))
+
+    plan = minimalPlan({})
+    plan.extent = tagged({ kind = "configuredPrefix", biomeKeys = { "F", "G", "I" }, terminalBiomeKey = "I" }, "extent", false)
+    refreshFingerprint(plan)
+    lu.assertNil(protocol.decode(plan))
+
+    plan = minimalPlan({})
+    plan.extent = tagged({ kind = "configuredPrefix", biomeKeys = { "F", "G", "H", "I", "N" }, terminalBiomeKey = "N" }, "extent", false)
+    refreshFingerprint(plan)
+    lu.assertNil(protocol.decode(plan))
+
+    plan = minimalPlan({})
+    plan.routeKey = "Surface"
+    plan.occurrences[1].biomeKey = "N"
+    plan.extent = tagged({ kind = "configuredPrefix", biomeKeys = { "N", "O", "P", "Q" }, terminalBiomeKey = "Q" }, "extent", false)
+    refreshFingerprint(plan)
+    lu.assertNotNil(protocol.decode(plan))
+
+    plan.occurrences[1].biomeKey = "O"
+    refreshFingerprint(plan)
+    lu.assertNil(protocol.decode(plan))
+
+    plan = minimalPlan({})
+    plan.routeKey = "Surface"
+    plan.extent = tagged({ kind = "configuredPrefix", biomeKeys = { "N", "O", "Q" }, terminalBiomeKey = "Q" }, "extent", false)
+    refreshFingerprint(plan)
+    lu.assertNil(protocol.decode(plan))
+
+    plan = minimalPlan({})
+    plan.routeKey = "Surface"
+    refreshFingerprint(plan)
+    lu.assertNil(protocol.decode(plan))
+end
+
+function TestProtocol.testFGHIFixtureCarriesClockworkGoalsThroughTheOrdinaryRewardShape()
+    local plan = decode("underworld-fghi")
+    local decoded, errorMessage = protocol.decode(plan)
+    lu.assertNotNil(decoded, errorMessage)
+    lu.assertEquals(decoded.extent.biomeKeys, { "F", "G", "H", "I" })
+    lu.assertEquals(decoded.extent.terminalBiomeKey, "I")
+
+    local goal, nonGoal
+    for _, occurrence in ipairs(decoded.occurrences) do
+        if occurrence.biomeKey == "I" and occurrence.overview.incomingReward then
+            local reward = occurrence.overview.incomingReward
+            if reward.rewardType == "ClockworkGoal" then goal = reward else nonGoal = reward end
+        end
+    end
+    lu.assertEquals(goal, { rewardType = "ClockworkGoal", producerLifecycleKey = "ClockworkGoalRoom" })
+    lu.assertNotNil(nonGoal)
+    lu.assertNotEquals(nonGoal.rewardType, "ClockworkGoal")
 end
 
 function TestProtocol.testFieldsFixturePublishesBoundedDistinctPlacementFacts()
