@@ -3,6 +3,13 @@
 -- menu behavior, trait application, replacement, and rarification clicks.
 local ordinary = {}
 local json = type(import) == "function" and import("mods/protocol/json.lua") or require("mods.protocol.json")
+local nativeBindings = type(import) == "function" and import("mods/native_bindings.lua")
+    or require("mods.native_bindings")
+local encounterTraitOfferCarriers = nativeBindings.timeline.encounterTraitOfferCarriers
+
+local function nativeName(value)
+    return type(value) == "table" and (value.Name or value.ItemName or value.LootName) or nil
+end
 
 local function normalRole(transaction, contact)
     if type(transaction) ~= "table" or transaction.kind ~= "acquisition" then return nil end
@@ -17,11 +24,26 @@ end
 
 function ordinary.isNormalPayload(payload)
     local detail = type(payload) == "table" and payload.detail or nil
-    return type(detail) == "table" and detail.disposition == "normal" and detail.traitOffer ~= nil
+    if type(detail) == "table" then
+        return detail.disposition == "normal" and detail.traitOffer ~= nil
+    end
+    local transaction = type(payload) == "table" and payload.transaction or nil
+    local resolution = type(transaction) == "table" and transaction.resolution or nil
+    return type(transaction) == "table" and transaction.kind == "encounterInteraction"
+        and type(resolution) == "table"
+        and resolution.kind == "traitOffer" and resolution.offer ~= nil
 end
 
 function ordinary.normalRole(transaction, contact)
     return normalRole(transaction, contact)
+end
+
+function ordinary.encounterTraitOffer(transaction, contact)
+    if type(transaction) ~= "table" or transaction.kind ~= "encounterInteraction" then return nil end
+    local resolution = transaction.resolution
+    local offer = type(resolution) == "table" and resolution.kind == "traitOffer" and resolution.offer or nil
+    local giver = type(offer) == "table" and offer.giver or nil
+    return giver ~= nil and encounterTraitOfferCarriers[contact.gameName] == giver or nil
 end
 
 local function optionIndex(key)
@@ -49,12 +71,18 @@ end
 function ordinary.isCarrier(loot, offer)
     if type(loot) ~= "table" or type(offer) ~= "table" then return false end
     if offer.kind == "fallbackGold" then return loot.GodLoot == true or loot.Name == "HermesUpgrade" end
+    local encounterGiver = encounterTraitOfferCarriers[nativeName(loot)]
     return loot.GodLoot == true or loot.Name == "HermesUpgrade" or loot.Name == "WeaponUpgrade"
+        or encounterGiver ~= nil and encounterGiver == offer.giver
 end
 
 function ordinary.isNativeCarrier(loot)
     return type(loot) == "table" and (loot.GodLoot == true or loot.Name == "HermesUpgrade"
         or loot.Name == "WeaponUpgrade")
+end
+
+function ordinary.isEncounterTraitOfferCarrier(loot)
+    return encounterTraitOfferCarriers[nativeName(loot)] ~= nil
 end
 
 -- Native declarations must admit every exact authored row before the adapter

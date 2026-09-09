@@ -64,6 +64,90 @@ function TestOrdinaryTraits.testHammerAndHermesAreOrdinaryNativeCarriers()
     lu.assertFalse(ordinary.isCarrier({ Name = "Chaos" }, { kind = "traits", options = {} }))
 end
 
+function TestOrdinaryTraits.testEncounterLootCarriersMatchOnlyTheirPublishedGiver()
+    for _, witness in ipairs({
+        { name = "NPC_Artemis_Field_01", giver = "Artemis" },
+        { name = "NPC_Athena_01", giver = "Athena" },
+        { name = "NPC_Dionysus_01", giver = "Dionysus" },
+        { name = "NPC_Hades_Field_01", giver = "Hades" },
+    }) do
+        local transaction = {
+            kind = "encounterInteraction",
+            resolution = { kind = "traitOffer", offer = { kind = "traits", giver = witness.giver } },
+        }
+        local contact = { gameName = witness.name }
+        local wrapped = { transaction = transaction }
+        lu.assertTrue(ordinary.isNormalPayload(wrapped), witness.giver)
+        lu.assertTrue(ordinary.isEncounterTraitOfferCarrier({ Name = witness.name }), witness.giver)
+        lu.assertTrue(ordinary.encounterTraitOffer(transaction, contact), witness.giver)
+        lu.assertTrue(ordinary.isCarrier({ Name = witness.name }, transaction.resolution.offer), witness.giver)
+        local wrongName = witness.giver == "Artemis" and "NPC_Athena_01" or "NPC_Artemis_Field_01"
+        lu.assertNil(ordinary.encounterTraitOffer(transaction, { gameName = wrongName }), witness.giver)
+    end
+end
+
+function TestOrdinaryTraits.testArtemisEncounterLootUsesTheOrdinaryOfferLifecycle()
+    local callbacks = {}
+    local module = { hooks = { wrap = function(name, _, callback) callbacks[name] = callback end } }
+    local state = { state = "synchronized" }
+    local active = { occurrence = { overview = {} } }
+    local offer = {
+        kind = "traits", giver = "Artemis", selected = "option2",
+        options = {
+            { key = "SupportingFireBoon", rarity = "Common" },
+            { key = "FocusCritBoon", rarity = "Epic" },
+            { key = "DashOmegaBuffBoon", rarity = "Common" },
+        },
+    }
+    local transaction = {
+        owner = "artemis", kind = "encounterInteraction",
+        resolution = { kind = "traitOffer", offer = offer },
+    }
+    local handle = {}
+    local payloadValue = { transaction = transaction }
+    local bound = setmetatable({}, { __mode = "k" })
+    local completed, mismatches = 0, {}
+    local room = {
+        current = function() return active end,
+        bound = function(_, _, native) return bound[native] end,
+        claimReady = function(_, _, contact, native, compatible)
+            if compatible(transaction, contact) == nil then return nil end
+            bound[native] = handle
+            return handle, payloadValue
+        end,
+        peek = function(_, value) return value == handle and payloadValue or nil end,
+        begin = function(_, value) return value == handle and payloadValue or nil end,
+    }
+    local session = {
+        complete = function() completed = completed + 1; return true end,
+        mismatch = function(_, checkpoint, expected, observed)
+            mismatches[#mismatches + 1] = { checkpoint = checkpoint, expected = expected, observed = observed }
+        end,
+    }
+    hooks.attach(module, session, function() return state end, function() end, room, seaStar)
+    local loot = {
+        Name = "NPC_Artemis_Field_01",
+        UpgradeOptions = {
+            { Type = "Trait", ItemName = "CritBonusBoon", Rarity = "Common" },
+            { Type = "Trait", ItemName = "InsideCastCritBoon", Rarity = "Common" },
+            { Type = "Trait", ItemName = "OmegaCastVolleyBoon", Rarity = "Common" },
+        },
+    }
+    callbacks.HandleLootPickup(nil, {}, function(_, nativeLoot)
+        callbacks.CreateBoonLootButtons(nil, {}, function(_, installed)
+            lu.assertEquals(installed.UpgradeOptions, {
+                { Type = "Trait", ItemName = "SupportingFireBoon", Rarity = "Common" },
+                { Type = "Trait", ItemName = "FocusCritBoon", Rarity = "Epic" },
+                { Type = "Trait", ItemName = "DashOmegaBuffBoon", Rarity = "Common" },
+            })
+        end, {}, nativeLoot, false, {})
+        return callbacks.HandleUpgradeChoiceSelection(nil, {}, function() return true end,
+            {}, { LootData = nativeLoot, Data = { Name = "FocusCritBoon" } }, {})
+    end, {}, loot, {})
+    lu.assertEquals(completed, 1)
+    lu.assertEquals(mismatches, {})
+end
+
 function TestOrdinaryTraits.testOlympianHermesAndHammerShareTheNativeRowContract()
     local row = payload({ kind = "traits", selected = "option1", options = {
         { key = "Chosen", baseRarity = "Common", rarity = "Rare" },

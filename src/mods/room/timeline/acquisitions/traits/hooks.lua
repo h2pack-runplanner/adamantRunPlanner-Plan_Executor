@@ -414,7 +414,9 @@ function hooks.attach(module, session, getState, report, room, seaStar)
 
     module.hooks.wrap("HandleLootPickup", "run-planner-begin-ordinary-loot", function(_, runtime, base,
         currentRun, loot, args)
-        if not ordinary.isNativeCarrier(loot) then return base(currentRun, loot, args) end
+        local nativeCarrier = ordinary.isNativeCarrier(loot)
+        local encounterCarrier = ordinary.isEncounterTraitOfferCarrier(loot)
+        if not nativeCarrier and not encounterCarrier then return base(currentRun, loot, args) end
         local state = getState(runtime)
         local current = room.current(state)
         local handle = current and room.bound(state, current, loot) or nil
@@ -425,9 +427,12 @@ function hooks.attach(module, session, getState, report, room, seaStar)
         if handle ~= nil then
             payload = room.begin(state, handle)
         elseif current ~= nil and type(room.claimReady) == "function" then
-            local claimedHandle = room.claimReady(state, current, {
-                kind = "ordinaryTrait", gameName = nativeName(loot),
-            }, loot, ordinary.normalRole)
+            local contact = {
+                kind = encounterCarrier and "encounterTraitOffer" or "ordinaryTrait",
+                gameName = nativeName(loot),
+            }
+            local compatible = encounterCarrier and ordinary.encounterTraitOffer or ordinary.normalRole
+            local claimedHandle = room.claimReady(state, current, contact, loot, compatible)
             handle = claimedHandle
             payload = handle and room.begin(state, handle) or nil
         end

@@ -8,6 +8,15 @@ return {
             InfernalContractBoon = true,
         },
     },
+    timeline = {
+        encounterTraitOfferCarriers = {
+            NPC_Artemis_01 = "Artemis",
+            NPC_Artemis_Field_01 = "Artemis",
+            NPC_Athena_01 = "Athena",
+            NPC_Dionysus_01 = "Dionysus",
+            NPC_Hades_Field_01 = "Hades",
+        },
+    },
     roomFeatures = {
         shopOptionCarriers = {
             BoostedRandomLoot = {
