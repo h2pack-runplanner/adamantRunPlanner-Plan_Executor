@@ -204,8 +204,12 @@ function hooks.attach(module, session, getState, report, routeSession, room, tra
             local ok, result = pcall(base, currentRun, nativeRoom)
             ephyraDoorScope = nil
             if not ok then error(result, 0) end
-            local proved, errorValue = ephyra.prove(ephyraScope, offeredDoors())
-            if not proved then session.mismatch(state, errorValue) end
+            local realizedDoors = offeredDoors()
+            ephyra.bindNativeDoors(ephyraScope, realizedDoors)
+            if ephyraScope.initialBoard then
+                local proved, errorValue = ephyra.prove(ephyraScope, realizedDoors)
+                if not proved then session.mismatch(state, errorValue) end
+            end
             if occurrence ~= nil and state.state == "synchronized" then
                 room.checkpoint(state, "outgoingGeneration")
                 room.window(state, "postOutgoing")
@@ -244,7 +248,7 @@ function hooks.attach(module, session, getState, report, routeSession, room, tra
         local scope = ephyra.scope(
             state.plan, nil, nativeRoom, _G.game or game, state.route)
         local hub = scope and scope.hub
-        if hub == nil or type(nativeRoom) ~= "table" then return result end
+        if hub == nil or not scope.initialBoard or type(nativeRoom) ~= "table" then return result end
         nativeRoom.UnavailableDoors = nativeRoom.UnavailableDoors or {}
         local published = {}
         for _, slot in ipairs(hub.slots or {}) do

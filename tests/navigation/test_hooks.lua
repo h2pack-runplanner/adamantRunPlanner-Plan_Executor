@@ -464,7 +464,7 @@ function TestNavigationHooks.testEphyraProofRejectsAnUnpublishedDeclaredHubDoor(
     lu.assertEquals(errorValue.doorId, 102)
 end
 
-function TestNavigationHooks.testEphyraHubBoardScopeExistsOnlyBeforeTheFirstVisit()
+function TestNavigationHooks.testEphyraHubRevisitRetainsIdentityBindingWithoutRepeatingBoardProof()
     local hub = {
         room = { gameName = "N_Hub" },
         slots = {
@@ -499,7 +499,32 @@ function TestNavigationHooks.testEphyraHubBoardScopeExistsOnlyBeforeTheFirstVisi
         N_Hub = { PredeterminedDoorRooms = { [101] = "N_Combat01", [102] = "N_Combat02" } },
     } }, route)
 
-    lu.assertNil(scope)
+    lu.assertNotNil(scope)
+    lu.assertFalse(scope.initialBoard)
+
+    local module, _, callbacks = capture()
+    local state = { state = "synchronized", plan = plan, route = route }
+    local mismatch
+    local session = stub()
+    session.mismatch = function(_, errorValue) mismatch = errorValue end
+    navigation.attach(module, session, function() return state end, function() end,
+        routeSession, { checkpoint = function() end, window = function() end })
+    local priorMap, priorGame, priorCollapse = _G.MapState, _G.game, _G.CollapseTableOrdered
+    local door = { ObjectId = 102 }
+    _G.MapState = { OfferedExitDoors = { [102] = door } }
+    _G.game = { RoomData = { N_Hub = {
+        PredeterminedDoorRooms = { [101] = "N_Combat01", [102] = "N_Combat02" },
+    } } }
+    _G.CollapseTableOrdered = function() return { door } end
+
+    callbacks.DoUnlockRoomExits(nil, {}, function()
+        -- Native hub restoration may reconstruct an unvisited destination.
+        door.Room = { Name = "N_Combat02" }
+    end, {}, { Name = "N_Hub" })
+    _G.MapState, _G.game, _G.CollapseTableOrdered = priorMap, priorGame, priorCollapse
+
+    lu.assertNil(mismatch)
+    lu.assertEquals(door.Room.__runPlannerExecutionRoomId, "main2")
 end
 
 function TestNavigationHooks.testEphyraLocalSlotsUseNativeCounterAndForceGeneratedRoomReward()

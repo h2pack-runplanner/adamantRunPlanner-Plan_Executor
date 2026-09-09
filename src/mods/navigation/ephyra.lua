@@ -76,7 +76,6 @@ end
 
 function ephyra.scope(plan, occurrence, nativeRoom, game, route)
     local hub = ephyra.hub(plan, nativeRoom)
-    if hub ~= nil and hubWasVisited(hub, route) then return nil end
     local slots = hub and hub.slots or occurrence and occurrence.overview
         and occurrence.overview.localSlots or nil
     if slots == nil then return nil end
@@ -97,6 +96,7 @@ function ephyra.scope(plan, occurrence, nativeRoom, game, route)
         byDoor = byDoor,
         plannedDoorIds = plannedDoorIds,
         declaredDoorIds = declaredDoorIds,
+        initialBoard = hub == nil or not hubWasVisited(hub, route),
     }
 end
 
@@ -113,12 +113,18 @@ function ephyra.forceSideAvailability(base, currentRun, source, args, slot)
 end
 
 function ephyra.bindNativeDoors(scope, nativeDoors)
-    if scope.hub ~= nil then return end
     for _, door in ipairs(nativeDoors or {}) do
         local slot = scope.byDoor[door.ObjectId]
         if slot ~= nil then
-            door.ChooseRoomArgs = copy(door.ChooseRoomArgs or {})
-            door.ChooseRoomArgs.RunPlannerEphyraDoorId = door.ObjectId
+            if scope.hub ~= nil then
+                local nativeRoom = door.Room or door.RoomData
+                if type(nativeRoom) == "table" then
+                    nativeRoom.__runPlannerExecutionRoomId = slot.room.id
+                end
+            else
+                door.ChooseRoomArgs = copy(door.ChooseRoomArgs or {})
+                door.ChooseRoomArgs.RunPlannerEphyraDoorId = door.ObjectId
+            end
         end
     end
 end
