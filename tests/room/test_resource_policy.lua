@@ -119,3 +119,13 @@ function TestResourcePolicy.testNativeDispositionForcesFailureAndManualAndAutoHa
         lu.assertEquals(nativeCalls, 2)
     end)
 end
+
+function TestResourcePolicy.testSuppressedPointCannotLeakAnElementThroughAutoHarvest()
+    local callbacks, inRoom = resourceFixture("suppress")
+    inRoom(function()
+        local result = callbacks.GrantElementFromTool(nil, {}, function()
+            return callbacks.RandomChance(nil, {}, function() return true end, 0.25, {})
+        end, "ToolShovel2", { SkipDelay = true })
+        lu.assertFalse(result)
+    end)
+end

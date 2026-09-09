@@ -33,7 +33,7 @@ function resources.attach(module, getState, report)
         local family = bindings.resourceToolFamilies[toolName]
         local disposition = policy and family and policy.pointDispositions[family] or nil
         local prior = active
-        if disposition == "force" or disposition == "native" then
+        if disposition == "force" or disposition == "native" or disposition == "suppress" then
             active = { result = disposition == "force", consumed = false }
         else
             active = nil

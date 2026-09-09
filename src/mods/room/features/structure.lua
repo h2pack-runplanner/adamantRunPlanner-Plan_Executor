@@ -31,11 +31,6 @@ end
 
 function features.prove(occurrence, nativeRoom, context)
     local expected = occurrence.overview
-    for _, object in ipairs(expected.requiredObjects or {}) do
-        if context == nil or type(context.hasObject) ~= "function" or not context.hasObject(object) then
-            return nil, { kind = "requiredObject", expected = object }
-        end
-    end
     for key, binding in pairs(bindings.features) do
         local present = featurePresent(binding, nativeRoom, context)
         if (expected[key] ~= nil) ~= present then

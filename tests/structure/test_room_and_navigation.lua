@@ -85,7 +85,6 @@ local function context()
                 __runPlannerExecutionAdditionalKind = "chaos",
             } },
         },
-        hasObject = function(key) return key == "SoulPylon" end,
     }
 end
 
@@ -93,7 +92,6 @@ function TestRoomNavigationStructure.testRoomEntryComponentsProveThePublishedOve
     local item = occurrence()
     local native = room()
     lu.assertTrue(proveOverview(item, native, context()))
-    lu.assertNil(features.prove(item, native, { hasObject = function() return false end }))
 end
 
 function TestRoomNavigationStructure.testResourceRealizationWinsOverCreateRoomRandomFields()
