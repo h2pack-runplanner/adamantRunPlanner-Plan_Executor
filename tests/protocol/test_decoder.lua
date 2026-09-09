@@ -80,6 +80,33 @@ local function decodeWithIndependentJsonModule(name)
     return value
 end
 
+function TestProtocol.testScheduledLifecycleKeepsHermesAndEchoStateDiagnosticOnly()
+    local decoded, errorMessage = protocol.decode(decode("surface-scheduled-lifecycle"))
+    lu.assertNotNil(decoded, errorMessage)
+
+    local sawHermesDiagnostic = false
+    for _, occurrence in ipairs(decoded.occurrences) do
+        local diagnostics = occurrence.diagnostics
+        if diagnostics ~= nil then
+            for _, checkpoint in ipairs({ "roomEntered", "beforeRoomExit" }) do
+                local frame = diagnostics[checkpoint]
+                local retained = frame ~= nil and frame.retainedEffects or nil
+                if retained ~= nil and #retained.hermesShrineDeliveries > 0 then
+                    sawHermesDiagnostic = true
+                end
+            end
+        end
+        local exitConformance = occurrence.roomExitConformance
+        if exitConformance ~= nil then
+            for _, fact in ipairs(exitConformance.facts) do
+                lu.assertNotEquals(fact.kind, "hermesShrineDeliveries")
+                lu.assertNotEquals(fact.kind, "echoShopDuplicate")
+            end
+        end
+    end
+    lu.assertTrue(sawHermesDiagnostic)
+end
+
 local function refreshFingerprint(plan)
     plan.planFingerprint = protocol.fingerprint({
         format = plan.format, protocolVersion = plan.protocolVersion,
