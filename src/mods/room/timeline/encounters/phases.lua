@@ -68,9 +68,11 @@ function phases.create()
     end
 
     function instance.prove(occurrence, nativeRoom)
+        local published = occurrence.overview.encounterPhases or {}
         local expected = occurrence.overview.unmodeledEncounterKeys or {}
-        if #expected == 0 then
-            for _, phase in ipairs(occurrence.overview.encounterPhases or {}) do
+        local modeled = #expected == 0
+        if modeled then
+            for _, phase in ipairs(published) do
                 expected[#expected + 1] = phase.encounterKey
             end
         end
@@ -85,6 +87,15 @@ function phases.create()
                     kind = "encounter", expected = expectedKey,
                     observed = nativeName(native),
                 }
+            end
+        end
+        -- A destination encounter may be chosen before the map transition.
+        -- The game's save/load boundary reconstructs that table, so bind the
+        -- canonical room-entry carrier after its published identity is proven.
+        if modeled then
+            for index, phase in ipairs(published) do
+                local _, errorValue = instance.bind(occurrence, actual[index], phase.slotKey)
+                if errorValue ~= nil then return nil, errorValue end
             end
         end
         return true

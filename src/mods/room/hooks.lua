@@ -111,6 +111,13 @@ function hooks.attach(module, session, getState, report, route, room, featureSco
             return base(currentRun, nativeRoom)
         end
         if id == nil and expected and roomName(nativeRoom) == expected.gameName then id = expected.id end
+        -- Native room restoration can discard planner-private fields. Once the
+        -- route cursor has resolved the exact occurrence by game name, restore
+        -- its identity before any native room lifecycle runs. Peripheral hooks
+        -- such as auto-harvest then consult the same occurrence through exit.
+        if type(nativeRoom) == "table" and id ~= nil then
+            nativeRoom.__runPlannerExecutionRoomId = id
+        end
         local occurrence, errorValue = route.enter(state.route, id, roomName(nativeRoom))
         if occurrence == true then
             state.state, state.reason = "inactive", "configured-prefix-complete"
@@ -119,6 +126,7 @@ function hooks.attach(module, session, getState, report, route, room, featureSco
         end
         if occurrence == nil then session.mismatch(state, errorValue) else room.enter(state, occurrence) end
         report(runtime)
+        if state.state == "synchronized" then room.bindEntryEncounters(state, nativeRoom) end
         local result = base(currentRun, nativeRoom)
         if state.state == "synchronized" then
             local rewardOk, rewardError = navigation.proveIncomingReward(occurrence, nativeRoom)
@@ -128,10 +136,6 @@ function hooks.attach(module, session, getState, report, route, room, featureSco
             room.proveEntry(state, nativeRoom, {
                 activeObstacles = _G.MapState and _G.MapState.ActiveObstacles,
                 offeredExitDoors = _G.MapState and _G.MapState.OfferedExitDoors,
-                hasObject = function(key)
-                    local ids = _G.GetIdsByType({ Name = key })
-                    return type(ids) == "table" and next(ids) ~= nil
-                end,
             })
         end
         report(runtime)
@@ -141,7 +145,8 @@ function hooks.attach(module, session, getState, report, route, room, featureSco
     module.hooks.wrap("LeaveRoom", "run-planner-room-exit", function(_, runtime, base, currentRun, door)
         local state = getState(runtime)
         if state == nil or state.state ~= "synchronized" then return base(currentRun, door) end
-        if route.leaveTransparent and route.leaveTransparent(state.route) then
+        local nativeRoomName = roomName(currentRun and currentRun.CurrentRoom)
+        if route.leaveTransparent and route.leaveTransparent(state.route, nativeRoomName) then
             return base(currentRun, door)
         end
         local proved, errorValue = navigation.proveOutgoingDoors(state, currentRun)

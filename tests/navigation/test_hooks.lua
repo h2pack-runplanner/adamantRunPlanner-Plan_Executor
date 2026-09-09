@@ -1,6 +1,7 @@
 -- luacheck: globals TestNavigationHooks
 local lu = require("luaunit")
 local navigation = require("mods.navigation.hooks")
+local ephyra = require("mods.navigation.ephyra")
 local routeSession = require("mods.route.session")
 local support = require("tests.harness.hook_composition")
 local capture, stub = support.capture, support.stub
@@ -316,7 +317,7 @@ function TestNavigationHooks.testEphyraHubForcesTheCompletePhysicalBoardBeforeNa
 
     local priorMap, priorGame, priorRun, priorCollapse =
         _G.MapState, _G.game, _G.CurrentRun, _G.CollapseTableOrdered
-    local plannedDoor, unplannedDoor = { ObjectId = 101 }, { ObjectId = 102 }
+    local plannedDoor = { ObjectId = 101 }
     local hubRoom = { Name = "N_Hub", UnavailableDoors = {} }
     _G.MapState = { OfferedExitDoors = { [101] = plannedDoor } }
     _G.game = { RoomData = {
@@ -360,6 +361,145 @@ function TestNavigationHooks.testEphyraHubForcesTheCompletePhysicalBoardBeforeNa
     })
     _G.MapState, _G.game, _G.CurrentRun, _G.CollapseTableOrdered =
         priorMap, priorGame, priorRun, priorCollapse
+end
+
+function TestNavigationHooks.testEphyraHubEntryOwnersForceAndProveTheNativeStructuralDoor()
+    for _, sourceName in ipairs({ "N_PreHub01", "Chaos_03" }) do
+        local module, _, callbacks = capture()
+        local source = {
+            id = "source", gameName = sourceName, biomeKey = "N",
+            overview = {
+                additional = {},
+                hub = {
+                    room = { gameName = "N_Hub" }, slots = {},
+                    finalHandoff = { id = "preboss", biomeKey = "N", gameName = "N_PreBoss01" },
+                },
+            },
+            doors = { kind = "terminal" },
+        }
+        local plan = { selectedOccurrenceIds = { "source" }, occurrencesById = { source = source } }
+        local cursor = routeSession.new(plan)
+        assert(routeSession.enter(cursor, "source", sourceName))
+        local state = { state = "synchronized", plan = plan, route = cursor }
+        local room = { checkpoint = function() return true end, window = function() return true end }
+        local scope = navigation.attach(module, stub(), function() return state end, function() end,
+            routeSession, room)
+
+        local priorMap, priorGame, priorCollapse = _G.MapState, _G.game, _G.CollapseTableOrdered
+        local nativeDoor = { ObjectId = 101 }
+        _G.MapState = { OfferedExitDoors = { [101] = nativeDoor } }
+        _G.game = { RoomData = { N_Hub = { Name = "N_Hub" } } }
+        _G.CollapseTableOrdered = function() return { nativeDoor } end
+
+        callbacks.DoUnlockRoomExits(nil, {}, function(run)
+            nativeDoor.Room = callbacks.ChooseNextRoomData(nil, {}, function()
+                return { Name = "N_Combat01" }
+            end, run, {}, { nativeDoor })
+        end, { CurrentRoom = { Name = sourceName } }, { Name = sourceName })
+        local proved, errorValue = scope.proveOutgoingDoors(state, {})
+        _G.MapState, _G.game, _G.CollapseTableOrdered = priorMap, priorGame, priorCollapse
+
+        lu.assertEquals(nativeDoor.Room.Name, "N_Hub")
+        lu.assertTrue(proved, errorValue)
+    end
+end
+
+function TestNavigationHooks.testEphyraProofRejectsAnUnpublishedDeclaredBoardDoor()
+    local occurrence = {
+        overview = { localSlots = {
+            {
+                slotKey = "side1", physicalDoorId = 201, generation = "generated",
+                room = { id = "side", gameName = "N_Sub01" },
+                reward = { rewardType = "MaxHealthDropSmall" },
+            },
+        } },
+    }
+    local nativeRoom = { Name = "N_Combat02" }
+    local game = { RoomData = { N_Combat02 = {
+        PredeterminedDoorRooms = { [201] = "N_Sub01", [202] = "N_Sub03" },
+    } } }
+    local scope = assert(ephyra.scope({}, occurrence, nativeRoom, game))
+    local proved, errorValue = ephyra.prove(scope, {
+        {
+            ObjectId = 201,
+            Room = { Name = "N_Sub01", ChosenRewardType = "MaxHealthDropSmall" },
+        },
+        {
+            ObjectId = 202,
+            Room = { Name = "N_Sub03", ChosenRewardType = "MaxManaDropSmall" },
+        },
+        { ObjectId = 999, Room = { Name = "N_Hub" } },
+    })
+
+    lu.assertNil(proved)
+    lu.assertEquals(errorValue.kind, "ephyraUnexpectedDoor")
+    lu.assertEquals(errorValue.doorId, 202)
+end
+
+function TestNavigationHooks.testEphyraProofRejectsAnUnpublishedDeclaredHubDoor()
+    local owner = {
+        overview = { hub = {
+            room = { gameName = "N_Hub" },
+            slots = { {
+                slotKey = "combat01", physicalDoorId = 101,
+                room = { id = "main", gameName = "N_Combat01" },
+                reward = { rewardType = "Boon" },
+            } },
+            finalHandoff = { id = "preboss", gameName = "N_PreBoss01" },
+        } },
+    }
+    local plan = { occurrencesById = { owner = owner } }
+    local nativeRoom = { Name = "N_Hub" }
+    local game = { RoomData = { N_Hub = {
+        PredeterminedDoorRooms = { [101] = "N_Combat01", [102] = "N_Combat02" },
+    } } }
+    local scope = assert(ephyra.scope(plan, nil, nativeRoom, game))
+    local proved, errorValue = ephyra.prove(scope, {
+        { ObjectId = 101, Room = { Name = "N_Combat01", ChosenRewardType = "Boon" } },
+        { ObjectId = 102, Room = { Name = "N_Combat02", ChosenRewardType = "WeaponUpgrade" } },
+    })
+
+    lu.assertNil(proved)
+    lu.assertEquals(errorValue.kind, "ephyraUnexpectedDoor")
+    lu.assertEquals(errorValue.doorId, 102)
+end
+
+function TestNavigationHooks.testEphyraHubBoardScopeExistsOnlyBeforeTheFirstVisit()
+    local hub = {
+        room = { gameName = "N_Hub" },
+        slots = {
+            {
+                slotKey = "combat01", physicalDoorId = 101,
+                room = { id = "main1", gameName = "N_Combat01" },
+                reward = { rewardType = "Boon" },
+            },
+            {
+                slotKey = "combat02", physicalDoorId = 102,
+                room = { id = "main2", gameName = "N_Combat02" },
+                reward = { rewardType = "WeaponUpgrade" },
+            },
+        },
+        finalHandoff = { id = "preboss", gameName = "N_PreBoss01" },
+    }
+    local plan = {
+        selectedOccurrenceIds = { "prehub", "main1", "main2", "preboss" },
+        occurrencesById = {
+            prehub = { id = "prehub", overview = { hub = hub } },
+            main1 = { id = "main1", gameName = "N_Combat01" },
+            main2 = { id = "main2", gameName = "N_Combat02" },
+            preboss = {
+                id = "preboss", gameName = "N_PreBoss01",
+                overview = { incomingReward = { rewardType = "Shop" } },
+            },
+        },
+    }
+    local route = routeSession.new(plan)
+    route.index = 3
+    local scope = ephyra.scope(plan, nil, { Name = "N_Hub" }, { RoomData = {
+        N_Hub = { PredeterminedDoorRooms = { [101] = "N_Combat01", [102] = "N_Combat02" } },
+    } }, route)
+
+    lu.assertNil(scope)
 end
 
 function TestNavigationHooks.testEphyraLocalSlotsUseNativeCounterAndForceGeneratedRoomReward()

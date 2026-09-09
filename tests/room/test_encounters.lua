@@ -76,6 +76,25 @@ function TestEncounters.testPublishedEmptyPhaseRemainsAnExactNativeEncounter()
     lu.assertEquals(mismatch, { kind = "encounterCount", expected = 1, observed = 0 })
 end
 
+function TestEncounters.testRoomEntryProofRebindsTheCanonicalEncounterAfterMapLoad()
+    local registry = require("mods.room.timeline.encounters.phases").create()
+    local occurrence = {
+        id = "room",
+        overview = {
+            encounterPhases = { { slotKey = "Encounter", encounterKey = "GeneratedN_Bigger" } },
+        },
+    }
+    local selectedBeforeTransition = { Name = "GeneratedN_Bigger" }
+    local canonicalAfterLoad = { Name = "GeneratedN_Bigger" }
+
+    lu.assertNotNil(registry.bind(occurrence, selectedBeforeTransition, "Encounter"))
+    lu.assertTrue(registry.prove(occurrence, { Encounter = canonicalAfterLoad }))
+    lu.assertEquals(registry.forNative(canonicalAfterLoad), {
+        occurrenceId = "room",
+        phase = occurrence.overview.encounterPhases[1],
+    })
+end
+
 function TestEncounters.testBossArcanaAdmitsAnExactEternityOutcome()
     local module, callbacks = capture()
     local state = { state = "synchronized" }

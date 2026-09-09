@@ -162,6 +162,8 @@ function hooks.attach(module, session, getState, report, routeSession, room, tra
             local data = doors.additional(additional, occurrence, gameValue)
             if data ~= nil then return rewards.realize(occurrence, data) end
         end
+        local hubEntry = ephyra.chooseHubEntry(routeSession.current(state.route), args, gameValue)
+        if hubEntry ~= nil then return hubEntry end
         if doorScope ~= nil and doorScope.rows[doorScope.index] ~= nil then
             local row = doorScope.rows[doorScope.index]
             local occurrence = occurrenceForRoom(state, row.Room)
@@ -189,7 +191,8 @@ function hooks.attach(module, session, getState, report, routeSession, room, tra
         if state == nil or state.state ~= "synchronized" then return base(currentRun, nativeRoom) end
         local occurrence = routeSession.current(state.route)
         local expected = occurrence and occurrence.doors
-        local ephyraScope = ephyra.scope(state.plan, occurrence, nativeRoom)
+        local ephyraScope = ephyra.scope(
+            state.plan, occurrence, nativeRoom, _G.game or game, state.route)
         if expected == nil and ephyraScope == nil then return base(currentRun, nativeRoom) end
         local function offeredDoors()
             return orderedDoors(_G.MapState and _G.MapState.OfferedExitDoors or {})
@@ -238,7 +241,9 @@ function hooks.attach(module, session, getState, report, routeSession, room, tra
         local state = getState(runtime)
         local result = base(nativeRoom, args)
         if state == nil or state.state ~= "synchronized" then return result end
-        local hub = ephyra.hub(state.plan, nativeRoom)
+        local scope = ephyra.scope(
+            state.plan, nil, nativeRoom, _G.game or game, state.route)
+        local hub = scope and scope.hub
         if hub == nil or type(nativeRoom) ~= "table" then return result end
         nativeRoom.UnavailableDoors = nativeRoom.UnavailableDoors or {}
         local published = {}
@@ -276,7 +281,9 @@ function hooks.attach(module, session, getState, report, routeSession, room, tra
             if occurrence == nil or occurrence.doors == nil then return true end
             local offered = orderedDoors(_G.MapState and _G.MapState.OfferedExitDoors or {})
             local normal, additional = doors.partition(occurrence, offered)
-            local localScope = ephyra.scope(state.plan, occurrence, currentRun and currentRun.CurrentRoom)
+            local localScope = ephyra.scope(
+                state.plan, occurrence, currentRun and currentRun.CurrentRoom,
+                _G.game or game, state.route)
             if localScope ~= nil then
                 local proved, errorValue = ephyra.prove(localScope, offered)
                 if not proved then return nil, errorValue end
@@ -284,6 +291,11 @@ function hooks.attach(module, session, getState, report, routeSession, room, tra
             end
             if ephyra.parentForSide(state.plan, occurrence.id) ~= nil then
                 return doors.proveAdditional(occurrence, additional)
+            end
+            if ephyra.hubEntry(occurrence) ~= nil then
+                local proved, errorValue = ephyra.proveHubEntry(occurrence, normal)
+                if proved then proved, errorValue = doors.proveAdditional(occurrence, additional) end
+                return proved, errorValue
             end
             if occurrence.doors.resolvedSharedRewardStoreKey then
                 normal.sharedRewardStoreKey = currentRun and currentRun.NextRewardStoreName

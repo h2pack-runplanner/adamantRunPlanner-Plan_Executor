@@ -28,6 +28,21 @@ function ephyra.hub(plan, nativeRoom)
     end
 end
 
+function ephyra.hubEntry(occurrence)
+    local hub = occurrence and occurrence.overview and occurrence.overview.hub
+    return hub and hub.room or nil
+end
+
+function ephyra.chooseHubEntry(occurrence, args, game)
+    local target = ephyra.hubEntry(occurrence)
+    if target == nil or type(args) == "table" and args.ForceNextRoomSet ~= nil then return nil end
+    local declaration = game and game.RoomData and game.RoomData[target.gameName] or nil
+    if declaration == nil then return nil end
+    local result = copy(declaration)
+    result.GenusName, result.Name = target.gameName, target.gameName
+    return result
+end
+
 function ephyra.parentForSide(plan, sideId)
     for _, occurrence in pairs(plan and plan.occurrencesById or {}) do
         for _, slot in ipairs(occurrence.overview and occurrence.overview.localSlots or {}) do
@@ -49,16 +64,40 @@ function ephyra.occurrenceForNative(state, routeSession, nativeRoom)
     if parent and parent.gameName == roomName(nativeRoom) then return parent end
 end
 
-function ephyra.scope(plan, occurrence, nativeRoom)
+local function hubWasVisited(hub, route)
+    local hubIds = {}
+    for _, slot in ipairs(hub.slots or {}) do hubIds[slot.room.id] = true end
+    local selected = route and route.plan and route.plan.selectedOccurrenceIds or {}
+    for index = 1, math.max(0, (route and route.index or 1) - 1) do
+        if hubIds[selected[index]] then return true end
+    end
+    return false
+end
+
+function ephyra.scope(plan, occurrence, nativeRoom, game, route)
     local hub = ephyra.hub(plan, nativeRoom)
+    if hub ~= nil and hubWasVisited(hub, route) then return nil end
     local slots = hub and hub.slots or occurrence and occurrence.overview
         and occurrence.overview.localSlots or nil
     if slots == nil then return nil end
     local byDoor = {}
+    local plannedDoorIds = {}
     for _, slot in ipairs(slots) do
+        plannedDoorIds[slot.physicalDoorId] = true
         if hub ~= nil or slot.generation == "generated" then byDoor[slot.physicalDoorId] = slot end
     end
-    return { hub = hub, slots = slots, byDoor = byDoor }
+    local declaredDoorIds = {}
+    local declaration = game and game.RoomData and game.RoomData[roomName(nativeRoom)] or nil
+    for doorId in pairs(declaration and declaration.PredeterminedDoorRooms or {}) do
+        declaredDoorIds[doorId] = true
+    end
+    return {
+        hub = hub,
+        slots = slots,
+        byDoor = byDoor,
+        plannedDoorIds = plannedDoorIds,
+        declaredDoorIds = declaredDoorIds,
+    }
 end
 
 function ephyra.forceSideAvailability(base, currentRun, source, args, slot)
@@ -97,7 +136,21 @@ end
 
 function ephyra.prove(scope, nativeDoors)
     local byDoor = {}
-    for _, door in ipairs(nativeDoors or {}) do byDoor[door.ObjectId] = door end
+    local nonBoardDoors = {}
+    for _, door in ipairs(nativeDoors or {}) do
+        byDoor[door.ObjectId] = door
+        if scope.declaredDoorIds[door.ObjectId] == nil then
+            nonBoardDoors[#nonBoardDoors + 1] = door
+        end
+    end
+    for doorId in pairs(scope.declaredDoorIds) do
+        if byDoor[doorId] ~= nil and scope.plannedDoorIds[doorId] == nil then
+            return nil, {
+                kind = "ephyraUnexpectedDoor", doorId = doorId,
+                expected = false, observed = true,
+            }
+        end
+    end
     for _, slot in ipairs(scope.slots) do
         local expectedPresent = scope.hub ~= nil or slot.generation == "generated"
         local door = byDoor[slot.physicalDoorId]
@@ -132,6 +185,34 @@ function ephyra.prove(scope, nativeDoors)
                 }
             end
         end
+    end
+    if scope.hub ~= nil then
+        if #nonBoardDoors ~= 0 then
+            return nil, {
+                kind = "ephyraUnexpectedDoor", doorId = nonBoardDoors[1].ObjectId,
+                expected = false, observed = true,
+            }
+        end
+    end
+    return true
+end
+
+function ephyra.proveHubEntry(occurrence, nativeDoors)
+    local target = ephyra.hubEntry(occurrence)
+    if target == nil then return nil end
+    if type(nativeDoors) ~= "table" or #nativeDoors ~= 1 then
+        return nil, {
+            kind = "ephyraHubEntryCount", expected = 1,
+            observed = type(nativeDoors) == "table" and #nativeDoors or nil,
+        }
+    end
+    local door = nativeDoors[1]
+    local nativeRoom = door and (door.Room or door.RoomData)
+    if roomName(nativeRoom) ~= target.gameName then
+        return nil, {
+            kind = "ephyraHubEntryRoom", expected = target.gameName,
+            observed = roomName(nativeRoom),
+        }
     end
     return true
 end

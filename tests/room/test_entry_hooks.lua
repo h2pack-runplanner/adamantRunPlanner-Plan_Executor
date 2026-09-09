@@ -225,9 +225,9 @@ function TestRoomEntryHooks.testOpeningLoadoutMismatchReturnsToUnblockedNativeSe
     lu.assertEquals(state.state, "desynchronized")
 end
 
-function TestRoomEntryHooks.testRoomSessionStartsBeforeNativeFeatureSpawns()
+function TestRoomEntryHooks.testRoomSessionAndEncounterBindingStartBeforeNativeLifecycle()
     local module, _, callbacks = capture()
-    local entered, proved = false, false
+    local entered, bound, proved = false, false, false
     local occurrence = { id = "opening", gameName = "F_Opening01" }
     local additional = { room = { id = "chaos", gameName = "Chaos_01" } }
     local session = stub()
@@ -243,6 +243,12 @@ function TestRoomEntryHooks.testRoomSessionStartsBeforeNativeFeatureSpawns()
         enter = function(_, enteredOccurrence)
             lu.assertEquals(enteredOccurrence, occurrence)
             entered = true
+            return true
+        end,
+        bindEntryEncounters = function(_, nativeRoom)
+            lu.assertTrue(entered)
+            lu.assertEquals(nativeRoom.__runPlannerExecutionRoomId, "opening")
+            bound = true
             return true
         end,
         additional = function()
@@ -264,14 +270,47 @@ function TestRoomEntryHooks.testRoomSessionStartsBeforeNativeFeatureSpawns()
     local nativeRoom = { Name = "F_Opening01", __runPlannerExecutionRoomId = "opening" }
     local eligible
     callbacks.StartRoom(nil, {}, function()
+        lu.assertTrue(bound)
         callbacks.HandleSecretSpawns(nil, {}, function()
             eligible = callbacks.IsSecretDoorEligible(nil, {}, function() return false end, {}, nativeRoom)
         end, {})
     end, {}, nativeRoom)
 
     lu.assertTrue(entered)
+    lu.assertTrue(bound)
     lu.assertTrue(proved)
     lu.assertTrue(eligible)
+end
+
+function TestRoomEntryHooks.testRecoveredOccurrenceIdentitySurvivesThroughNativeRoomLifecycle()
+    local module, _, callbacks = capture()
+    local occurrence = { id = "story", gameName = "N_Story01" }
+    local state = { state = "synchronized", route = {} }
+    local route = {
+        expected = function() return occurrence end,
+        enter = function(_, id, gameName)
+            lu.assertEquals(id, occurrence.id)
+            lu.assertEquals(gameName, occurrence.gameName)
+            return occurrence
+        end,
+    }
+    local roomSession = {
+        enter = function() return true end,
+        bindEntryEncounters = function() return true end,
+        proveEntry = function() return true end,
+        additional = function() return nil end,
+    }
+    local featureScope = roomFeatureHooks.attach(module, stub(), function() return state end, function() end,
+        roomSession)
+    roomHooks.attach(module, stub(), function() return state end, function() end,
+        route, roomSession, featureScope, navigationEntryStub, unusedLoadoutScope)
+
+    local nativeRoom = { Name = occurrence.gameName }
+    callbacks.StartRoom(nil, {}, function(_, enteredRoom)
+        lu.assertEquals(enteredRoom.__runPlannerExecutionRoomId, occurrence.id)
+    end, {}, nativeRoom)
+
+    lu.assertEquals(nativeRoom.__runPlannerExecutionRoomId, occurrence.id)
 end
 
 function TestRoomEntryHooks.testCreateRoomReappliesOnlyPublishedResourceOverrides()
@@ -330,6 +369,7 @@ function TestRoomEntryHooks.testIncomingRewardProofRemainsNavigationOwnedAtRoomE
     }
     local roomSession = {
         enter = function() return true end,
+        bindEntryEncounters = function() return true end,
         proveEntry = function() roomProof = true; return true end,
     }
     local navigationEntry = {
@@ -566,6 +606,7 @@ function TestRoomEntryHooks.testEphyraRestoresStayTransparentWhileFreshRoomsAdva
     local entered, closed = {}, {}
     local roomSession = {
         enter = function(_, occurrence) entered[#entered + 1] = occurrence.id; return true end,
+        bindEntryEncounters = function() return true end,
         proveEntry = function() return true end,
         close = function()
             local current = routeSessionModule.current(cursor)
@@ -593,6 +634,11 @@ function TestRoomEntryHooks.testEphyraRestoresStayTransparentWhileFreshRoomsAdva
         callbacks.StartRoom(nil, {}, function() return true end, {}, { Name = gameName })
         callbacks.LeaveRoom(nil, {}, function() return true end, {}, {})
     end
+    local function leaveTransparentWithoutStart(gameName)
+        callbacks.LeaveRoom(nil, {}, function() return true end, {
+            CurrentRoom = { Name = gameName },
+        }, {})
+    end
 
     enterFresh(opening); leaveRoom()
     enterFresh(chaos); leaveRoom()
@@ -602,7 +648,7 @@ function TestRoomEntryHooks.testEphyraRestoresStayTransparentWhileFreshRoomsAdva
     passTransparent("N_Combat05")
     enterFresh(side2); leaveRoom()
     passTransparent("N_Combat05")
-    passTransparent("N_Hub")
+    leaveTransparentWithoutStart("N_Hub")
     enterFresh(nextRoom)
 
     lu.assertEquals(entered, { "opening", "chaos", "main", "side1", "side2", "next" })

@@ -104,11 +104,15 @@ function routeSession.enterTransparent(route, gameName)
     return false
 end
 
-function routeSession.leaveTransparent(route)
+function routeSession.leaveTransparent(route, gameName)
     if route and route.transparentNativeRoom ~= nil then
         route.transparentNativeRoom = nil
         return true
     end
+    -- Persistent N restores do not consistently re-enter through StartRoom.
+    -- Recognize the same planner-transparent room at LeaveRoom without
+    -- advancing or otherwise validating a native transition.
+    if routeSession.transparent(route, gameName) then return true end
     return false
 end
 

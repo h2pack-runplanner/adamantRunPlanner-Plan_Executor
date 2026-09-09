@@ -118,7 +118,7 @@ function coordinator.proveEntry(state, nativeRoom, nativeContext)
     if active == nil then return nil end
     for _, proof in ipairs({
         function() return overview.prove(active.occurrence, nativeRoom) end,
-        function() return encounterPhases(state).prove(active.occurrence, nativeRoom) end,
+        function() return coordinator.bindEntryEncounters(state, nativeRoom) end,
         function() return features.prove(active.occurrence, nativeRoom, nativeContext) end,
     }) do
         local ok, errorValue = proof()
@@ -127,6 +127,17 @@ function coordinator.proveEntry(state, nativeRoom, nativeContext)
     local ok, errorValue = session.checkpoint(active, "roomEntered")
     if not ok then return fail(state, errorValue) end
     return active
+end
+
+-- StartRoom owns the native encounter lifecycle and does not return until a
+-- synchronous combat has ended. Bind its canonical encounter carriers before
+-- entering that call; the complete room-content proof remains after setup.
+function coordinator.bindEntryEncounters(state, nativeRoom)
+    local active = coordinator.current(state)
+    if active == nil then return nil end
+    local ok, errorValue = encounterPhases(state).prove(active.occurrence, nativeRoom)
+    if not ok then return fail(state, errorValue) end
+    return true
 end
 
 function coordinator.chooseEncounter(state, slotKey)
