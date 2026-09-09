@@ -18,17 +18,6 @@ local function featurePresent(binding, room, context)
     return false
 end
 
-function features.realize(nativeRoom, resourcePolicy)
-    if resourcePolicy ~= nil and type(resourcePolicy.pointDispositions) == "table" then
-        for family, field in pairs(bindings.resourcePointFields) do
-            local disposition = resourcePolicy.pointDispositions[family]
-            if disposition == "force" then nativeRoom[field] = true
-            elseif disposition == "suppress" then nativeRoom[field] = false end
-        end
-    end
-    return nativeRoom
-end
-
 function features.prove(occurrence, nativeRoom, context)
     local expected = occurrence.overview
     for key, binding in pairs(bindings.features) do

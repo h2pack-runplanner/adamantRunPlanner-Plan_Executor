@@ -31,7 +31,6 @@ end
 local function realizeOverview(item, game, native)
     local result = assert(overview.realize(item, game, native))
     rewards.realize(item, result)
-    features.realize(item, result)
     return result
 end
 
@@ -39,6 +38,7 @@ function TestRoomNavigationStructure.testNativeFactVocabularyIsClosedAndDoesNotT
     lu.assertEquals(featureBindings.features, {
         stygianWell = { carrier = "roomField", key = "WellShop" },
         purgingPool = { carrier = "roomField", key = "SellTraitShop" },
+        hermesShrine = { carrier = "roomField", key = "SurfaceShop" },
         keepsakeRack = { carrier = "obstacleUseFunction", key = "UseKeepsakeRack" },
         fountain = { carrier = "obstacleUseFunction", key = "UseHealthFountain" },
         shop = { carrier = "roomField", key = "StoreDataName" },
@@ -57,6 +57,7 @@ local function occurrence()
             encounterPhases = { { slotKey = "Encounter", encounterKey = "Fight" } },
             requiredObjects = { "SoulPylon" },
             stygianWell = { interacted = true }, purgingPool = { interacted = true },
+            hermesShrine = { offers = {} },
             keepsakeRack = {}, fountain = {}, shop = { offers = {} },
             additional = { { owner = "chaos", kind = "chaos", room = { gameName = "Chaos" } } },
         },
@@ -70,7 +71,7 @@ end
 local function room()
     return { GenusName = "F_Test", RewardType = "Boon", ChosenRewardType = "Boon",
         Encounter = { Name = "Fight" }, PickaxePointSuccess = true,
-        WellShop = {}, SellTraitShop = {}, StoreDataName = "WorldShop" }
+        WellShop = {}, SellTraitShop = {}, SurfaceShop = {}, StoreDataName = "WorldShop" }
 end
 
 local function context()
@@ -94,23 +95,14 @@ function TestRoomNavigationStructure.testRoomEntryComponentsProveThePublishedOve
     lu.assertTrue(proveOverview(item, native, context()))
 end
 
-function TestRoomNavigationStructure.testResourceRealizationWinsOverCreateRoomRandomFields()
-    local native = room()
-    native.PickaxePointSuccess = false
-    features.realize(native, { pointDispositions = {
-        Pickaxe = "force", Exorcism = "native", Shovel = "native", Fishing = "suppress",
-    } })
-    lu.assertTrue(native.PickaxePointSuccess)
-    lu.assertFalse(native.FishingPointSuccess)
-end
-
-function TestRoomNavigationStructure.testNativeResourcePointFieldsRemainNativeWithoutAnOverride()
-    local native = room()
-    native.PickaxePointSuccess = true
-    features.realize(native, { pointDispositions = {
-        Pickaxe = "native", Exorcism = "native", Shovel = "native", Fishing = "native",
-    } })
-    lu.assertTrue(native.PickaxePointSuccess)
+function TestRoomNavigationStructure.testUnplannedHermesShrineFailsRoomFeatureProof()
+    local item = occurrence()
+    item.overview.hermesShrine = nil
+    local ok, errorValue = features.prove(item, room(), context())
+    lu.assertNil(ok)
+    lu.assertEquals(errorValue, {
+        kind = "feature", expected = "hermesShrine", observed = true,
+    })
 end
 
 function TestRoomNavigationStructure.testRoomRealizationReplacesRandomInputsButKeepsNativeFields()
@@ -129,6 +121,7 @@ function TestRoomNavigationStructure.testRoomRealizationReplacesRandomInputsButK
     realized.Encounter = { Name = "Fight" }
     realized.WellShop = {}
     realized.SellTraitShop = {}
+    realized.SurfaceShop = {}
     realized.StoreDataName = "WorldShop"
     lu.assertTrue(proveOverview(item, realized, context()))
 end
@@ -182,6 +175,7 @@ function TestRoomNavigationStructure.testLogicalContractAcquisitionDoesNotReplac
     realized.Encounter = { Name = "Fight" }
     realized.WellShop = {}
     realized.SellTraitShop = {}
+    realized.SurfaceShop = {}
     realized.StoreDataName = "WorldShop"
     lu.assertTrue(proveOverview(item, realized, context()))
 end
@@ -201,6 +195,7 @@ function TestRoomNavigationStructure.testEffectNeutralRequiredRewardPreservesAnd
     realized.Encounter = { Name = "Fight" }
     realized.WellShop = {}
     realized.SellTraitShop = {}
+    realized.SurfaceShop = {}
     realized.StoreDataName = "WorldShop"
     lu.assertTrue(proveOverview(item, realized, context()))
     realized.ChosenRewardType = nil

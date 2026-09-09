@@ -15,21 +15,36 @@ return {
                 argsMarkers = { "AddBoostedAnimation", "BoonRaritiesOverride" },
             },
         },
-        resourcePointFields = {
-            Pickaxe = "PickaxePointSuccess",
-            Exorcism = "ExorcismPointSuccess",
-            Shovel = "ShovelPointSuccess",
-            Fishing = "FishingPointSuccess",
-        },
-        resourceToolFamilies = {
-            ToolPickaxe2 = "Pickaxe",
-            ToolExorcismBook2 = "Exorcism",
-            ToolShovel2 = "Shovel",
-            ToolFishingRod2 = "Fishing",
+        resourceFamilies = {
+            Pickaxe = {
+                successField = "PickaxePointSuccess",
+                choicesField = "PickaxePointChoices",
+                toolName = "ToolPickaxe2",
+                exitFunction = "UsePickaxePointOnExit",
+            },
+            Exorcism = {
+                successField = "ExorcismPointSuccess",
+                choicesField = "ExorcismPointChoices",
+                toolName = "ToolExorcismBook2",
+                exitFunction = "UseExorcismPointOnExit",
+            },
+            Shovel = {
+                successField = "ShovelPointSuccess",
+                choicesField = "ShovelPointChoices",
+                toolName = "ToolShovel2",
+                exitFunction = "UseShovelPointOnExit",
+            },
+            Fishing = {
+                successField = "FishingPointSuccess",
+                choicesField = "FishingPointChoices",
+                toolName = "ToolFishingRod2",
+                exitFunction = "UseFishingPointOnExit",
+            },
         },
         features = {
             stygianWell = { carrier = "roomField", key = "WellShop" },
             purgingPool = { carrier = "roomField", key = "SellTraitShop" },
+            hermesShrine = { carrier = "roomField", key = "SurfaceShop" },
             keepsakeRack = { carrier = "obstacleUseFunction", key = "UseKeepsakeRack" },
             fountain = { carrier = "obstacleUseFunction", key = "UseHealthFountain" },
             shop = { carrier = "roomField", key = "StoreDataName" },

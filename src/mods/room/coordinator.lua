@@ -66,15 +66,6 @@ function coordinator.prepare(state, occurrence)
     return roomState.prepared
 end
 
-local function resourcePolicy(state, occurrence)
-    local rows = state and state.plan and state.plan.resources
-        and state.plan.resources.occurrences or nil
-    for _, row in ipairs(rows or {}) do
-        if row.occurrenceId == occurrence.id then return row end
-    end
-    return nil
-end
-
 function coordinator.realize(state, occurrence, game, nativeRoom)
     local realized, errorValue = overview.realize(occurrence, game, nativeRoom)
     if realized == nil then return fail(state, errorValue) end
@@ -82,10 +73,9 @@ function coordinator.realize(state, occurrence, game, nativeRoom)
     return realized
 end
 
-function coordinator.realizeFeatures(state, occurrence, nativeRoom)
-    local realized = features.realize(nativeRoom, resourcePolicy(state, occurrence))
-    fieldFeatures.realize(realized, occurrence.overview and occurrence.overview.fields or nil)
-    return realized
+function coordinator.realizeFeatures(_, occurrence, nativeRoom)
+    fieldFeatures.realize(nativeRoom, occurrence.overview and occurrence.overview.fields or nil)
+    return nativeRoom
 end
 
 function coordinator.enter(state, occurrence, nativeRoom)
@@ -145,10 +135,10 @@ function coordinator.chooseEncounter(state, slotKey)
     return active and encounterPhases(state).choose(active.occurrence, slotKey) or nil
 end
 
--- Native encounter generation can precede StartRoom for a selected destination
--- or an additional-exit room. Its stamped occurrence owns the encounter facts;
+-- Native room generation can precede StartRoom for a selected destination or
+-- an additional-exit room. Its stamp resolves immutable occurrence facts;
 -- Timeline operations below still require an active or prepared room session.
-local function encounterOccurrence(state, nativeRoom)
+local function occurrenceForNative(state, nativeRoom)
     local roomState = stateOf(state)
     if roomState == nil then return nil end
     local id = type(nativeRoom) == "table" and nativeRoom.__runPlannerExecutionRoomId or nil
@@ -160,13 +150,17 @@ local function encounterOccurrence(state, nativeRoom)
     return state.plan and state.plan.occurrencesById[id] or nil
 end
 
+function coordinator.occurrence(state, nativeRoom)
+    return occurrenceForNative(state, nativeRoom)
+end
+
 function coordinator.encounterAt(state, index, nativeRoom)
-    local occurrence = encounterOccurrence(state, nativeRoom)
+    local occurrence = occurrenceForNative(state, nativeRoom)
     return occurrence and encounterPhases(state).at(occurrence, index) or nil
 end
 
 function coordinator.bindEncounter(state, nativeEncounter, slotKey, nativeRoom)
-    local occurrence = encounterOccurrence(state, nativeRoom)
+    local occurrence = occurrenceForNative(state, nativeRoom)
     if occurrence == nil then return nil end
     local phase, errorValue = encounterPhases(state).bind(occurrence, nativeEncounter, slotKey)
     if phase == nil then return fail(state, errorValue) end

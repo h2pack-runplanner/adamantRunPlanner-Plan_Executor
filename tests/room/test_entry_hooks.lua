@@ -107,7 +107,7 @@ function TestRoomEntryHooks.testOpeningFinalizesLoadoutBeforeForcingNativeCreati
         overview = {
             encounterPhases = { { slotKey = "Encounter", encounterKey = "OpeningGeneratedF" } },
             incomingReward = { rewardType = "WeaponUpgrade", source = "WeaponUpgrade" },
-            requiredObjects = {}, additional = {}, resources = {},
+            requiredObjects = {}, additional = {},
         },
         transactionsByOwner = { [transaction.owner] = transaction },
         timeline = { transactions = { transaction }, dependencies = {}, obligations = {} },
@@ -117,11 +117,6 @@ function TestRoomEntryHooks.testOpeningFinalizesLoadoutBeforeForcingNativeCreati
     local plan = {
         occurrences = { occurrence }, occurrencesById = { opening = occurrence },
         selectedOccurrenceIds = { "opening" },
-        resources = { occurrences = { {
-            occurrenceId = "opening", pointDispositions = {
-                Pickaxe = "suppress", Exorcism = "suppress", Shovel = "suppress", Fishing = "suppress",
-            },
-        } } },
     }
     local state = {
         state = "starting", plan = plan, route = routeSessionModule.new(plan), diagnostics = {},
@@ -157,9 +152,6 @@ function TestRoomEntryHooks.testOpeningFinalizesLoadoutBeforeForcingNativeCreati
     }
     _G.game.CreateRoom = function(roomData, args)
         return callbacks.CreateRoom(nil, {}, function(created)
-            -- Hostile native room creation attempts to replace every authored fact.
-            created.PickaxePointSuccess = true
-            created.FishingPointSuccess = true
             callbacks.SetupRoomReward(nil, {}, function(_, nativeRoom)
                 nativeRoom.ForceLootName = "RandomUpgrade"
             end, currentRun, created, nil, {})
@@ -192,11 +184,6 @@ function TestRoomEntryHooks.testOpeningFinalizesLoadoutBeforeForcingNativeCreati
     lu.assertEquals(result.ForceLootName, "WeaponUpgrade")
     lu.assertEquals(rewardBag, { { Name = "Boon" } })
     lu.assertEquals(result.Encounter.Name, "OpeningGeneratedF")
-    lu.assertFalse(result.PickaxePointSuccess)
-    lu.assertFalse(result.FishingPointSuccess)
-    lu.assertFalse(result.ExorcismPointSuccess)
-    lu.assertFalse(result.ShovelPointSuccess)
-
     callbacks.StartRoom(nil, {}, function() return true end, currentRun, result)
     local active = roomCoordinatorModule.current(state)
     lu.assertNotNil(active)
@@ -313,44 +300,27 @@ function TestRoomEntryHooks.testRecoveredOccurrenceIdentitySurvivesThroughNative
     lu.assertEquals(nativeRoom.__runPlannerExecutionRoomId, occurrence.id)
 end
 
-function TestRoomEntryHooks.testCreateRoomReappliesOnlyPublishedResourceOverrides()
+function TestRoomEntryHooks.testStructuralShopEligibilityFollowsTheResolvedRoomOverview()
     local module, _, callbacks = capture()
-    local occurrence = {
-        id = "opening", gameName = "F_Opening01",
-        overview = {
-            encounterPhases = {}, requiredObjects = {}, additional = {},
-        },
+    local active = { overview = {} }
+    local destination = { overview = {
+        stygianWell = { offers = {} }, purgingPool = { sales = {} }, hermesShrine = { offers = {} },
+    } }
+    local state = { state = "synchronized" }
+    local roomSession = {
+        occurrence = function(_, nativeRoom)
+            return nativeRoom.destination and destination or active
+        end,
     }
-    local plan = { occurrencesById = { opening = occurrence }, resources = { occurrences = { {
-        occurrenceId = "opening", pointDispositions = {
-            Pickaxe = "force", Exorcism = "native", Shovel = "native", Fishing = "suppress",
-        },
-    } } } }
-    local state = {
-        state = "synchronized", plan = plan,
-        room = roomCoordinatorModule.new(plan, function() end, {}),
-    }
-    local priorGame = _G.game
-    _G.game = { RoomData = { F_Opening01 = { Name = "F_Opening01" } } }
-    roomHooks.attach(module, stub(), function() return state end, function() end,
-        {}, roomCoordinatorModule, nil, navigationEntryStub, unusedLoadoutScope)
+    roomFeatureHooks.attach(module, stub(), function() return state end, function() end, roomSession)
 
-    local result = callbacks.CreateRoom(nil, {}, function(roomData)
-        lu.assertTrue(roomData.PickaxePointSuccess)
-        lu.assertFalse(roomData.FishingPointSuccess)
-        return {
-            Name = roomData.Name,
-            PickaxePointSuccess = false,
-            FishingPointSuccess = true,
-        }
-    end, { Name = "F_Opening01", __runPlannerExecutionRoomId = "opening" }, {})
-    _G.game = priorGame
-
-    lu.assertTrue(result.PickaxePointSuccess)
-    lu.assertFalse(result.FishingPointSuccess)
-    lu.assertNil(result.ExorcismPointSuccess)
-    lu.assertNil(result.ShovelPointSuccess)
-    lu.assertEquals(result.__runPlannerExecutionRoomId, "opening")
+    lu.assertFalse(callbacks.IsWellShopEligible(nil, {}, function() return true end, {}, {}))
+    lu.assertFalse(callbacks.IsSellTraitShopEligible(nil, {}, function() return true end, {}))
+    lu.assertFalse(callbacks.IsSurfaceShopEligible(nil, {}, function() return true end, {}, {}))
+    local nativeDestination = { destination = true }
+    lu.assertTrue(callbacks.IsWellShopEligible(nil, {}, function() return false end, {}, nativeDestination))
+    lu.assertTrue(callbacks.IsSellTraitShopEligible(nil, {}, function() return false end, nativeDestination))
+    lu.assertTrue(callbacks.IsSurfaceShopEligible(nil, {}, function() return false end, {}, nativeDestination))
 end
 
 function TestRoomEntryHooks.testIncomingRewardProofRemainsNavigationOwnedAtRoomEntry()

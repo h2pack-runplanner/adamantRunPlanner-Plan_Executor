@@ -34,16 +34,27 @@ function hooks.attach(module, session, getState, report, room)
     module.hooks.wrap("IsSellTraitShopEligible", "run-planner-purging-pool-presence", function(_, runtime, base,
         currentRoom)
         local state = getState(runtime)
-        if state == nil then return base(currentRoom) end
-        if room.current(state) ~= nil then return room.feature(state, "purgingPool") ~= nil end
+        if state == nil or state.state ~= "synchronized" then return base(currentRoom) end
+        local occurrence = room.occurrence(state, currentRoom)
+        if occurrence ~= nil then return occurrence.overview.purgingPool ~= nil end
         return base(currentRoom)
     end)
 
     module.hooks.wrap("IsWellShopEligible", "run-planner-well-presence", function(_, runtime, base, currentRun,
         currentRoom)
         local state = getState(runtime)
-        if state == nil then return base(currentRun, currentRoom) end
-        if room.current(state) ~= nil then return room.feature(state, "stygianWell") ~= nil end
+        if state == nil or state.state ~= "synchronized" then return base(currentRun, currentRoom) end
+        local occurrence = room.occurrence(state, currentRoom)
+        if occurrence ~= nil then return occurrence.overview.stygianWell ~= nil end
+        return base(currentRun, currentRoom)
+    end)
+
+    module.hooks.wrap("IsSurfaceShopEligible", "run-planner-shrine-presence", function(_, runtime, base,
+        currentRun, currentRoom)
+        local state = getState(runtime)
+        if state == nil or state.state ~= "synchronized" then return base(currentRun, currentRoom) end
+        local occurrence = room.occurrence(state, currentRoom)
+        if occurrence ~= nil then return occurrence.overview.hermesShrine ~= nil end
         return base(currentRun, currentRoom)
     end)
 
