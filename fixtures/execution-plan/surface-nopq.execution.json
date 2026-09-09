@@ -1968,6 +1968,70 @@
               "biomeEncounterDepth": 6,
               "routeEncounterDepth": 6,
               "roomHistoryOrdinal": 17
+            },
+            "traits": {
+              "equipped": [
+                {
+                  "traitKey": "ApolloWeaponBoon",
+                  "rarity": "Common",
+                  "level": 1
+                },
+                {
+                  "traitKey": "AresSpecialBoon",
+                  "rarity": "Common",
+                  "level": 1
+                },
+                {
+                  "traitKey": "HermesWeaponBoon",
+                  "rarity": "Common"
+                },
+                {
+                  "traitKey": "HephaestusCastBoon",
+                  "rarity": "Common",
+                  "level": 1
+                },
+                {
+                  "traitKey": "AresSprintBoon",
+                  "rarity": "Common",
+                  "level": 1
+                }
+              ],
+              "slots": [
+                {
+                  "slot": "Melee",
+                  "traitKey": "ApolloWeaponBoon"
+                },
+                {
+                  "slot": "Secondary",
+                  "traitKey": "AresSpecialBoon"
+                },
+                {
+                  "slot": "Ranged",
+                  "traitKey": "HephaestusCastBoon"
+                },
+                {
+                  "slot": "Rush",
+                  "traitKey": "AresSprintBoon"
+                },
+                {
+                  "slot": "Mana"
+                },
+                {
+                  "slot": "Spell"
+                }
+              ],
+              "elements": {
+                "Aether": 0,
+                "Earth": 5,
+                "Air": 1,
+                "Fire": 0,
+                "Water": 0
+              },
+              "godRarityCounts": {
+                "Common": 5
+              },
+              "upgradableCount": 4,
+              "bannedTraitKeys": []
             }
           }
         }
@@ -2092,7 +2156,7 @@
                 { "slot": "Mana", "traitKey": "ApolloManaBoon" },
                 { "slot": "Spell" }
               ],
-              "elements": { "Aether": 0, "Earth": 4, "Air": 2, "Fire": 0, "Water": 0 },
+              "elements": { "Aether": 0, "Earth": 5, "Air": 2, "Fire": 0, "Water": 0 },
               "godRarityCounts": { "Common": 6 },
               "upgradableCount": 5,
               "bannedTraitKeys": []
@@ -2228,7 +2292,7 @@
                 { "slot": "Mana", "traitKey": "ApolloManaBoon" },
                 { "slot": "Spell", "traitKey": "SpellPotionTrait" }
               ],
-              "elements": { "Aether": 0, "Earth": 4, "Air": 2, "Fire": 0, "Water": 0 },
+              "elements": { "Aether": 0, "Earth": 5, "Air": 2, "Fire": 0, "Water": 0 },
               "godRarityCounts": { "Common": 6 },
               "upgradableCount": 5,
               "bannedTraitKeys": []
@@ -3052,7 +3116,7 @@
                 { "slot": "Mana", "traitKey": "ApolloManaBoon" },
                 { "slot": "Spell", "traitKey": "SpellPotionTrait" }
               ],
-              "elements": { "Aether": 0, "Earth": 5, "Air": 2, "Fire": 1, "Water": 0 },
+              "elements": { "Aether": 0, "Earth": 6, "Air": 2, "Fire": 1, "Water": 0 },
               "godRarityCounts": { "Common": 8 },
               "upgradableCount": 7,
               "bannedTraitKeys": []
@@ -3162,7 +3226,7 @@
                 { "slot": "Mana", "traitKey": "ApolloManaBoon" },
                 { "slot": "Spell", "traitKey": "SpellPotionTrait" }
               ],
-              "elements": { "Aether": 0, "Earth": 5, "Air": 2, "Fire": 1, "Water": 0 },
+              "elements": { "Aether": 0, "Earth": 6, "Air": 2, "Fire": 1, "Water": 0 },
               "godRarityCounts": { "Common": 8 },
               "upgradableCount": 7,
               "bannedTraitKeys": []
@@ -3325,7 +3389,7 @@
                 { "slot": "Mana", "traitKey": "ApolloManaBoon" },
                 { "slot": "Spell", "traitKey": "SpellPotionTrait" }
               ],
-              "elements": { "Aether": 0, "Earth": 5, "Air": 2, "Fire": 1, "Water": 0 },
+              "elements": { "Aether": 0, "Earth": 6, "Air": 2, "Fire": 1, "Water": 0 },
               "godRarityCounts": { "Common": 8 },
               "upgradableCount": 7,
               "bannedTraitKeys": []
@@ -4112,7 +4176,7 @@
                 { "slot": "Mana", "traitKey": "ApolloManaBoon" },
                 { "slot": "Spell", "traitKey": "SpellPotionTrait" }
               ],
-              "elements": { "Aether": 0, "Earth": 6, "Air": 2, "Fire": 1, "Water": 0 },
+              "elements": { "Aether": 0, "Earth": 7, "Air": 2, "Fire": 1, "Water": 0 },
               "godRarityCounts": { "Common": 9 },
               "upgradableCount": 7,
               "bannedTraitKeys": []
@@ -4285,7 +4349,7 @@
                 { "slot": "Mana", "traitKey": "ApolloManaBoon" },
                 { "slot": "Spell", "traitKey": "SpellPotionTrait" }
               ],
-              "elements": { "Aether": 0, "Earth": 6, "Air": 3, "Fire": 1, "Water": 0 },
+              "elements": { "Aether": 0, "Earth": 7, "Air": 3, "Fire": 1, "Water": 0 },
               "godRarityCounts": { "Common": 10 },
               "upgradableCount": 8,
               "bannedTraitKeys": []
@@ -4547,7 +4611,7 @@
                 { "slot": "Mana", "traitKey": "ApolloManaBoon" },
                 { "slot": "Spell", "traitKey": "SpellPotionTrait" }
               ],
-              "elements": { "Aether": 0, "Earth": 6, "Air": 3, "Fire": 1, "Water": 1 },
+              "elements": { "Aether": 0, "Earth": 7, "Air": 3, "Fire": 1, "Water": 1 },
               "godRarityCounts": { "Common": 11 },
               "upgradableCount": 8,
               "bannedTraitKeys": []
@@ -4704,7 +4768,7 @@
                 { "slot": "Mana", "traitKey": "ApolloManaBoon" },
                 { "slot": "Spell", "traitKey": "SpellPotionTrait" }
               ],
-              "elements": { "Aether": 0, "Earth": 6, "Air": 3, "Fire": 1, "Water": 1 },
+              "elements": { "Aether": 0, "Earth": 7, "Air": 3, "Fire": 1, "Water": 1 },
               "godRarityCounts": { "Common": 11 },
               "upgradableCount": 8,
               "bannedTraitKeys": []
@@ -5212,7 +5276,7 @@
                 { "slot": "Mana", "traitKey": "ApolloManaBoon" },
                 { "slot": "Spell", "traitKey": "SpellPotionTrait" }
               ],
-              "elements": { "Aether": 0, "Earth": 7, "Air": 3, "Fire": 1, "Water": 1 },
+              "elements": { "Aether": 0, "Earth": 8, "Air": 3, "Fire": 1, "Water": 1 },
               "godRarityCounts": { "Common": 11, "Rare": 1 },
               "upgradableCount": 9,
               "bannedTraitKeys": []
@@ -5474,7 +5538,7 @@
                 { "slot": "Mana", "traitKey": "ApolloManaBoon" },
                 { "slot": "Spell", "traitKey": "SpellPotionTrait" }
               ],
-              "elements": { "Aether": 0, "Earth": 7, "Air": 3, "Fire": 1, "Water": 1 },
+              "elements": { "Aether": 0, "Earth": 8, "Air": 3, "Fire": 1, "Water": 1 },
               "godRarityCounts": { "Common": 11, "Rare": 1 },
               "upgradableCount": 9,
               "bannedTraitKeys": []
@@ -5977,5 +6041,5 @@
       }
     }
   ],
-  "planFingerprint": "61caed46"
+  "planFingerprint": "265ab387"
 }
